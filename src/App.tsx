@@ -309,30 +309,7 @@ export default function App() {
         return [];
       }
     }
-    return [
-      {
-        id: 'sms-init-1',
-        sender: 'MD-HDFCBK',
-        text: 'Rs.3000.00 credited to HDFC Bank A/c XX7038 on 17-05-25 from VPA 9585064391@axl (UPI 928607196682)',
-        timestamp: new Date().toISOString(),
-        status: 'pending',
-        parsedAmount: 3000,
-        parsedType: 'income',
-        parsedMerchant: 'UPI Transfer',
-        parsedBank: 'HDFC Bank'
-      },
-      {
-        id: 'sms-init-2',
-        sender: 'MD-HDFCBK',
-        text: 'Sent Rs.32.00 From HDFC Bank A/C *7038 To Rapido On 09/05/25 Ref 104546884418',
-        timestamp: new Date(Date.now() - 3600000).toISOString(),
-        status: 'pending',
-        parsedAmount: 32,
-        parsedType: 'expense',
-        parsedMerchant: 'Rapido',
-        parsedBank: 'HDFC Bank'
-      }
-    ];
+    return [];
   });
 
   // Category list definitions
@@ -454,12 +431,11 @@ export default function App() {
   });
 
   // UI Navigation states
-  // Pages: 'dashboard' | 'add' | 'sms' | 'budgets' | 'advisor' | 'settings'
-  const [navTab, setNavTab] = useState<'dashboard' | 'add' | 'sms' | 'budgets' | 'advisor' | 'settings'>(
+  // Pages: 'dashboard' | 'sms' | 'add' | 'budgets' | 'history' | 'settings'
+  const [navTab, setNavTab] = useState<'dashboard' | 'sms' | 'add' | 'budgets' | 'history' | 'settings'>(
     () => {
-      // Check if opened from notification tap (?tab=sms)
-      if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__initialTab === 'sms') return 'sms';
-      return 'add';
+      if (typeof window !== 'undefined' && (window as Window).__initialTab === 'sms') return 'sms';
+      return 'dashboard';
     }
   );
 
@@ -477,6 +453,11 @@ export default function App() {
   const [isFiltersExpanded, setIsFiltersExpanded] = useState(false);
   const [geminiKey, setGeminiKeyState] = useState<string>(() => localStorage.getItem(GEMINI_API_KEY_STORAGE) || '');
   const [geminiKeySaved, setGeminiKeySaved] = useState(false);
+  // History tab filters
+  const [historyFilterCategory, setHistoryFilterCategory] = useState('All');
+  const [historyFilterType, setHistoryFilterType] = useState('All');
+  const [historyStartDate, setHistoryStartDate] = useState('');
+  const [historyEndDate, setHistoryEndDate] = useState('');
 
   // Budgets configuration inputs (custom dropdown states instead of JS prompt)
   const [budgetMonth, setBudgetMonth] = useState('May-2026');
@@ -490,8 +471,8 @@ export default function App() {
   const [formAmount, setFormAmount] = useState('');
   const [formType, setFormType] = useState<'income' | 'expense'>('expense');
 
-  // Filter conditions
-  const [filterCategory, setFilterCategory] = useState<string>('All');
+  // Filter conditions — category is now multi-select (empty array = All)
+  const [filterCategories, setFilterCategories] = useState<string[]>([]);
   const [filterType, setFilterType] = useState<string>('All');
   const [filterMonth, setFilterMonth] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -501,7 +482,49 @@ export default function App() {
   const [endDate, setEndDate] = useState('');
   const [recentDateFilter, setRecentDateFilter] = useState('All');
 
-  // Notification overlays for simulated SMS
+  // ── Settings state ────────────────────────────────────────────────────────
+  const [settingSmsReader, setSettingSmsReader] = useState<boolean>(() => {
+    const s = localStorage.getItem('ft_setting_sms_reader');
+    return s === null ? true : s === 'true';
+  });
+  const [settingTxNotif, setSettingTxNotif] = useState<boolean>(() => {
+    const s = localStorage.getItem('ft_setting_tx_notif');
+    return s === null ? true : s === 'true';
+  });
+  const [settingPendingNotif, setSettingPendingNotif] = useState<boolean>(() => {
+    const s = localStorage.getItem('ft_setting_pending_notif');
+    return s === null ? true : s === 'true';
+  });
+  const [settingRetentionDays, setSettingRetentionDays] = useState<number>(() => {
+    const s = localStorage.getItem('ft_setting_retention_days');
+    return s ? parseInt(s, 10) : 7;
+  });
+
+  // Persist settings
+  useEffect(() => { localStorage.setItem('ft_setting_sms_reader', String(settingSmsReader)); }, [settingSmsReader]);
+  useEffect(() => { localStorage.setItem('ft_setting_tx_notif', String(settingTxNotif)); }, [settingTxNotif]);
+  useEffect(() => { localStorage.setItem('ft_setting_pending_notif', String(settingPendingNotif)); }, [settingPendingNotif]);
+  useEffect(() => { localStorage.setItem('ft_setting_retention_days', String(settingRetentionDays)); }, [settingRetentionDays]);
+
+  // ── History edit state ────────────────────────────────────────────────────
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [editCategory, setEditCategory] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editAmount, setEditAmount] = useState('');
+
+  // ── History: default to current month ────────────────────────────────────
+  const currentMonthDefault = (() => {
+    const now = new Date();
+    const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${names[now.getMonth()]}-${now.getFullYear()}`;
+  })();
+  const [historyMonthFilter, setHistoryMonthFilter] = useState<string>(currentMonthDefault);
+
+  // ── SMS inline wizard: track which SMS card has wizard open ──────────────
+  const [inlineWizardSmsId, setInlineWizardSmsId] = useState<string | null>(null);
+
+  // ── Dashboard: month×category table expand ────────────────────────────────
+  const [tableExpanded, setTableExpanded] = useState(false);
   const [incomingSmsBanner, setIncomingSmsBanner] = useState<SmsMessage | null>(null);
   
   // Real-time Extraction Pop-up / Wizard Details
@@ -551,6 +574,17 @@ export default function App() {
     };
     return () => { delete (window as Window).__openSmsTab; };
   }, []);
+
+  // ── SMS auto-expiry: use settingRetentionDays for both confirmed & skipped
+  useEffect(() => {
+    const now = Date.now();
+    setSmsMessages(prev => prev.filter(sms => {
+      const age = now - new Date(sms.timestamp).getTime();
+      const days = age / (1000 * 60 * 60 * 24);
+      if ((sms.status === 'confirmed' || sms.status === 'skipped') && days > settingRetentionDays) return false;
+      return true;
+    }));
+  }, [settingRetentionDays]);
 
   // ── Android native bridge: poll for SMS detected while app was closed ────
   useEffect(() => {
@@ -645,8 +679,8 @@ export default function App() {
         t.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (t.bankName || '').toLowerCase().includes(searchQuery.toLowerCase());
 
-      // 2. Category filter
-      const catMatch = filterCategory === 'All' || t.category === filterCategory;
+      // Category filter — multi-select (empty = All)
+      const catMatch = filterCategories.length === 0 || filterCategories.includes(t.category);
 
       // 3. Type filter
       const typeMatch = 
@@ -699,7 +733,7 @@ export default function App() {
 
       return textMatch && catMatch && typeMatch && monthMatch && rangeMatch && recentDateMatch;
     }).sort((a, b) => b.date.localeCompare(a.date));
-  }, [transactions, searchQuery, filterCategory, filterType, filterMonth, startDate, endDate, recentDateFilter]);
+  }, [transactions, searchQuery, filterCategories, filterType, filterMonth, startDate, endDate, recentDateFilter]);
 
   // Analytics of income, expense, and savings based on current filtered selection (or overall month status)
   const currentMonthTotals = useMemo(() => {
@@ -753,7 +787,7 @@ export default function App() {
     }).sort((a, b) => b.amount - a.amount);
   }, [filteredTransactions]);
 
-  // Weekly spending trend parser
+  // Category spending pattern parser
   const weeklySpendingTrend = useMemo(() => {
     // Break currently filtered expenses down to 4 relative weeks
     const weeks = [
@@ -811,7 +845,61 @@ export default function App() {
     };
   }, [transactions]);
 
-  // Trigger Automatic API Parsing for bank SMS
+  // ── Month × Category comparison table data ───────────────────────────────
+  const monthCategoryTableData = useMemo(() => {
+    const monthsMap: Record<string, string> = {
+      'Jan':'01','Feb':'02','Mar':'03','Apr':'04','May':'05','Jun':'06',
+      'Jul':'07','Aug':'08','Sep':'09','Oct':'10','Nov':'11','Dec':'12'
+    };
+    // Collect all months present in transactions
+    const monthSet = new Set<string>();
+    transactions.forEach(t => {
+      if (t.date) {
+        const p = t.date.split('-');
+        if (p.length >= 2) {
+          const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          const key = `${names[parseInt(p[1],10)-1]}-${p[0]}`;
+          monthSet.add(key);
+        }
+      }
+    });
+    const sortedMonths = Array.from(monthSet).sort((a, b) => {
+      const [am, ay] = a.split('-');
+      const [bm, by] = b.split('-');
+      if (ay !== by) return parseInt(ay) - parseInt(by);
+      return parseInt(monthsMap[am]||'0') - parseInt(monthsMap[bm]||'0');
+    });
+    // Collect expense categories
+    const catSet = new Set<string>();
+    transactions.forEach(t => { if (t.type === 'expense') catSet.add(t.category); });
+    const cats = Array.from(catSet);
+    // Build data[month][category] = total
+    const data: Record<string, Record<string, number>> = {};
+    sortedMonths.forEach(m => { data[m] = {}; cats.forEach(c => { data[m][c] = 0; }); });
+    transactions.forEach(t => {
+      if (t.type === 'expense' && t.date) {
+        const p = t.date.split('-');
+        if (p.length >= 2) {
+          const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          const key = `${names[parseInt(p[1],10)-1]}-${p[0]}`;
+          if (data[key]) data[key][t.category] = (data[key][t.category] || 0) + t.amount;
+        }
+      }
+    });
+    return { months: sortedMonths, categories: cats, data };
+  }, [transactions]);
+
+  // ── Budget: future months only (current + next 5) ─────────────────────────
+  const futureBudgetMonths = useMemo(() => {
+    const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const now = new Date();
+    const result: string[] = [];
+    for (let i = 0; i <= 5; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      result.push(`${names[d.getMonth()]}-${d.getFullYear()}`);
+    }
+    return result;
+  }, []);
   const handleIncomingSmsTrigger = async (targetText: string) => {
     setIsSmsParsing(true);
     try {
@@ -914,29 +1002,28 @@ export default function App() {
 
     const newTx: Transaction = {
       id: 'tx-' + Date.now(),
-      date: new Date().toISOString().substring(0, 10), // Current date for live tracking
+      date: new Date().toISOString().substring(0, 10),
       category: parseWizard.proposedCategory,
-      description: parseWizard.description.trim() || 'SMS Transaction', // Taken completely from what the user input
+      description: parseWizard.description.trim() || 'SMS Transaction',
       amount: parseWizard.amount,
       type: parseWizard.type,
       isSmsDetected: true,
-      entryMode: 'auto' // Explicitly mark as auto entry
+      entryMode: 'auto'
     };
 
     setTransactions(prev => [newTx, ...prev]);
 
-    // Update status of compiled SMS to applied
+    // Update status of SMS to confirmed
     if (parseWizard.originalSmsId) {
-      setSmsMessages(prev => 
+      setSmsMessages(prev =>
         prev.map(sms => sms.id === parseWizard.originalSmsId ? { ...sms, status: 'confirmed' } : sms)
       );
     }
 
     setParseWizard(null);
-    setNavTab('dashboard');
-
-    // Smooth scroll inside notification if needed
-    alert('[ok] Transaction saved from Bank Notification successfully!');
+    setInlineWizardSmsId(null);
+    // ✅ Stay on SMS tab — do NOT redirect to dashboard
+    setNavTab('sms');
   };
 
   // Retrieve Intelligent Insights using server-side Gemini or offline fallback
@@ -1061,6 +1148,29 @@ export default function App() {
     }
   };
 
+  // Start editing a transaction
+  const startEditTransaction = (tx: Transaction) => {
+    if (window.confirm('Do you want to edit this transaction?')) {
+      setEditingTransaction(tx);
+      setEditCategory(tx.category);
+      setEditDescription(tx.description);
+      setEditAmount(String(tx.amount));
+    }
+  };
+
+  // Save edited transaction
+  const saveEditTransaction = () => {
+    if (!editingTransaction) return;
+    const val = parseFloat(editAmount);
+    if (!val || isNaN(val) || val <= 0) { alert('Please enter a valid amount.'); return; }
+    setTransactions(prev => prev.map(t =>
+      t.id === editingTransaction.id
+        ? { ...t, category: editCategory, description: editDescription.trim() || t.description, amount: val }
+        : t
+    ));
+    setEditingTransaction(null);
+  };
+
   // Filter shortcuts
   const selectQuickMonthFilter = (mCode: string) => {
     setFilterMonth(mCode);
@@ -1072,8 +1182,17 @@ export default function App() {
       {/* ── ONBOARDING SCREEN ─────────────────────────────────────────── */}
       {showOnboarding && (
         <div className="absolute inset-0 z-50 bg-[#050505] flex flex-col items-center justify-center p-6 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-[#d4af37]/10 border border-[#d4af37]/30 flex items-center justify-center mb-6">
-            <Bell size={28} className="text-[#d4af37]" />
+          <div className="w-20 h-20 rounded-full overflow-hidden mb-6 shadow-2xl border-2 border-[#d4af37]/40">
+            <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+              <circle cx="50" cy="50" r="50" fill="#1a1208"/>
+              <circle cx="50" cy="50" r="46" fill="none" stroke="#d4af37" strokeWidth="2"/>
+              <circle cx="50" cy="50" r="42" fill="#2a1e0a"/>
+              <rect x="35" y="35" width="30" height="30" fill="#0a0a0a" stroke="#d4af37" strokeWidth="1.5"/>
+              <text x="50" y="32" textAnchor="middle" fill="#d4af37" fontSize="10" fontWeight="bold">芽</text>
+              <text x="28" y="55" textAnchor="middle" fill="#d4af37" fontSize="10" fontWeight="bold">祥</text>
+              <text x="72" y="55" textAnchor="middle" fill="#d4af37" fontSize="10" fontWeight="bold">道</text>
+              <text x="50" y="76" textAnchor="middle" fill="#d4af37" fontSize="10" fontWeight="bold">机</text>
+            </svg>
           </div>
           <h1 className="text-2xl font-serif text-white mb-2">Finance Tracker</h1>
           <p className="text-gray-400 text-sm mb-8 leading-relaxed max-w-xs">
@@ -1184,103 +1303,26 @@ export default function App() {
     )}
 
       <div className="flex-1 flex flex-col overflow-hidden bg-[#050505]">
+
+      {/* Top bar with settings button */}
+      <div className="flex justify-between items-center px-4 pt-3 pb-1 shrink-0">
+        <div className="flex items-center gap-2">
+          <img src="/icons/icon-72x72.png" className="w-6 h-6 rounded-lg" alt="logo" />
+          <span className="text-[11px] font-mono text-[#d4af37] font-semibold tracking-wide">Finance Tracker</span>
+        </div>
+        <button
+          onClick={() => setNavTab('settings')}
+          className={`p-1.5 rounded-xl transition-all ${navTab === 'settings' ? 'bg-[#d4af37]/20 text-[#d4af37]' : 'text-gray-500 hover:text-white'}`}
+        >
+          <Info size={18} />
+        </button>
+      </div>
     
 
 
     {/* Simulated Screen Content - Dynamic Tab View Rendering */}
     <div className="flex-1 overflow-y-auto px-4.5 py-4 custom-inner-screen">
       
-      {/* IF POPUP SMS WIZARD ACTIVE, RENDER IT OVER CURRENT TAB VIEW */}
-      {parseWizard ? (
-        <div id="sms-parse-modal" className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl p-5 mb-4 shadow-2xl relative animate-fade-in border-l-4 border-l-[#d4af37]">
-          
-          <div className="flex justify-between items-start mb-3">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 size={16} className="text-[#d4af37]" />
-              <span className="text-[10px] font-mono uppercase text-[#d4af37] tracking-wider">SMS Auto-Detection Result</span>
-            </div>
-            <button 
-              onClick={() => setParseWizard(null)}
-              className="text-gray-500 hover:text-white text-xs"
-            >
-              x Close
-            </button>
-          </div>
-
-          <p className="text-xs text-gray-300 font-serif leading-relaxed mb-4 italic p-3 bg-[#111] rounded-xl border border-[#222]">
-            "{parseWizard.smsText}"
-          </p>
-
-          <div className="space-y-3.5 mb-5 text-xs text-gray-400">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-[#121212] p-2.5 rounded-xl border border-[#1a1a1a]">
-                <span className="text-[9px] uppercase tracking-wider text-gray-500 block font-mono">Amount</span>
-                <span className="text-sm font-semibold text-white">₹{parseWizard.amount}</span>
-              </div>
-              <div className="bg-[#121212] p-2.5 rounded-xl border border-[#1a1a1a]">
-                <span className="text-[9px] uppercase tracking-wider text-gray-500 block font-mono">Type</span>
-                <span className={`text-[11px] font-semibold uppercase ${parseWizard.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {parseWizard.type}
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-[#121212] p-2.5 rounded-xl border border-[#1a1a1a]">
-                <span className="text-[9px] uppercase tracking-wider text-gray-500 block font-mono">Merchant</span>
-                <span className="text-xs text-white truncate block">{parseWizard.merchant}</span>
-              </div>
-              <div className="bg-[#121212] p-2.5 rounded-xl border border-[#1a1a1a]">
-                <span className="text-[9px] uppercase tracking-wider text-gray-500 block font-mono">Source / Bank</span>
-                <span className="text-xs text-white block">{parseWizard.bankName}</span>
-              </div>
-            </div>
-
-            <div className="bg-[#121212] p-3 rounded-xl border border-[#1a1a1a] flex flex-col gap-2">
-              <label className="text-[9px] uppercase tracking-wider text-[#d4af37] font-mono block">Confirm Category:</label>
-              <div className="relative">
-                <select
-                  value={parseWizard.proposedCategory}
-                  onChange={(e) => setParseWizard({ ...parseWizard, proposedCategory: e.target.value })}
-                  className="w-full bg-[#050505] p-2 pr-8 rounded-lg text-xs font-mono text-[#e5e5e5] border border-[#222] focus:outline-none focus:border-[#d4af37] appearance-none cursor-pointer"
-                >
-                  {categories.map(c => (
-                    <option key={c} value={c}>{categoryIcons[c]} {c}</option>
-                  ))}
-                </select>
-                <ChevronDown size={14} className="absolute right-2.5 top-1/2 transform -translate-y-1/2 text-gray-500 pointer-events-none" />
-              </div>
-            </div>
-
-            <div className="bg-[#121212] p-3 rounded-xl border border-[#1a1a1a] flex flex-col gap-1.5">
-              <label className="text-[9px] uppercase tracking-wider text-[#d4af37] font-mono block">Description Note:</label>
-              <input
-                type="text"
-                value={parseWizard.description}
-                onChange={(e) => setParseWizard({ ...parseWizard, description: e.target.value })}
-                className="w-full bg-[#050505] p-2 rounded-lg text-xs text-[#e5e5e5] border border-[#222] focus:outline-none focus:border-[#d4af37]"
-              />
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <button 
-              onClick={saveTransactionFromSmsWizard}
-              className="flex-1 bg-[#d4af37] text-black font-semibold text-xs py-2.5 px-3 rounded-xl hover:opacity-95 transition-all text-center uppercase tracking-wider font-mono shadow-md"
-            >
-              Confirm & Save
-            </button>
-            <button 
-              onClick={() => setParseWizard(null)}
-              className="px-4 py-2.5 border border-[#333] hover:border-gray-500 rounded-xl text-xs"
-            >
-              Skip
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-
       {/* --- TAB 1: DASHBOARD --- */}
       {navTab === 'dashboard' && (() => {
         // Standard helper to resolve month key for transactions comparison
@@ -1317,37 +1359,13 @@ export default function App() {
         const overallSpentSum = monthBudgetsList.reduce((sum, b) => sum + b.spent, 0);
 
         return (
-          <div className="space-y-4 animate-fade-in">
+          <div className="space-y-4 animate-fade-in pt-4">
             
             {/* Header bar within app */}
             <div className="flex justify-between items-end border-b border-[#1c1c1c] pb-3">
               <div className="flex flex-col">
                 <span className="text-[8px] text-[#d4af37] font-mono tracking-widest uppercase font-bold">Ledger Overview</span>
-                <h2 className="font-serif text-base text-white tracking-wide">Financial Pulse</h2>
-              </div>
-              <span className="text-[10px] text-gray-500 font-mono bg-[#121212] px-2.5 py-0.5 rounded-full border border-[#222]">Android Edition</span>
-            </div>
-
-            {/* Fluid Month Selector Header */}
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono text-gray-400 uppercase tracking-wider">[d] Selected Period</span>
-              <div className="relative">
-                <select
-                  value={filterMonth}
-                  onChange={(e) => {
-                    selectQuickMonthFilter(e.target.value);
-                    if (e.target.value !== 'All') {
-                      setBudgetMonth(e.target.value);
-                    }
-                  }}
-                  className="bg-[#121212] border border-[#262626] rounded-xl py-1.5 pl-3 pr-8 text-[11px] font-mono text-[#d4af37] bg-opacity-80 appearance-none outline-none focus:border-[#d4af37] shadow-sm hover:border-gray-600 transition-colors cursor-pointer"
-                >
-                  <option value="All">All Time</option>
-                  {availableMonths.map(m => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-                <ChevronDown size={12} className="absolute right-2.5 top-1/2 transform -translate-y-1/2 text-[#d4af37] pointer-events-none" />
+                <h2 className="font-serif text-base text-white tracking-wide">Dashboard</h2>
               </div>
             </div>
 
@@ -1422,62 +1440,84 @@ export default function App() {
                   {isFiltersExpanded && (
                     <div className="p-4 pt-0 border-t border-[#1c1c1c] bg-[#121212] space-y-4 animate-fade-in mt-4">
                       
-                      {/* Filter by Category dropdown - Fit to App UI UX */}
+                      {/* 1. Category — multi-select chip UI */}
                       <div className="flex flex-col gap-1.5">
-                        <label className="text-[9px] uppercase tracking-wider font-mono text-gray-500 font-semibold">Category Filter</label>
+                        <div className="flex justify-between items-center">
+                          <label className="text-[9px] uppercase tracking-wider font-mono text-gray-500 font-semibold">Category (multi-select)</label>
+                          {filterCategories.length > 0 && (
+                            <button onClick={() => setFilterCategories([])} className="text-[8px] text-[#d4af37] font-mono hover:underline">Clear</button>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {categories.map(cat => {
+                            const selected = filterCategories.includes(cat);
+                            return (
+                              <button
+                                key={cat}
+                                type="button"
+                                onClick={() => setFilterCategories(prev =>
+                                  selected ? prev.filter(c => c !== cat) : [...prev, cat]
+                                )}
+                                className={`px-2 py-1 rounded-lg text-[9px] font-mono border transition-all ${
+                                  selected
+                                    ? 'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37] font-semibold'
+                                    : 'bg-[#0a0a0a] border-[#222] text-gray-400 hover:border-gray-500'
+                                }`}
+                              >
+                                {categoryIcons[cat]} {cat}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {filterCategories.length === 0 && <p className="text-[8px] text-gray-600 font-mono italic">None selected = All categories</p>}
+                      </div>
+
+                      {/* 2. Month filter */}
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[9px] uppercase tracking-wider font-mono text-gray-500 font-semibold">Month</label>
                         <div className="relative">
                           <select
-                            value={filterCategory}
-                            onChange={(e) => setFilterCategory(e.target.value)}
+                            value={filterMonth}
+                            onChange={(e) => { selectQuickMonthFilter(e.target.value); if (e.target.value !== 'All') setBudgetMonth(e.target.value); }}
                             className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl py-2 px-3 pr-8 text-xs text-[#e5e5e5] appearance-none outline-none focus:border-[#d4af37] shadow-inner transition-colors cursor-pointer"
                           >
-                            <option value="All">[~] All Categories</option>
-                            {categories.filter(c => c !== 'Income').map(cat => (
-                              <option key={cat} value={cat}>{categoryIcons[cat]} {cat}</option>
+                            <option value="All">All Time</option>
+                            {availableMonths.map(m => (
+                              <option key={m} value={m}>{m}</option>
                             ))}
                           </select>
                           <ChevronDown size={12} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
                         </div>
                       </div>
 
-                      {/* Custom Date Filter limits */}
+                      {/* 3 & 4. Start / End date */}
                       <div className="grid grid-cols-2 gap-3">
                         <div className="flex flex-col gap-1.5">
-                          <label className="text-[9px] uppercase tracking-wider font-mono text-gray-500 font-semibold">Start Date</label>
-                          <div className="relative">
-                            <input
-                              type="date"
-                              value={startDate}
-                              onChange={(e) => setStartDate(e.target.value)}
-                              className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl py-2 pl-3 pr-2 text-[11px] text-[#e5e5e5] outline-none focus:border-[#d4af37] appearance-none"
-                            />
-                          </div>
+                          <label className="text-[9px] uppercase tracking-wider font-mono text-gray-500 font-semibold">Start</label>
+                          <input
+                            type="date"
+                            value={startDate}
+                            onChange={(e) => setStartDate(e.target.value)}
+                            className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl py-2 pl-3 pr-2 text-[11px] text-[#e5e5e5] outline-none focus:border-[#d4af37] appearance-none"
+                          />
                         </div>
                         <div className="flex flex-col gap-1.5">
-                          <label className="text-[9px] uppercase tracking-wider font-mono text-gray-500 font-semibold">End Date</label>
-                          <div className="relative">
-                            <input
-                              type="date"
-                              value={endDate}
-                              onChange={(e) => setEndDate(e.target.value)}
-                              className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl py-2 pl-3 pr-2 text-[11px] text-[#e5e5e5] outline-none focus:border-[#d4af37] appearance-none"
-                            />
-                          </div>
+                          <label className="text-[9px] uppercase tracking-wider font-mono text-gray-500 font-semibold">End</label>
+                          <input
+                            type="date"
+                            value={endDate}
+                            onChange={(e) => setEndDate(e.target.value)}
+                            className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl py-2 pl-3 pr-2 text-[11px] text-[#e5e5e5] outline-none focus:border-[#d4af37] appearance-none"
+                          />
                         </div>
                       </div>
 
-                      {/* Reset button */}
+                      {/* 5. Clear All */}
                       <button
-                        onClick={() => {
-                          setFilterCategory('All');
-                          setStartDate('');
-                          setEndDate('');
-                          setSearchQuery('');
-                          alert('Filters reset!');
-                        }}
-                        className="w-full bg-[#d4af37]/10 border border-[#d4af37]/20 text-[#d4af37] hover:bg-[#d4af37]/20 text-[10px] font-mono py-2 rounded-xl transition-colors mt-2 uppercase tracking-widest font-semibold cursor-pointer"
+                        onClick={() => { setFilterCategories([]); setFilterMonth('All'); setStartDate(''); setEndDate(''); setSearchQuery(''); }}
+                        className="w-full bg-[#d4af37]/10 border border-[#d4af37]/20 text-[#d4af37] hover:bg-[#d4af37]/20 text-[10px] font-mono py-2 rounded-xl transition-colors uppercase tracking-widest font-semibold cursor-pointer"
                       >
-                        Clear Active Filters
+                        Clear All Filters
                       </button>
                     </div>
                   )}
@@ -1513,106 +1553,71 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Chart section - Weekly spending trend in simulated view */}
-                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
-                  <h3 className="font-serif text-[11px] tracking-wide text-[#e5e5e5] italic border-b border-[#222] pb-1.5 mb-3 flex items-center gap-1.5">
-                    <span className="text-[#d4af37]">*</span> Weekly Spend Patterns
-                  </h3>
+                {/* Month × Category Comparison Table */}
+                {(() => {
+                  const { months, categories: cats, data } = monthCategoryTableData;
+                  // Apply category filter to columns
+                  const visibleCats = filterCategories.length > 0
+                    ? cats.filter(c => filterCategories.includes(c))
+                    : cats;
+                  const visibleMonths = filterMonth !== 'All'
+                    ? months.filter(m => m === filterMonth)
+                    : months;
 
-                  <div className="h-24 flex items-end justify-between px-2 pt-2">
-                    {weeklySpendingTrend.map((week, index) => (
-                      <div key={index} className="flex flex-col items-center gap-1 flex-1">
-                        <span className="text-[8px] font-mono text-gray-500">₹{week.amount}</span>
-                        <div 
-                          className="chart-bar w-5 bg-gradient-to-t from-yellow-800 to-[#d4af37] rounded-t transition-all duration-500" 
-                          style={{ height: `${Math.max(6, week.percentHeight * 0.8)}px` }}
-                        />
-                        <span className="text-[8px] font-mono text-gray-500">{week.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                  if (visibleMonths.length === 0 || visibleCats.length === 0) return (
+                    <p className="text-[10px] text-gray-500 italic text-center py-4 font-mono">No data for selected filters.</p>
+                  );
 
-                {/* Simulated Recent Transactions list with search */}
-                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
-                  <div className="flex justify-between items-center border-b border-[#222] pb-1.5 mb-3">
-                    <h3 className="font-serif text-[11px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5">
-                      <span className="text-[#d4af37]">*</span> Recent Transactions
-                    </h3>
-                    <span className="text-[8px] font-mono text-[#d4af37] bg-yellow-950/20 py-0.5 px-2 rounded-full border border-yellow-900/30">{filteredTransactions.length} items</span>
-                  </div>
-
-                  {/* Interactive local Search Input */}
-                  <div className="flex gap-2 mb-3">
-                    <div className="relative w-32">
-                      <select 
-                        value={recentDateFilter}
-                        onChange={(e) => setRecentDateFilter(e.target.value)}
-                        className="w-full bg-[#141414] border border-[#222] rounded-lg py-1.5 pl-3 pr-6 text-[10px] text-[#e5e5e5] appearance-none outline-none focus:border-[#d4af37] cursor-pointer"
-                      >
-                        <option value="All">All Time</option>
-                        <option value="This Month">This Month</option>
-                        <option value="Last Month">Last Month</option>
-                        <option value="Last 3 Months">Last 3 Months</option>
-                      </select>
-                      <ChevronDown size={10} className="absolute right-2.5 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
-                    </div>
-                    <div className="relative flex-1">
-                      <span className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-500 text-[10px]">[?]</span>
-                      <input
-                        type="text"
-                        placeholder="Search description, categories..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full bg-[#141414] border border-[#222] rounded-lg pl-7 pr-3 py-1.5 text-[10px] text-[#e5e5e5] focus:outline-none focus:border-[#d4af37]"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Log Scroller */}
-                  <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                    {filteredTransactions.length === 0 ? (
-                      <p className="text-[10px] text-gray-500 text-center py-6 font-mono italic">No items match filters.</p>
-                    ) : (
-                      filteredTransactions.map(item => (
-                        <div 
-                          key={item.id} 
-                          className="bg-[#141414] rounded-lg p-2 border border-[#1d1d1d] flex justify-between items-center text-[11px] group"
+                  return (
+                    <div className={`bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl ${tableExpanded ? 'fixed inset-2 z-40 overflow-auto p-4' : 'p-4'}`}>
+                      <div className="flex justify-between items-center border-b border-[#222] pb-1.5 mb-3">
+                        <h3 className="font-serif text-[11px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5">
+                          <span className="text-[#d4af37]">*</span> Month vs Category
+                        </h3>
+                        <button
+                          onClick={() => setTableExpanded(e => !e)}
+                          className="text-[9px] font-mono text-[#d4af37] border border-[#d4af37]/30 px-2 py-0.5 rounded-lg hover:bg-[#d4af37]/10 transition-all"
                         >
-                          <div className="min-w-0 flex-1 pr-2">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] font-medium text-white block truncate">{item.description}</span>
-                              <span className={`text-[7px] px-1 rounded uppercase font-mono font-extrabold shrink-0 border ${
-                                item.entryMode === 'auto' || item.isSmsDetected
-                                  ? 'bg-yellow-950/40 text-[#d4af37] border-yellow-900/40'
-                                  : 'bg-emerald-950/40 text-emerald-400 border-emerald-900/40'
-                              }`}>
-                                {item.entryMode || (item.isSmsDetected ? 'auto' : 'manual')}
-                              </span>
-                            </div>
-                            <div className="flex gap-1.5 text-[8px] text-[#888] font-mono mt-0.5">
-                              <span>{item.date}</span>
-                              <span>•</span>
-                              <span className="text-gray-400 font-mono">{item.category}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0 font-mono text-right">
-                            <span className={`text-[10px] font-bold ${item.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {item.type === 'income' ? '+' : '-'}₹{item.amount}
-                            </span>
-                            <button
-                              onClick={() => handleDeleteTransaction(item.id)}
-                              className="text-gray-600 hover:text-red-400 transition-all p-1"
-                              title="Remove item"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
+                          {tableExpanded ? '⊠ Collapse' : '⊞ Expand'}
+                        </button>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-[9px] font-mono border-collapse">
+                          <thead>
+                            <tr className="border-b border-[#222]">
+                              <th className="text-left py-1.5 pr-3 text-gray-500 uppercase tracking-wider font-semibold whitespace-nowrap">Month</th>
+                              {visibleCats.map(c => (
+                                <th key={c} className="text-right py-1.5 px-1.5 text-gray-500 uppercase tracking-wider font-semibold whitespace-nowrap max-w-[60px] truncate">{c.split(' ')[0]}</th>
+                              ))}
+                              <th className="text-right py-1.5 pl-2 text-[#d4af37] uppercase tracking-wider font-semibold whitespace-nowrap">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {visibleMonths.map((month, idx) => {
+                              const rowTotal = visibleCats.reduce((s, c) => s + (data[month]?.[c] || 0), 0);
+                              return (
+                                <tr key={month} className={`border-b border-[#1a1a1a] ${idx % 2 === 0 ? 'bg-[#0a0a0a]' : ''}`}>
+                                  <td className="py-1.5 pr-3 text-white font-semibold whitespace-nowrap">{month}</td>
+                                  {visibleCats.map(c => {
+                                    const val = data[month]?.[c] || 0;
+                                    return (
+                                      <td key={c} className={`text-right py-1.5 px-1.5 ${val > 0 ? 'text-white' : 'text-gray-700'}`}>
+                                        {val > 0 ? `₹${val.toLocaleString('en-IN')}` : '—'}
+                                      </td>
+                                    );
+                                  })}
+                                  <td className="text-right py-1.5 pl-2 text-[#d4af37] font-bold">
+                                    {rowTotal > 0 ? `₹${rowTotal.toLocaleString('en-IN')}` : '—'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
 
               </div>
             ) : (
@@ -1697,7 +1702,7 @@ export default function App() {
 
       {/* --- TAB 2: MANUAL ENTRY FORM WITH INCREMENT ARROWS --- */}
       {navTab === 'add' && (
-        <div className="space-y-4 animate-fade-in text-xs">
+        <div className="space-y-4 animate-fade-in pt-5 text-xs">
           
           <div className="flex flex-col border-b border-[#1c1c1c] pb-3">
             <span className="text-[9px] text-[#888] font-mono tracking-widest uppercase font-bold">Input Module</span>
@@ -1717,7 +1722,7 @@ export default function App() {
                     : 'text-gray-400'
                 }`}
               >
-                Expense
+                Sent
               </button>
               <button
                 type="button"
@@ -1728,7 +1733,7 @@ export default function App() {
                     : 'text-gray-400'
                 }`}
               >
-                Income
+                Received
               </button>
             </div>
 
@@ -1936,47 +1941,189 @@ export default function App() {
             </div>
           )}
 
-          <div className="p-4 bg-[#0f0f0f] border border-yellow-950/10 rounded-xl text-gray-400 text-[10px] leading-relaxed font-sans">
-            <p className="font-mono text-[#d4af37] uppercase text-[9px] tracking-wider mb-1 font-bold">[i] Note on SMS Inputs</p>
-            Typing or dispatching bank logs parsed with modern engines on the third tab triggers automatic budget synchronization securely.
-          </div>
-
         </div>
       )}
 
 
       {/* --- TAB 3: SMS INBOX --- */}
-      {navTab === 'sms' && (
-        <div className="space-y-3 animate-fade-in text-xs">
+      {navTab === 'sms' && (() => {
+        // Sort messages: Pending first, then Confirmed, then Skipped
+        const pendingSms = smsMessages.filter(s => s.status === 'pending');
+        const confirmedSms = smsMessages.filter(s => s.status === 'confirmed');
+        const skippedSms = smsMessages.filter(s => s.status === 'skipped');
 
-          <div className="flex justify-between items-center pb-3 border-b border-[#1c1c1c]">
-            <div>
-              <span className="text-[9px] text-[#888] font-mono tracking-widest uppercase font-bold">Auto Detection</span>
-              <h2 className="font-serif text-base text-white">SMS Inbox</h2>
+        const openInlineWizard = (sms: SmsMessage) => {
+          let proposedCat = sms.parsedType === 'income' ? 'Income' : 'Grocery & Essentials';
+          const recentTx = transactions.find(t => (t as any).merchant?.toLowerCase() === sms.parsedMerchant?.toLowerCase());
+          if (recentTx?.category) proposedCat = recentTx.category;
+          setParseWizard({
+            smsText: sms.text,
+            amount: sms.parsedAmount || 0,
+            type: sms.parsedType || 'expense',
+            merchant: sms.parsedMerchant || 'Merchant',
+            bankName: sms.parsedBank || 'Bank',
+            proposedCategory: proposedCat,
+            description: '',
+            originalSmsId: sms.id
+          });
+          setInlineWizardSmsId(sms.id);
+        };
+
+        const renderSmsCard = (sms: SmsMessage) => (
+          <div key={sms.id} className="flex flex-col gap-0">
+            {/* SMS card */}
+            <div className={`p-3.5 rounded-xl border text-[11px] flex flex-col gap-2.5 transition-all ${
+              sms.status === 'confirmed'
+                ? 'bg-emerald-950/20 border-emerald-900/40 opacity-80'
+                : sms.status === 'skipped'
+                ? 'bg-[#0f0f0f] border-[#1a1a1a] opacity-60'
+                : 'bg-[#0f0f0f] border-l-4 border-l-[#d4af37] border-[#1e1a0a] shadow-lg'
+            }`}>
+              {/* Header */}
+              <div className="flex justify-between items-start">
+                <div>
+                  <span className="text-yellow-400 font-bold font-mono text-[10px]">{sms.sender || 'BANK-SMS'}</span>
+                  <p className="text-gray-400 font-mono text-[9px] mt-0.5">
+                    {new Date(sms.timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                    {' '}
+                    {new Date(sms.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+                <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full border font-bold ${
+                  sms.status === 'confirmed' ? 'text-emerald-400 border-emerald-800 bg-emerald-950/30' :
+                  sms.status === 'skipped'   ? 'text-gray-500 border-gray-800 bg-[#111]' :
+                  'text-yellow-400 border-yellow-900 bg-yellow-950/20'
+                }`}>
+                  {sms.status === 'confirmed' ? 'Confirmed' : sms.status === 'skipped' ? 'Skipped' : 'Pending'}
+                </span>
+              </div>
+
+              <p className="text-gray-300 leading-relaxed">{sms.text}</p>
+
+              {sms.parsedAmount ? (
+                <div className="flex gap-3 text-[10px] font-mono">
+                  <span className="text-gray-500">Amount: <strong className={sms.parsedType === 'income' ? 'text-emerald-400' : 'text-red-400'}>
+                    {sms.parsedType === 'income' ? '+' : '-'}Rs.{sms.parsedAmount.toLocaleString('en-IN')}
+                  </strong></span>
+                  {sms.parsedBank && <span className="text-gray-600">{sms.parsedBank}</span>}
+                </div>
+              ) : null}
+
+              {/* Actions — Pending */}
+              {sms.status === 'pending' && (
+                <div className="flex gap-2 pt-1 border-t border-[#1a1a1a]">
+                  <button
+                    onClick={() => openInlineWizard(sms)}
+                    className="flex-1 bg-[#d4af37] hover:bg-[#c9a227] text-black font-mono font-bold text-[10px] uppercase tracking-wide py-2 rounded-lg transition-all"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    onClick={() => { setSmsMessages(prev => prev.map(s => s.id === sms.id ? { ...s, status: 'skipped' } : s)); setInlineWizardSmsId(null); if (parseWizard?.originalSmsId === sms.id) setParseWizard(null); }}
+                    className="flex-1 border border-[#333] text-gray-400 hover:text-white font-mono text-[10px] uppercase tracking-wide py-2 rounded-lg transition-all"
+                  >
+                    Skip
+                  </button>
+                </div>
+              )}
+
+              {/* Actions — Skipped: re-enter option + delete */}
+              {sms.status === 'skipped' && (
+                <div className="flex gap-2 pt-1 border-t border-[#1a1a1a]">
+                  <button
+                    onClick={() => openInlineWizard(sms)}
+                    className="flex-1 border border-[#d4af37]/40 text-[#d4af37] hover:bg-[#d4af37]/10 font-mono text-[10px] uppercase py-2 rounded-lg transition-all"
+                  >
+                    Re-enter
+                  </button>
+                  <button
+                    onClick={() => { if (window.confirm('Delete this skipped record?')) setSmsMessages(prev => prev.filter(s => s.id !== sms.id)); }}
+                    className="w-8 border border-red-900/40 text-red-500 hover:bg-red-950/30 font-mono text-[10px] rounded-lg transition-all flex items-center justify-center"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              )}
+
+              {/* Confirmed: no delete, just status label */}
+              {sms.status === 'confirmed' && (
+                <div className="pt-1 border-t border-[#1a1a1a]">
+                  <span className="text-emerald-400 text-[10px] font-mono">Added to ledger · auto-removes in {settingRetentionDays}d</span>
+                </div>
+              )}
             </div>
-            <div className="flex gap-2 items-center">
-              {smsMessages.filter(s => s.status === 'pending').length > 0 && (
+
+            {/* Inline wizard — renders directly below this card */}
+            {inlineWizardSmsId === sms.id && parseWizard && (
+              <div className="bg-[#0a0a0a] border border-[#d4af37]/30 border-t-0 rounded-b-xl p-4 space-y-3 animate-fade-in">
+                <div className="flex justify-between items-center">
+                  <span className="text-[9px] font-mono text-[#d4af37] uppercase tracking-wider font-semibold">Confirm Transaction</span>
+                  <button onClick={() => { setParseWizard(null); setInlineWizardSmsId(null); }} className="text-gray-500 hover:text-white text-xs">✕</button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-[#121212] p-2 rounded-lg border border-[#1a1a1a]">
+                    <span className="text-[8px] text-gray-500 font-mono uppercase block">Amount</span>
+                    <span className="text-sm font-bold text-white font-mono">₹{parseWizard.amount}</span>
+                  </div>
+                  <div className="bg-[#121212] p-2 rounded-lg border border-[#1a1a1a]">
+                    <span className="text-[8px] text-gray-500 font-mono uppercase block">Type</span>
+                    <span className={`text-[11px] font-semibold uppercase ${parseWizard.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}`}>{parseWizard.type}</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-[8px] text-[#d4af37] font-mono uppercase tracking-wider">Category</label>
+                  <div className="relative">
+                    <select value={parseWizard.proposedCategory} onChange={e => setParseWizard({ ...parseWizard, proposedCategory: e.target.value })}
+                      className="w-full bg-[#050505] p-2 pr-7 rounded-lg text-xs font-mono text-[#e5e5e5] border border-[#222] focus:outline-none focus:border-[#d4af37] appearance-none cursor-pointer">
+                      {categories.map(c => <option key={c} value={c}>{categoryIcons[c]} {c}</option>)}
+                    </select>
+                    <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-[8px] text-[#d4af37] font-mono uppercase tracking-wider">Description</label>
+                  <input type="text" value={parseWizard.description} onChange={e => setParseWizard({ ...parseWizard, description: e.target.value })}
+                    placeholder="Add a note..."
+                    className="w-full bg-[#050505] p-2 rounded-lg text-xs text-[#e5e5e5] border border-[#222] focus:outline-none focus:border-[#d4af37]" />
+                </div>
+
+                <div className="flex gap-2">
+                  <button onClick={saveTransactionFromSmsWizard}
+                    className="flex-1 bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:opacity-95 transition-all">
+                    Save to Ledger
+                  </button>
+                  <button onClick={() => { setParseWizard(null); setInlineWizardSmsId(null); }}
+                    className="px-4 border border-[#333] text-gray-400 hover:text-white rounded-xl text-xs transition-all">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+
+        return (
+          <div className="space-y-3 animate-fade-in pt-5 text-xs">
+            <div className="flex justify-between items-center pb-3 border-b border-[#1c1c1c]">
+              <div className="flex items-center gap-2">
+                <h2 className="font-serif text-base text-white">SMS Inbox</h2>
+                <span className="text-[9px] bg-red-950/40 text-red-400 font-mono px-2 py-0.5 rounded-full border border-red-900/30">
+                  {pendingSms.length} pending
+                </span>
+              </div>
+              {pendingSms.length > 0 && (
                 <button
-                  onClick={() => setSmsMessages(prev => prev.map(s => s.status === 'pending' ? { ...s, status: 'skipped' } : s))}
+                  onClick={() => { setSmsMessages(prev => prev.map(s => s.status === 'pending' ? { ...s, status: 'skipped' } : s)); setParseWizard(null); setInlineWizardSmsId(null); }}
                   className="text-[9px] font-mono border border-[#333] text-gray-400 hover:text-white px-2.5 py-1 rounded-lg transition-all"
                 >
                   Skip All
                 </button>
               )}
-              <span className="text-[9px] bg-red-950/40 text-red-400 font-mono px-2 py-0.5 rounded-full border border-red-900/30">
-                {smsMessages.filter(s => s.status === 'pending').length} pending
-              </span>
             </div>
-          </div>
 
-          {/* SMS parser hint */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-3 text-[10px] text-gray-500 font-mono leading-relaxed">
-            Reads bank SMS matching patterns like:<br/>
-            <span className="text-gray-400">Rs.XXXX credited/debited to A/c XXXX</span><br/>
-            <span className="text-gray-400">UPI / NEFT / IMPS / Credit Card alerts</span>
-          </div>
-
-          <div className="space-y-3">
             {smsMessages.length === 0 ? (
               <div className="text-center py-10 bg-[#0f0f0f] rounded-xl border border-[#1a1a1a]">
                 <MessageSquare className="mx-auto text-gray-700 mb-2.5" size={20} />
@@ -1984,181 +2131,71 @@ export default function App() {
                 <p className="text-gray-600 text-[10px] mt-1">Bank SMS will appear here automatically.</p>
               </div>
             ) : (
-              smsMessages.map(sms => (
-                <div
-                  key={sms.id}
-                  className={`p-3.5 rounded-xl border text-[11px] flex flex-col gap-2.5 relative transition-all ${
-                    sms.status === 'confirmed'
-                      ? 'bg-emerald-950/20 border-emerald-900/40 opacity-70'
-                      : sms.status === 'skipped'
-                      ? 'bg-[#0f0f0f] border-[#1a1a1a] opacity-50'
-                      : 'bg-[#0f0f0f] border-l-4 border-l-[#d4af37] border-[#1e1a0a] shadow-lg'
-                  }`}
-                >
-                  {/* Header row */}
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <span className="text-yellow-400 font-bold font-mono text-[10px]">{sms.sender || 'BANK-SMS'}</span>
-                      <p className="text-gray-400 font-mono text-[9px] mt-0.5">
-                        {new Date(sms.timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-                        {' '}
-                        {new Date(sms.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                    </div>
-                    <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full border font-bold ${
-                      sms.status === 'confirmed' ? 'text-emerald-400 border-emerald-800 bg-emerald-950/30' :
-                      sms.status === 'skipped'   ? 'text-gray-500 border-gray-800 bg-[#111]' :
-                      'text-yellow-400 border-yellow-900 bg-yellow-950/20'
-                    }`}>
-                      {sms.status === 'confirmed' ? 'Confirmed' : sms.status === 'skipped' ? 'Skipped' : 'Pending'}
-                    </span>
+              <div className="space-y-3">
+                {/* Section: Pending */}
+                {pendingSms.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[9px] font-mono text-yellow-500 uppercase tracking-widest font-semibold px-1">Pending ({pendingSms.length})</p>
+                    {pendingSms.map(renderSmsCard)}
                   </div>
-
-                  {/* SMS text */}
-                  <p className="text-gray-300 leading-relaxed">{sms.text}</p>
-
-                  {/* Parsed amount */}
-                  {sms.parsedAmount ? (
-                    <div className="flex gap-3 text-[10px] font-mono">
-                      <span className="text-gray-500">Amount: <strong className={sms.parsedType === 'income' ? 'text-emerald-400' : 'text-red-400'}>
-                        {sms.parsedType === 'income' ? '+' : '-'}Rs.{sms.parsedAmount.toLocaleString('en-IN')}
-                      </strong></span>
-                      {sms.parsedBank && <span className="text-gray-600">{sms.parsedBank}</span>}
-                    </div>
-                  ) : null}
-
-                  {/* Action buttons */}
-                  <div className="flex gap-2 pt-1 border-t border-[#1a1a1a]">
-                    {sms.status === 'pending' && (
-                      <>
-                        <button
-                          onClick={() => {
-                            let proposedCat = sms.parsedType === 'income' ? 'Income' : 'Grocery & Essentials';
-                            const recentTx = transactions.find(t => t.merchant?.toLowerCase() === sms.parsedMerchant?.toLowerCase());
-                            if (recentTx?.category) proposedCat = recentTx.category;
-                            setParseWizard({
-                              smsText: sms.text,
-                              amount: sms.parsedAmount || 0,
-                              type: sms.parsedType || 'expense',
-                              merchant: sms.parsedMerchant || 'Merchant',
-                              bankName: sms.parsedBank || 'Bank',
-                              proposedCategory: proposedCat,
-                              description: '',
-                              originalSmsId: sms.id
-                            });
-                          }}
-                          className="flex-1 bg-[#d4af37] hover:bg-[#c9a227] text-black font-mono font-bold text-[10px] uppercase tracking-wide py-2 rounded-lg transition-all"
-                        >
-                          Confirm
-                        </button>
-                        <button
-                          onClick={() => setSmsMessages(prev => prev.map(s => s.id === sms.id ? { ...s, status: 'skipped' } : s))}
-                          className="flex-1 border border-[#333] text-gray-400 hover:text-white font-mono text-[10px] uppercase tracking-wide py-2 rounded-lg transition-all"
-                        >
-                          Skip
-                        </button>
-                      </>
-                    )}
-                    {sms.status === 'skipped' && (
-                      <button
-                        onClick={() => {
-                          let proposedCat = sms.parsedType === 'income' ? 'Income' : 'Grocery & Essentials';
-                          setParseWizard({
-                            smsText: sms.text,
-                            amount: sms.parsedAmount || 0,
-                            type: sms.parsedType || 'expense',
-                            merchant: sms.parsedMerchant || 'Merchant',
-                            bankName: sms.parsedBank || 'Bank',
-                            proposedCategory: proposedCat,
-                            description: '',
-                            originalSmsId: sms.id
-                          });
-                        }}
-                        className="flex-1 border border-[#d4af37]/40 text-[#d4af37] hover:bg-[#d4af37] hover:text-black font-mono text-[10px] uppercase py-2 rounded-lg transition-all"
-                      >
-                        Confirm Now
-                      </button>
-                    )}
-                    <button
-                      onClick={() => {
-                        if (window.confirm('Delete this SMS record permanently?')) {
-                          setSmsMessages(prev => prev.filter(s => s.id !== sms.id));
-                        }
-                      }}
-                      className="w-8 border border-red-900/40 text-red-500 hover:bg-red-950/30 font-mono text-[10px] rounded-lg transition-all flex items-center justify-center"
-                    >
-                      <Trash2 size={12} />
-                    </button>
+                )}
+                {/* Section: Confirmed */}
+                {confirmedSms.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[9px] font-mono text-emerald-500 uppercase tracking-widest font-semibold px-1">Confirmed ({confirmedSms.length})</p>
+                    {confirmedSms.map(renderSmsCard)}
                   </div>
-
-                  {/* Confirmed state: no actions, just delete */}
-                  {sms.status === 'confirmed' && (
-                    <div className="flex justify-between items-center pt-1 border-t border-[#1a1a1a]">
-                      <span className="text-emerald-400 text-[10px] font-mono">Added to ledger</span>
-                      <button
-                        onClick={() => {
-                          if (window.confirm('Delete this confirmed record?')) {
-                            setSmsMessages(prev => prev.filter(s => s.id !== sms.id));
-                          }
-                        }}
-                        className="text-red-600 hover:text-red-400 transition-all"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))
+                )}
+                {/* Section: Skipped */}
+                {skippedSms.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[9px] font-mono text-gray-500 uppercase tracking-widest font-semibold px-1">Skipped ({skippedSms.length})</p>
+                    {skippedSms.map(renderSmsCard)}
+                  </div>
+                )}
+              </div>
             )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
 
       {/* --- TAB 4: BUDGET CONTROL & LIMIT ALERTS (SETTING ONLY) --- */}
       {navTab === 'budgets' && (
-        <div className="space-y-4 animate-fade-in text-xs text-gray-400">
+        <div className="space-y-4 animate-fade-in pt-5 text-xs text-gray-400">
           
           <div className="flex flex-col border-b border-[#1c1c1c] pb-3">
-            <span className="text-[9px] text-[#888] font-mono tracking-widest uppercase font-bold">Financial Smart Alerts Setting</span>
-            <h2 className="font-serif text-base text-white">Budgets Configuration</h2>
+            <span className="text-[9px] text-[#888] font-mono tracking-widest uppercase font-bold">Budget Management</span>
+            <h2 className="font-serif text-base text-white">Budget Setup</h2>
           </div>
-
-          <p className="text-[11px] font-sans leading-relaxed text-gray-400">
-            Configure your expectations across priority categories for specific months. Actual metrics and warnings are visible on the main Dashboard.
-          </p>
 
           {/* Highly Polished Adjust Category Limit Module - NO basic selectors or basic prompts */}
           <div className="bg-[#0f0f0f] border border-[#d4af37]/15 rounded-2xl p-4 mt-2 space-y-4">
             <div className="flex items-center gap-1.5 border-b border-[#222] pb-1.5">
-              <span className="text-[#d4af37] text-xs">[*]</span>
-              <p className="font-mono text-[#d4af37] text-[10px] uppercase font-bold">Configure Category Budget Limit</p>
+              <p className="font-mono text-[#d4af37] text-[10px] uppercase font-bold">⚙️ Budget Settings</p>
             </div>
 
-            {/* Month Filter Selector for setup */}
+            {/* Month Selector — current + future months only, dropdown */}
             <div className="space-y-1.5">
-              <label className="text-[9px] font-mono text-gray-500 uppercase tracking-wider block">1. Select Target Budget Month</label>
-              <div className="grid grid-cols-2 gap-2">
-                {['Apr-2026', 'May-2026'].map(m => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setBudgetMonth(m)}
-                    className={`py-2 px-3 rounded-xl text-xs font-mono border text-center transition-all ${
-                      budgetMonth === m
-                        ? 'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37] font-semibold'
-                        : 'bg-[#141414] border-[#222] text-gray-400 hover:bg-[#1a1a1a]'
-                    }`}
-                  >
-                    {m}
-                  </button>
-                ))}
+              <label className="text-[9px] font-mono text-gray-500 uppercase tracking-wider block">Budget Month</label>
+              <div className="relative">
+                <select
+                  value={budgetMonth}
+                  onChange={e => setBudgetMonth(e.target.value)}
+                  className="w-full bg-[#141414] border border-[#222] rounded-xl py-2.5 px-3 pr-8 text-xs text-[#e5e5e5] appearance-none outline-none focus:border-[#d4af37] cursor-pointer font-mono"
+                >
+                  {futureBudgetMonths.map(m => (
+                    <option key={m} value={m}>{m}{m === futureBudgetMonths[0] ? ' (Current)' : ''}</option>
+                  ))}
+                </select>
+                <ChevronDown size={12} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
               </div>
+              <p className="text-[8px] text-gray-600 font-mono italic">Only current &amp; future months. Past budgets are read-only.</p>
             </div>
 
             {/* Premium Custom Category Selector Grid to replace Basic basic dropdown */}
             <div className="space-y-2">
-              <label className="text-[9px] font-mono text-gray-500 uppercase tracking-wider block">2. Tap to Choose Category</label>
+              <label className="text-[9px] font-mono text-gray-500 uppercase tracking-wider block">Category</label>
               <div className="grid grid-cols-2 gap-1.5 max-h-44 overflow-y-auto pr-1 no-scrollbar border border-[#1a1a1a] rounded-xl p-2 bg-[#050505]">
                 {categories.filter(c => c !== 'Income').map(cat => {
                   const isSelected = budgetCategory === cat;
@@ -2174,7 +2211,7 @@ export default function App() {
                       }`}
                     >
                       <span className="truncate">{cat}</span>
-                      {isSelected && <span className="text-emerald-400 text-[10px]">v</span>}
+
                     </button>
                   );
                 })}
@@ -2183,7 +2220,7 @@ export default function App() {
 
             {/* Limit Input Box Integrated Inline */}
             <div className="space-y-1.5">
-              <label className="text-[9px] font-mono text-gray-500 uppercase tracking-wider block">3. Input Maximum Limit Amount (₹)</label>
+              <label className="text-[9px] font-mono text-gray-500 uppercase tracking-wider block">Limit Amount (₹)</label>
               <div className="relative">
                 <span className="absolute left-3 top-2.5 text-gray-500 font-mono text-xs">₹</span>
                 <input
@@ -2266,72 +2303,170 @@ export default function App() {
       )}
 
 
-      {/* --- TAB 5: SMART AI ADVISOR --- */}
-      {navTab === 'advisor' && (
-        <div className="space-y-4 animate-fade-in text-xs">
-          
-          <div className="flex justify-between items-center">
-            <div className="flex flex-col">
-              <span className="text-[9px] text-[#888] font-mono tracking-widest uppercase">Gemini Agent Engine</span>
-              <h2 className="font-serif text-lg text-white">Smart AI Assistant</h2>
+      {/* --- TAB 5: HISTORY --- */}
+      {navTab === 'history' && (
+        <div className="space-y-4 animate-fade-in pt-2 text-xs">
+
+          <div className="flex justify-between items-center pb-3 border-b border-[#1c1c1c]">
+            <div>
+              <span className="text-[9px] text-[#888] font-mono tracking-widest uppercase font-bold">Transaction Log</span>
+              <h2 className="font-serif text-base text-white">History</h2>
             </div>
-            <span className="bg-[#d4af37]/25 text-[#d4af37] border border-[#d4af37]/35 text-[9px] px-2.5 py-0.5 rounded-full font-mono font-semibold">
-              G-3.5 Flash
-            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={handleExportToExcelStyleCsv}
+                className="bg-[#141414] border border-[#222] hover:border-[#d4af37] text-[#d4af37] py-1.5 px-3 rounded-xl flex items-center gap-1.5 transition-all font-mono text-[9px] uppercase tracking-wider"
+              >
+                <Download size={12} /> Export
+              </button>
+            </div>
           </div>
 
-          <button
-            onClick={handleExportToExcelStyleCsv}
-            className="w-full bg-[#141414] border border-[#222] hover:bg-[#1a1a1a] hover:border-[#d4af37] text-[#e5e5e5] py-3 rounded-xl flex items-center justify-center gap-2 transition-all font-mono text-[10px] uppercase tracking-wider shadow-lg cursor-pointer"
-          >
-            <Download size={14} className="text-[#d4af37]"/> Export Data to Excel / CSV
-          </button>
-
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 flex flex-col gap-4">
-            
-            <div className="flex items-center gap-3 bg-[#141414] rounded-xl p-3 border border-[#222]">
-              <PiggyBank size={32} className="text-[#d4af37] shrink-0" />
-              <div>
-                <p className="text-xs text-white font-serif italic">"Your digital wealth strategist holds real April & May logs."</p>
-                <p className="text-[9px] text-gray-500 font-mono mt-0.5">Calculated from {transactions.length} active entries.</p>
+          {/* Edit modal */}
+          {editingTransaction && (
+            <div className="bg-[#0a0a0a] border border-[#d4af37]/30 rounded-2xl p-4 space-y-3 animate-fade-in">
+              <div className="flex justify-between items-center border-b border-[#222] pb-2">
+                <span className="text-[10px] font-mono text-[#d4af37] uppercase tracking-wider font-semibold">Edit Transaction</span>
+                <button onClick={() => setEditingTransaction(null)} className="text-gray-500 hover:text-white text-xs">✕ Cancel</button>
+              </div>
+              <div className="space-y-2.5">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Category</label>
+                  <div className="relative">
+                    <select value={editCategory} onChange={e => setEditCategory(e.target.value)}
+                      className="w-full bg-[#141414] border border-[#222] rounded-xl p-2.5 pr-8 text-xs text-white appearance-none outline-none focus:border-[#d4af37]">
+                      {categories.map(c => <option key={c} value={c}>{categoryIcons[c]} {c}</option>)}
+                    </select>
+                    <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Description</label>
+                  <input type="text" value={editDescription} onChange={e => setEditDescription(e.target.value)}
+                    className="bg-[#141414] border border-[#222] rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#d4af37]" />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Amount (₹)</label>
+                  <input type="number" value={editAmount} onChange={e => setEditAmount(e.target.value)}
+                    className="bg-[#141414] border border-[#222] rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#d4af37] font-mono" />
+                </div>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button onClick={saveEditTransaction}
+                  className="flex-1 bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:opacity-90 transition-all">
+                  Save Changes
+                </button>
+                <button onClick={() => { handleDeleteTransaction(editingTransaction.id); setEditingTransaction(null); }}
+                  className="px-4 border border-red-900/50 text-red-400 hover:bg-red-950/30 font-mono text-[10px] rounded-xl transition-all">
+                  Delete
+                </button>
               </div>
             </div>
+          )}
 
-            <div className="space-y-3 font-mono">
-              <p className="text-[9px] text-[#d4af37] uppercase tracking-widest font-bold">Actionable Spending Warnings :</p>
-              
-              {isAiInsightsLoading ? (
-                <div className="flex flex-col items-center justify-center py-8 gap-2">
-                  <span className="animate-spin h-5 w-5 border-2 border-[#d4af37] border-t-transparent rounded-full" />
-                  <span className="text-[10px] text-gray-500">Querying neural spending patterns...</span>
-                </div>
-              ) : (
-                <div className="space-y-2 text-[10px] leading-relaxed">
-                  {aiInsights.map((insight, idx) => (
-                    <div key={idx} className="p-3 bg-[#141414] rounded-xl border border-[#1a1a1a] flex gap-2.5 text-gray-300">
-                      <span className="text-[#d4af37] shrink-0">◇</span>
-                      <span>{insight}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+          {/* Filters */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-3 space-y-3">
+            {/* Month filter row */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Month</label>
+              <div className="relative">
+                <select value={historyMonthFilter} onChange={e => setHistoryMonthFilter(e.target.value)}
+                  className="w-full bg-[#141414] border border-[#222] rounded-lg py-1.5 px-2 pr-6 text-[10px] text-white appearance-none outline-none focus:border-[#d4af37]">
+                  <option value="All">All Time</option>
+                  {availableMonths.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+                <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              </div>
             </div>
-
-            <button
-              type="button"
-              onClick={fetchLiveAiInsights}
-              disabled={isAiInsightsLoading}
-              className="w-full bg-[#d4af37] text-black font-semibold text-xs py-3 px-4 rounded-xl mt-2 tracking-widest uppercase font-mono hover:opacity-90 transition-all flex items-center justify-center gap-2"
-            >
-              <Sparkles size={13} />
-              <span>Recompute Neural Patterns</span>
-            </button>
-
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1">
+                <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Category</label>
+                <select value={historyFilterCategory} onChange={e => setHistoryFilterCategory(e.target.value)}
+                  className="bg-[#141414] border border-[#222] rounded-lg py-1.5 px-2 text-[10px] text-white appearance-none outline-none focus:border-[#d4af37]">
+                  <option value="All">All</option>
+                  {categories.map(c => <option key={c} value={c}>{categoryIcons[c]} {c}</option>)}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Type</label>
+                <select value={historyFilterType} onChange={e => setHistoryFilterType(e.target.value)}
+                  className="bg-[#141414] border border-[#222] rounded-lg py-1.5 px-2 text-[10px] text-white appearance-none outline-none focus:border-[#d4af37]">
+                  <option value="All">All</option>
+                  <option value="income">Received</option>
+                  <option value="expense">Sent</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1">
+                <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Start</label>
+                <input type="date" value={historyStartDate} onChange={e => setHistoryStartDate(e.target.value)}
+                  className="bg-[#141414] border border-[#222] rounded-lg py-1.5 px-2 text-[10px] text-white outline-none focus:border-[#d4af37]" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">End</label>
+                <input type="date" value={historyEndDate} onChange={e => setHistoryEndDate(e.target.value)}
+                  className="bg-[#141414] border border-[#222] rounded-lg py-1.5 px-2 text-[10px] text-white outline-none focus:border-[#d4af37]" />
+              </div>
+            </div>
+            {(historyMonthFilter !== currentMonthDefault || historyFilterCategory !== 'All' || historyFilterType !== 'All' || historyStartDate || historyEndDate) && (
+              <button onClick={() => { setHistoryMonthFilter(currentMonthDefault); setHistoryFilterCategory('All'); setHistoryFilterType('All'); setHistoryStartDate(''); setHistoryEndDate(''); }}
+                className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">
+                Reset to Current Month
+              </button>
+            )}
           </div>
 
-          <div className="p-4 bg-yellow-950/10 border border-yellow-900/10 rounded-xl text-gray-400 text-[10px] leading-relaxed">
-            <p className="font-mono text-[#d4af37] font-semibold uppercase mb-1">Privacy Guarantee:</p>
-            All database computations and manual entry logs are kept strictly inside your local device simulator. No external server tracking is ever performed outside of text summaries requested directly by you.
+          {/* Transaction list */}
+          <div className="space-y-1.5">
+            {(() => {
+              const monthsMap: Record<string,string> = {
+                'Jan':'01','Feb':'02','Mar':'03','Apr':'04','May':'05','Jun':'06',
+                'Jul':'07','Aug':'08','Sep':'09','Oct':'10','Nov':'11','Dec':'12'
+              };
+              let list = [...transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              // Default: current month filter
+              if (historyMonthFilter !== 'All') {
+                const [mn, yr] = historyMonthFilter.split('-');
+                const mc = monthsMap[mn];
+                if (mc && yr) list = list.filter(t => t.date.startsWith(`${yr}-${mc}`));
+              }
+              if (historyFilterCategory !== 'All') list = list.filter(t => t.category === historyFilterCategory);
+              if (historyFilterType !== 'All') list = list.filter(t => t.type === historyFilterType);
+              if (historyStartDate) list = list.filter(t => t.date >= historyStartDate);
+              if (historyEndDate) list = list.filter(t => t.date <= historyEndDate);
+
+              if (list.length === 0) return (
+                <div className="text-center py-10 text-gray-600 font-mono text-[10px]">
+                  No transactions for {historyMonthFilter === 'All' ? 'selected filters' : historyMonthFilter}.
+                </div>
+              );
+
+              return list.map(item => (
+                <div
+                  key={item.id}
+                  onClick={() => !editingTransaction && startEditTransaction(item)}
+                  className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-3 flex justify-between items-center cursor-pointer hover:border-[#d4af37]/30 hover:bg-[#111] transition-all active:scale-[0.99]"
+                >
+                  <div className="min-w-0 flex-1 pr-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-medium text-white truncate">{item.description}</span>
+                    </div>
+                    <div className="flex gap-1.5 text-[9px] text-gray-500 font-mono mt-0.5">
+                      <span>{item.date}</span>
+                      <span>•</span>
+                      <span>{categoryIcons[item.category]} {item.category}</span>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className={`text-[11px] font-bold font-mono ${item.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {item.type === 'income' ? '+' : '-'}₹{item.amount.toLocaleString('en-IN')}
+                    </p>
+                    <p className="text-[8px] text-gray-600 font-mono">{item.type === 'income' ? 'Received' : 'Sent'}</p>
+                  </div>
+                </div>
+              ));
+            })()}
           </div>
 
         </div>
@@ -2344,6 +2479,107 @@ export default function App() {
             <span className="text-[9px] text-[#888] font-mono tracking-widest uppercase">Configuration</span>
             <h2 className="font-serif text-lg text-white">Settings</h2>
           </div>
+
+          {/* ── SMS & Notifications ─────────────────────────────── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
+            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
+              <Smartphone size={14} className="text-[#d4af37]" />
+              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">SMS & Notifications</span>
+            </div>
+
+            {/* SMS Reader toggle */}
+            <div className="flex items-center justify-between py-1">
+              <div>
+                <p className="text-white text-[11px] font-mono font-semibold">SMS Reader</p>
+                <p className="text-gray-500 text-[9px] font-mono mt-0.5">Auto-detect bank SMS messages</p>
+              </div>
+              <button
+                onClick={() => setSettingSmsReader(v => !v)}
+                className={`w-11 h-6 rounded-full border transition-all relative ${
+                  settingSmsReader ? 'bg-[#d4af37]/30 border-[#d4af37]' : 'bg-[#1a1a1a] border-[#333]'
+                }`}
+              >
+                <span className={`absolute top-0.5 w-5 h-5 rounded-full transition-all shadow ${
+                  settingSmsReader ? 'left-5 bg-[#d4af37]' : 'left-0.5 bg-gray-600'
+                }`} />
+              </button>
+            </div>
+
+            {/* Transaction Notifications toggle */}
+            <div className="flex items-center justify-between py-1 border-t border-[#1a1a1a]">
+              <div>
+                <p className="text-white text-[11px] font-mono font-semibold">Transaction Notifications</p>
+                <p className="text-gray-500 text-[9px] font-mono mt-0.5">Notify when new SMS is detected</p>
+              </div>
+              <button
+                onClick={() => setSettingTxNotif(v => !v)}
+                className={`w-11 h-6 rounded-full border transition-all relative ${
+                  settingTxNotif ? 'bg-[#d4af37]/30 border-[#d4af37]' : 'bg-[#1a1a1a] border-[#333]'
+                }`}
+              >
+                <span className={`absolute top-0.5 w-5 h-5 rounded-full transition-all shadow ${
+                  settingTxNotif ? 'left-5 bg-[#d4af37]' : 'left-0.5 bg-gray-600'
+                }`} />
+              </button>
+            </div>
+
+            {/* Pending SMS Reminders toggle */}
+            <div className="flex items-center justify-between py-1 border-t border-[#1a1a1a]">
+              <div>
+                <p className="text-white text-[11px] font-mono font-semibold">Pending SMS Reminders</p>
+                <p className="text-gray-500 text-[9px] font-mono mt-0.5">Remind if pending SMS stays unreviewed</p>
+              </div>
+              <button
+                onClick={() => setSettingPendingNotif(v => !v)}
+                className={`w-11 h-6 rounded-full border transition-all relative ${
+                  settingPendingNotif ? 'bg-[#d4af37]/30 border-[#d4af37]' : 'bg-[#1a1a1a] border-[#333]'
+                }`}
+              >
+                <span className={`absolute top-0.5 w-5 h-5 rounded-full transition-all shadow ${
+                  settingPendingNotif ? 'left-5 bg-[#d4af37]' : 'left-0.5 bg-gray-600'
+                }`} />
+              </button>
+            </div>
+          </div>
+
+          {/* ── Retention Period ────────────────────────────────── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
+            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
+              <Calendar size={14} className="text-[#d4af37]" />
+              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Retention Period</span>
+            </div>
+            <p className="text-gray-500 text-[9px] font-mono leading-relaxed">
+              Confirmed &amp; Skipped SMS records are auto-removed after this many days.
+            </p>
+            {/* +/- control */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSettingRetentionDays(d => Math.max(1, d - 1))}
+                className="w-9 h-9 rounded-xl bg-[#141414] border border-[#222] text-[#d4af37] font-mono font-bold text-base flex items-center justify-center hover:border-[#d4af37]/50 active:scale-95 transition-all"
+              >−</button>
+              <span className="flex-1 text-center font-mono text-white text-base font-bold">{settingRetentionDays} <span className="text-[9px] text-gray-500">days</span></span>
+              <button
+                onClick={() => setSettingRetentionDays(d => Math.min(90, d + 1))}
+                className="w-9 h-9 rounded-xl bg-[#141414] border border-[#222] text-[#d4af37] font-mono font-bold text-base flex items-center justify-center hover:border-[#d4af37]/50 active:scale-95 transition-all"
+              >+</button>
+            </div>
+            {/* Preset buttons */}
+            <div className="grid grid-cols-4 gap-1.5">
+              {[3, 7, 14, 30].map(d => (
+                <button
+                  key={d}
+                  onClick={() => setSettingRetentionDays(d)}
+                  className={`py-1.5 rounded-lg text-[9px] font-mono border transition-all ${
+                    settingRetentionDays === d
+                      ? 'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37] font-bold'
+                      : 'bg-[#141414] border-[#222] text-gray-400 hover:border-gray-500'
+                  }`}
+                >{d}d</button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Gemini AI API Key ───────────────────────────────── */}
           <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
             <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
               <Sparkles size={14} className="text-[#d4af37]" />
@@ -2374,16 +2610,8 @@ export default function App() {
               : <p className="text-[#555] text-[9px] font-mono text-center">No key — app uses offline fallback</p>
             }
           </div>
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-2">
-            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
-              <Info size={14} className="text-[#d4af37]" />
-              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">About</span>
-            </div>
-            <p className="text-[#888] text-[10px] font-mono">Finance Tracker v1.0.0</p>
-            <p className="text-[#555] text-[9px] font-mono leading-relaxed">All data stays on your device. No login required.</p>
-          </div>
 
-          {/* Notification permission status */}
+          {/* ── Notification Permission ─────────────────────────── */}
           <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
             <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
               <Bell size={14} className="text-[#d4af37]" />
@@ -2416,89 +2644,65 @@ export default function App() {
               For automatic SMS detection on Android: install the APK, then go to Settings → Apps → Finance Tracker → Permissions → enable SMS and Notifications.
             </p>
           </div>
+
+          {/* ── About ──────────────────────────────────────────── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-2">
+            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
+              <Info size={14} className="text-[#d4af37]" />
+              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">About</span>
+            </div>
+            <p className="text-[#888] text-[10px] font-mono">Finance Tracker v1.0.0</p>
+            <p className="text-[#555] text-[9px] font-mono leading-relaxed">All data stays on your device. No login required.</p>
+          </div>
         </div>
       )}
 
     </div>
 
-    {/* Bottom Navigation Bar */}
-    <div className="h-16 bg-[#090909] border-t border-[#141414] px-1 flex justify-between items-center text-gray-500 select-none shrink-0">
+    {/* Bottom Navigation Bar - PhonePe style with prominent Add */}
+    <div className="h-20 bg-[#090909] border-t border-[#141414] px-2 flex justify-between items-center text-gray-500 select-none shrink-0 relative">
 
-      <button
-        onClick={() => setNavTab('add')}
-        className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${
-          navTab === 'add' ? 'text-[#d4af37]' : 'text-gray-500'
-        }`}
-      >
-        <div className={`p-1.5 rounded-xl transition-all ${navTab === 'add' ? 'bg-[#d4af37]/10' : ''}`}>
-          <Plus size={18} />
-        </div>
-        <span className="text-[8px] font-mono tracking-wide">Add</span>
+      {/* Dashboard */}
+      <button onClick={() => setNavTab('dashboard')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'dashboard' ? 'text-[#d4af37]' : 'text-gray-500'}`}>
+        <TrendingUp size={20} />
+        <span className="text-[9px] font-mono tracking-wide">Home</span>
       </button>
 
-      <button
-        onClick={() => setNavTab('dashboard')}
-        className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${
-          navTab === 'dashboard' ? 'text-[#d4af37]' : 'text-gray-500'
-        }`}
-      >
-        <div className={`p-1.5 rounded-xl transition-all ${navTab === 'dashboard' ? 'bg-[#d4af37]/10' : ''}`}>
-          <TrendingUp size={18} />
-        </div>
-        <span className="text-[8px] font-mono tracking-wide">Dashboard</span>
-      </button>
-
-      <button
-        onClick={() => setNavTab('sms')}
-        className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full relative transition-all ${
-          navTab === 'sms' ? 'text-[#d4af37]' : 'text-gray-500'
-        }`}
-      >
-        <div className={`p-1.5 rounded-xl transition-all relative ${navTab === 'sms' ? 'bg-[#d4af37]/10' : ''}`}>
-          <MessageSquare size={18} />
+      {/* SMS */}
+      <button onClick={() => setNavTab('sms')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full relative transition-all ${navTab === 'sms' ? 'text-[#d4af37]' : 'text-gray-500'}`}>
+        <div className="relative">
+          <MessageSquare size={20} />
           {smsMessages.filter(s => s.status === 'pending').length > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-yellow-500 rounded-full">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
+            <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 rounded-full flex items-center justify-center text-white text-[8px] font-bold">
+              {smsMessages.filter(s => s.status === 'pending').length}
             </span>
           )}
         </div>
-        <span className="text-[8px] font-mono tracking-wide">SMS</span>
+        <span className="text-[9px] font-mono tracking-wide">SMS</span>
       </button>
 
-      <button
-        onClick={() => setNavTab('budgets')}
-        className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${
-          navTab === 'budgets' ? 'text-[#d4af37]' : 'text-gray-500'
-        }`}
-      >
-        <div className={`p-1.5 rounded-xl transition-all ${navTab === 'budgets' ? 'bg-[#d4af37]/10' : ''}`}>
-          <AlertCircle size={18} />
+      {/* Add — PhonePe/BHIM style prominent center button */}
+      <button onClick={() => setNavTab('add')} className="flex flex-col items-center justify-center gap-1 flex-1 h-full transition-all -mt-6">
+        <div className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg border-4 transition-all ${
+          navTab === 'add'
+            ? 'bg-[#d4af37] border-[#b8962a] shadow-[0_0_20px_rgba(212,175,55,0.4)]'
+            : 'bg-[#d4af37] border-[#b8962a] shadow-[0_4px_15px_rgba(0,0,0,0.5)]'
+        }`}>
+          <Plus size={26} className="text-black" strokeWidth={3} />
         </div>
-        <span className="text-[8px] font-mono tracking-wide">Budgets</span>
+        <span className={`text-[9px] font-mono tracking-wide ${navTab === 'add' ? 'text-[#d4af37]' : 'text-gray-500'}`}>Add</span>
       </button>
 
-      <button
-        onClick={() => setNavTab('advisor')}
-        className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${
-          navTab === 'advisor' ? 'text-[#d4af37]' : 'text-gray-500'
-        }`}
-      >
-        <div className={`p-1.5 rounded-xl transition-all ${navTab === 'advisor' ? 'bg-[#d4af37]/10' : ''}`}>
-          <Sparkles size={18} />
-        </div>
-        <span className="text-[8px] font-mono tracking-wide">Advisor</span>
+      {/* Budgets */}
+      <button onClick={() => setNavTab('budgets')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'budgets' ? 'text-[#d4af37]' : 'text-gray-500'}`}>
+        <AlertCircle size={20} />
+        <span className="text-[9px] font-mono tracking-wide">Budget</span>
       </button>
 
-      <button
-        onClick={() => setNavTab('settings')}
-        className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${
-          navTab === 'settings' ? 'text-[#d4af37]' : 'text-gray-500'
-        }`}
-      >
-        <div className={`p-1.5 rounded-xl transition-all ${navTab === 'settings' ? 'bg-[#d4af37]/10' : ''}`}>
-          <Info size={18} />
-        </div>
-        <span className="text-[8px] font-mono tracking-wide">Settings</span>
+      {/* History */}
+      <button onClick={() => setNavTab('history')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'history' ? 'text-[#d4af37]' : 'text-gray-500'}`}>
+        <FileText size={20} />
+        <span className="text-[9px] font-mono tracking-wide">History</span>
       </button>
 
     </div>
