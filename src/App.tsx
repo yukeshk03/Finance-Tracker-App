@@ -285,6 +285,14 @@ const BulletChart = ({ spent, limit }: { spent: number; limit: number }) => {
   );
 };
 
+// ── Brand icon — circle with square inside (Chinese coin style) ─────────────
+const BrandIcon = ({ size = 12, className = '' }: { size?: number; className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className} style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" fill="none"/>
+    <rect x="8" y="8" width="8" height="8" stroke="currentColor" strokeWidth="2" fill="none"/>
+  </svg>
+);
+
 export default function App() {
   // Database Persistence with local storage integration
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
@@ -482,6 +490,16 @@ export default function App() {
   const [endDate, setEndDate] = useState('');
   const [recentDateFilter, setRecentDateFilter] = useState('All');
 
+  // ── Theme (light / dark) ──────────────────────────────────────────────────
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const s = localStorage.getItem('ft_theme');
+    return (s === 'light' || s === 'dark') ? s : 'dark';
+  });
+  useEffect(() => {
+    localStorage.setItem('ft_theme', theme);
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
   // ── Settings state ────────────────────────────────────────────────────────
   const [settingSmsReader, setSettingSmsReader] = useState<boolean>(() => {
     const s = localStorage.getItem('ft_setting_sms_reader');
@@ -525,6 +543,14 @@ export default function App() {
 
   // ── Dashboard: month×category table expand ────────────────────────────────
   const [tableExpanded, setTableExpanded] = useState(false);
+
+  // ── Add Entry success toast (inline, no redirect) ────────────────────────
+  const [addSuccessToast, setAddSuccessToast] = useState(false);
+
+  // ── CSV Import state ──────────────────────────────────────────────────────
+  const [csvImportPreview, setCsvImportPreview] = useState<{
+    rows: Transaction[]; errors: string[]; raw: string;
+  } | null>(null);
   const [incomingSmsBanner, setIncomingSmsBanner] = useState<SmsMessage | null>(null);
   
   // Real-time Extraction Pop-up / Wizard Details
@@ -845,49 +871,105 @@ export default function App() {
     };
   }, [transactions]);
 
-  // ── Month × Category comparison table data ───────────────────────────────
+  // ── Month × Category comparison table data (RAW transactions, ignores filters) ──
+  // Shows latest 6 months from RAW data, transposed (categories as rows, months as columns)
   const monthCategoryTableData = useMemo(() => {
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const monthsMap: Record<string, string> = {
       'Jan':'01','Feb':'02','Mar':'03','Apr':'04','May':'05','Jun':'06',
       'Jul':'07','Aug':'08','Sep':'09','Oct':'10','Nov':'11','Dec':'12'
     };
-    // Collect all months present in transactions
-    const monthSet = new Set<string>();
-    transactions.forEach(t => {
-      if (t.date) {
-        const p = t.date.split('-');
-        if (p.length >= 2) {
-          const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-          const key = `${names[parseInt(p[1],10)-1]}-${p[0]}`;
-          monthSet.add(key);
-        }
-      }
-    });
-    const sortedMonths = Array.from(monthSet).sort((a, b) => {
-      const [am, ay] = a.split('-');
-      const [bm, by] = b.split('-');
-      if (ay !== by) return parseInt(ay) - parseInt(by);
-      return parseInt(monthsMap[am]||'0') - parseInt(monthsMap[bm]||'0');
-    });
-    // Collect expense categories
+    // Generate last 6 months ending at current month (chronological order)
+    const now = new Date();
+    const monthsList: string[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      monthsList.push(`${monthNames[d.getMonth()]}-${d.getFullYear()}`);
+    }
+    // Collect expense categories present in those months
     const catSet = new Set<string>();
-    transactions.forEach(t => { if (t.type === 'expense') catSet.add(t.category); });
-    const cats = Array.from(catSet);
-    // Build data[month][category] = total
-    const data: Record<string, Record<string, number>> = {};
-    sortedMonths.forEach(m => { data[m] = {}; cats.forEach(c => { data[m][c] = 0; }); });
     transactions.forEach(t => {
       if (t.type === 'expense' && t.date) {
         const p = t.date.split('-');
         if (p.length >= 2) {
-          const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-          const key = `${names[parseInt(p[1],10)-1]}-${p[0]}`;
+          const key = `${monthNames[parseInt(p[1],10)-1]}-${p[0]}`;
+          if (monthsList.includes(key)) catSet.add(t.category);
+        }
+      }
+    });
+    const cats = Array.from(catSet);
+    // Build data[month][category] = total
+    const data: Record<string, Record<string, number>> = {};
+    monthsList.forEach(m => { data[m] = {}; cats.forEach(c => { data[m][c] = 0; }); });
+    transactions.forEach(t => {
+      if (t.type === 'expense' && t.date) {
+        const p = t.date.split('-');
+        if (p.length >= 2) {
+          const key = `${monthNames[parseInt(p[1],10)-1]}-${p[0]}`;
           if (data[key]) data[key][t.category] = (data[key][t.category] || 0) + t.amount;
         }
       }
     });
-    return { months: sortedMonths, categories: cats, data };
+    return { months: monthsList, categories: cats, data };
   }, [transactions]);
+
+  // ── NEW: Month vs Spending chart data (respects dashboard filters) ──────────
+  // Default: last 3 months. When a category is filtered: extend to full current year.
+  const monthVsSpendingChartData = useMemo(() => {
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const now = new Date();
+    const hasCategoryFilter = filterCategories.length > 0;
+
+    // Determine the month range
+    let monthsList: string[] = [];
+    if (hasCategoryFilter) {
+      // Full current year (Jan to current month)
+      for (let m = 0; m <= now.getMonth(); m++) {
+        monthsList.push(`${monthNames[m]}-${now.getFullYear()}`);
+      }
+    } else {
+      // Last 3 months ending at current month
+      for (let i = 2; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        monthsList.push(`${monthNames[d.getMonth()]}-${d.getFullYear()}`);
+      }
+    }
+
+    // Filter transactions: expense only, within month list, matching selected categories
+    const relevant = transactions.filter(t => {
+      if (t.type !== 'expense' || !t.date) return false;
+      const p = t.date.split('-');
+      if (p.length < 2) return false;
+      const key = `${monthNames[parseInt(p[1],10)-1]}-${p[0]}`;
+      if (!monthsList.includes(key)) return false;
+      if (hasCategoryFilter && !filterCategories.includes(t.category)) return false;
+      return true;
+    });
+
+    // Categories shown as stacked segments
+    const visibleCats = hasCategoryFilter ? filterCategories : Array.from(new Set(relevant.map(t => t.category)));
+
+    // Build data
+    const result = monthsList.map(month => {
+      const row: { month: string; total: number; segments: { category: string; amount: number }[] } = {
+        month, total: 0, segments: []
+      };
+      visibleCats.forEach(cat => {
+        const sum = relevant
+          .filter(t => {
+            const p = t.date.split('-');
+            const key = `${monthNames[parseInt(p[1],10)-1]}-${p[0]}`;
+            return key === month && t.category === cat;
+          })
+          .reduce((s, t) => s + t.amount, 0);
+        if (sum > 0) row.segments.push({ category: cat, amount: sum });
+        row.total += sum;
+      });
+      return row;
+    });
+
+    return { months: monthsList, categories: visibleCats, data: result, hasCategoryFilter };
+  }, [transactions, filterCategories]);
 
   // ── Budget: future months only (current + next 5) ─────────────────────────
   const futureBudgetMonths = useMemo(() => {
@@ -1137,8 +1219,157 @@ export default function App() {
     setTransactions(prev => [newTx, ...prev]);
     setFormAmount('');
     setFormDescription('');
-    setNavTab('dashboard');
-    alert('[ok] Entry saved successfully!');
+    // ✅ Stay on Add Entry — show inline toast instead of redirecting
+    setAddSuccessToast(true);
+    setTimeout(() => setAddSuccessToast(false), 2500);
+  };
+
+  // ── CSV Export ────────────────────────────────────────────────────────────
+  const handleCsvExport = () => {
+    if (transactions.length === 0) {
+      alert('No transactions to export.');
+      return;
+    }
+    const escape = (val: any) => {
+      const s = String(val ?? '');
+      if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    };
+    const header = ['Date', 'Type', 'Amount', 'Category', 'Description', 'Bank', 'Entry Mode'];
+    const rows = transactions.map(t => [
+      t.date,
+      t.type === 'income' ? 'Income' : 'Expense',
+      t.amount,
+      t.category,
+      t.description || '',
+      t.bankName || '',
+      t.entryMode || (t.isSmsDetected ? 'auto' : 'manual')
+    ].map(escape).join(','));
+    const csv = [header.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `finance-tracker-export-${new Date().toISOString().substring(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // ── CSV Parser (simple but handles quoted commas) ────────────────────────
+  const parseCsvLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQuotes) {
+        if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
+        else if (ch === '"') { inQuotes = false; }
+        else { current += ch; }
+      } else {
+        if (ch === ',') { result.push(current); current = ''; }
+        else if (ch === '"') { inQuotes = true; }
+        else { current += ch; }
+      }
+    }
+    result.push(current);
+    return result.map(s => s.trim());
+  };
+
+  const handleCsvImportFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = String(e.target?.result || '');
+      const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+      if (lines.length < 2) {
+        setCsvImportPreview({ rows: [], errors: ['File is empty or has no data rows.'], raw: text });
+        return;
+      }
+      const header = parseCsvLine(lines[0]).map(h => h.toLowerCase());
+      const idx = {
+        date: header.indexOf('date'),
+        type: header.indexOf('type'),
+        amount: header.indexOf('amount'),
+        category: header.indexOf('category'),
+        description: header.indexOf('description'),
+        bank: header.indexOf('bank'),
+        mode: header.indexOf('entry mode'),
+      };
+      const missing: string[] = [];
+      if (idx.date < 0) missing.push('Date');
+      if (idx.amount < 0) missing.push('Amount');
+      if (idx.category < 0) missing.push('Category');
+      if (idx.type < 0) missing.push('Type');
+      if (missing.length) {
+        setCsvImportPreview({
+          rows: [],
+          errors: [`Required column(s) missing: ${missing.join(', ')}. Header must include Date, Type, Amount, Category.`],
+          raw: text
+        });
+        return;
+      }
+      const errors: string[] = [];
+      const rows: Transaction[] = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = parseCsvLine(lines[i]);
+        const rowNum = i + 1;
+        const date = cols[idx.date];
+        const amountStr = cols[idx.amount];
+        const category = cols[idx.category];
+        const typeStr = (cols[idx.type] || '').toLowerCase();
+        if (!date) { errors.push(`Row ${rowNum}: Date is empty.`); continue; }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          errors.push(`Row ${rowNum}: Date "${date}" must be in YYYY-MM-DD format.`); continue;
+        }
+        if (!amountStr) { errors.push(`Row ${rowNum}: Amount is empty.`); continue; }
+        const amount = parseFloat(amountStr);
+        if (isNaN(amount) || amount <= 0) {
+          errors.push(`Row ${rowNum}: Amount "${amountStr}" must be a positive number.`); continue;
+        }
+        if (!category) { errors.push(`Row ${rowNum}: Category is empty.`); continue; }
+        if (!categories.includes(category)) {
+          errors.push(`Row ${rowNum}: Category "${category}" is not a known category. Known: ${categories.join(', ')}.`); continue;
+        }
+        let type: 'income' | 'expense';
+        if (typeStr === 'income' || typeStr === 'received') type = 'income';
+        else if (typeStr === 'expense' || typeStr === 'sent') type = 'expense';
+        else { errors.push(`Row ${rowNum}: Type "${cols[idx.type]}" must be "Income" or "Expense".`); continue; }
+        rows.push({
+          id: 'tx-csv-' + Date.now() + '-' + i,
+          date, amount, category, type,
+          description: idx.description >= 0 ? (cols[idx.description] || '') : '',
+          bankName: idx.bank >= 0 ? (cols[idx.bank] || undefined) : undefined,
+          entryMode: idx.mode >= 0 && cols[idx.mode] === 'auto' ? 'auto' : 'manual',
+          isSmsDetected: idx.mode >= 0 && cols[idx.mode] === 'auto'
+        });
+      }
+      setCsvImportPreview({ rows, errors, raw: text });
+    };
+    reader.onerror = () => setCsvImportPreview({ rows: [], errors: ['Could not read the file.'], raw: '' });
+    reader.readAsText(file);
+  };
+
+  const applyCsvImport = (mode: 'add' | 'replace' | 'merge') => {
+    if (!csvImportPreview || csvImportPreview.rows.length === 0) return;
+    const incoming = csvImportPreview.rows;
+    if (mode === 'replace') {
+      if (!window.confirm(`Replace ALL ${transactions.length} existing transactions with ${incoming.length} imported ones?`)) return;
+      setTransactions(incoming);
+    } else if (mode === 'add') {
+      setTransactions(prev => [...incoming, ...prev]);
+    } else if (mode === 'merge') {
+      // Merge: skip duplicates (same date + amount + category + description)
+      const sig = (t: Transaction) => `${t.date}|${t.amount}|${t.category}|${t.description}`;
+      const existingSigs = new Set(transactions.map(sig));
+      const toAdd = incoming.filter(t => !existingSigs.has(sig(t)));
+      setTransactions(prev => [...toAdd, ...prev]);
+      alert(`Merge complete: ${toAdd.length} new transactions added, ${incoming.length - toAdd.length} duplicates skipped.`);
+    }
+    setCsvImportPreview(null);
   };
 
   // Delete an individual logged item
@@ -1178,6 +1409,50 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen bg-[#050505] text-[#e5e5e5] flex flex-col overflow-hidden font-sans">
+
+      {/* ── THEME OVERRIDES (Light) ───────────────────────────────────── */}
+      <style>{`
+        html[data-theme="light"], html[data-theme="light"] body {
+          background: #f5f1e8 !important;
+        }
+        /* Root wrapper */
+        html[data-theme="light"] .h-screen.w-screen {
+          background: #f5f1e8 !important;
+          color: #1a1a1a !important;
+        }
+        /* Most card/panel backgrounds → white */
+        html[data-theme="light"] [class*="bg-[#0f0f0f]"] { background-color: #ffffff !important; }
+        html[data-theme="light"] [class*="bg-[#121212]"] { background-color: #faf6ec !important; }
+        html[data-theme="light"] [class*="bg-[#141414]"] { background-color: #faf6ec !important; }
+        html[data-theme="light"] [class*="bg-[#1a1a1a]"] { background-color: #ebe5d4 !important; }
+        html[data-theme="light"] [class*="bg-[#111]"] { background-color: #f0ead8 !important; }
+        /* KEEP Inflow/Outflow cards & Smart Alerts dark - these have bg-[#0a0a0a] and bg-[#050505] */
+        html[data-theme="light"] [class*="bg-[#0a0a0a]"] { background-color: #0a0a0a !important; }
+        html[data-theme="light"] [class*="bg-[#050505]"] { background-color: #050505 !important; }
+        /* Section toggle row (Recent / Smart Alerts) — preserve its dark/light contrast */
+        /* Borders */
+        html[data-theme="light"] [class*="border-[#1a1a1a]"] { border-color: #e0d9c4 !important; }
+        html[data-theme="light"] [class*="border-[#1c1c1c]"] { border-color: #d4ccba !important; }
+        html[data-theme="light"] [class*="border-[#222]"] { border-color: #d4ccba !important; }
+        html[data-theme="light"] [class*="border-[#333]"] { border-color: #b8b09a !important; }
+        /* Text colors — only target inside light-bg containers */
+        html[data-theme="light"] [class*="text-white"]:not([class*="bg-[#050505]"]):not([class*="bg-[#0a0a0a]"]) {
+          color: #1a1a1a !important;
+        }
+        html[data-theme="light"] [class*="text-[#e5e5e5]"] { color: #1a1a1a !important; }
+        html[data-theme="light"] [class*="text-gray-300"] { color: #2a2a2a !important; }
+        html[data-theme="light"] [class*="text-gray-400"] { color: #5a5a5a !important; }
+        html[data-theme="light"] [class*="text-gray-500"] { color: #6b6b6b !important; }
+        html[data-theme="light"] [class*="text-gray-600"] { color: #888 !important; }
+        html[data-theme="light"] [class*="text-gray-700"] { color: #a8a8a8 !important; }
+        html[data-theme="light"] [class*="text-[#888]"] { color: #555 !important; }
+        /* Keep gold/emerald/rose accents */
+        /* Inputs */
+        html[data-theme="light"] input, html[data-theme="light"] select, html[data-theme="light"] textarea {
+          color: #1a1a1a !important;
+        }
+        html[data-theme="light"] input::placeholder { color: #999 !important; }
+      `}</style>
 
       {/* ── ONBOARDING SCREEN ─────────────────────────────────────────── */}
       {showOnboarding && (
@@ -1526,7 +1801,7 @@ export default function App() {
                 {/* Traditional Static Visual Progress Bar - Expenditure by category title */}
                 <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
                   <h3 className="font-serif text-[11px] tracking-wide text-[#e5e5e5] italic border-b border-[#222] pb-1.5 mb-3 flex items-center gap-1.5">
-                    <span className="text-[#d4af37]">*</span> Expenditure by Category
+                    <BrandIcon size={11} className="text-[#d4af37]" /> Expenditure by Category
                   </h3>
                   
                   {categorySpendingList.length === 0 ? (
@@ -1553,68 +1828,94 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Month × Category Comparison Table */}
+                {/* Month vs Spending — Grouped Vertical Bar Chart */}
                 {(() => {
-                  const { months, categories: cats, data } = monthCategoryTableData;
-                  // Apply category filter to columns
-                  const visibleCats = filterCategories.length > 0
-                    ? cats.filter(c => filterCategories.includes(c))
-                    : cats;
-                  const visibleMonths = filterMonth !== 'All'
-                    ? months.filter(m => m === filterMonth)
-                    : months;
+                  const { months, categories: visibleCats, data, hasCategoryFilter } = monthVsSpendingChartData;
 
-                  if (visibleMonths.length === 0 || visibleCats.length === 0) return (
-                    <p className="text-[10px] text-gray-500 italic text-center py-4 font-mono">No data for selected filters.</p>
-                  );
+                  // Find max single-category value (not month total) — used to size bars
+                  let maxBar = 0;
+                  data.forEach(row => {
+                    visibleCats.forEach(cat => {
+                      const seg = row.segments.find(s => s.category === cat);
+                      if (seg && seg.amount > maxBar) maxBar = seg.amount;
+                    });
+                  });
+                  maxBar = Math.max(1, maxBar);
+
+                  // Category color palette
+                  const catColors: Record<string, string> = {};
+                  const palette = ['#d4af37','#e8b4a0','#a8c5a0','#9ab7d8','#c9a4d4','#e8c47a','#a0d4c8','#d4a0a0','#b8b8d4','#d4d4a0'];
+                  visibleCats.forEach((c, i) => { catColors[c] = palette[i % palette.length]; });
 
                   return (
-                    <div className={`bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl ${tableExpanded ? 'fixed inset-2 z-40 overflow-auto p-4' : 'p-4'}`}>
+                    <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
                       <div className="flex justify-between items-center border-b border-[#222] pb-1.5 mb-3">
-                        <h3 className="font-serif text-[11px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5">
-                          <span className="text-[#d4af37]">*</span> Month vs Category
+                        <h3 className="font-serif text-[12px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5">
+                          <BrandIcon size={12} className="text-[#d4af37]" /> Month vs Spending
                         </h3>
-                        <button
-                          onClick={() => setTableExpanded(e => !e)}
-                          className="text-[9px] font-mono text-[#d4af37] border border-[#d4af37]/30 px-2 py-0.5 rounded-lg hover:bg-[#d4af37]/10 transition-all"
-                        >
-                          {tableExpanded ? '⊠ Collapse' : '⊞ Expand'}
-                        </button>
+                        <span className="text-[9px] font-mono text-gray-500">
+                          {hasCategoryFilter ? 'Current Year' : 'Last 3 Months'}
+                        </span>
                       </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-[9px] font-mono border-collapse">
-                          <thead>
-                            <tr className="border-b border-[#222]">
-                              <th className="text-left py-1.5 pr-3 text-gray-500 uppercase tracking-wider font-semibold whitespace-nowrap">Month</th>
-                              {visibleCats.map(c => (
-                                <th key={c} className="text-right py-1.5 px-1.5 text-gray-500 uppercase tracking-wider font-semibold whitespace-nowrap max-w-[60px] truncate">{c.split(' ')[0]}</th>
+
+                      {data.every(d => d.total === 0) ? (
+                        <p className="text-[10px] text-gray-500 italic text-center py-6 font-mono">No spending data in this period.</p>
+                      ) : (
+                        <>
+                          {/* Grouped vertical bar chart — each month gets a cluster of category bars */}
+                          <div className="overflow-x-auto pb-2">
+                            <div className="flex items-end gap-4 h-48 pt-4" style={{ minWidth: `${data.length * visibleCats.length * 16 + data.length * 24}px` }}>
+                              {data.map(monthRow => (
+                                <div key={monthRow.month} className="flex flex-col items-center gap-1 flex-1 h-full">
+                                  {/* Bar cluster */}
+                                  <div className="flex-1 w-full flex items-end justify-center gap-[3px]">
+                                    {visibleCats.map(cat => {
+                                      const seg = monthRow.segments.find(s => s.category === cat);
+                                      const val = seg ? seg.amount : 0;
+                                      const heightPct = (val / maxBar) * 100;
+                                      return (
+                                        <div key={cat} className="flex flex-col items-center justify-end h-full group relative" style={{ width: '14px' }}>
+                                          {/* Tooltip on hover */}
+                                          {val > 0 && (
+                                            <span className="absolute -top-4 text-[8px] font-mono text-gray-400 opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none transition-opacity z-10 bg-[#050505] px-1 rounded">
+                                              ₹{val.toLocaleString('en-IN')}
+                                            </span>
+                                          )}
+                                          <div
+                                            className="w-full rounded-t-sm transition-all"
+                                            style={{
+                                              height: `${Math.max(val > 0 ? 2 : 0, heightPct)}%`,
+                                              backgroundColor: catColors[cat] || '#d4af37',
+                                              minHeight: val > 0 ? '3px' : '0'
+                                            }}
+                                            title={`${cat}: ₹${val.toLocaleString('en-IN')}`}
+                                          />
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  {/* Month label + total */}
+                                  <div className="flex flex-col items-center pt-1 border-t border-[#1a1a1a] w-full">
+                                    <span className="text-[10px] font-mono text-gray-300 whitespace-nowrap">{monthRow.month.split('-')[0]}</span>
+                                    <span className="text-[9px] font-mono text-[#d4af37]">
+                                      {monthRow.total > 0 ? `₹${(monthRow.total/1000).toFixed(1)}k` : '—'}
+                                    </span>
+                                  </div>
+                                </div>
                               ))}
-                              <th className="text-right py-1.5 pl-2 text-[#d4af37] uppercase tracking-wider font-semibold whitespace-nowrap">Total</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {visibleMonths.map((month, idx) => {
-                              const rowTotal = visibleCats.reduce((s, c) => s + (data[month]?.[c] || 0), 0);
-                              return (
-                                <tr key={month} className={`border-b border-[#1a1a1a] ${idx % 2 === 0 ? 'bg-[#0a0a0a]' : ''}`}>
-                                  <td className="py-1.5 pr-3 text-white font-semibold whitespace-nowrap">{month}</td>
-                                  {visibleCats.map(c => {
-                                    const val = data[month]?.[c] || 0;
-                                    return (
-                                      <td key={c} className={`text-right py-1.5 px-1.5 ${val > 0 ? 'text-white' : 'text-gray-700'}`}>
-                                        {val > 0 ? `₹${val.toLocaleString('en-IN')}` : '—'}
-                                      </td>
-                                    );
-                                  })}
-                                  <td className="text-right py-1.5 pl-2 text-[#d4af37] font-bold">
-                                    {rowTotal > 0 ? `₹${rowTotal.toLocaleString('en-IN')}` : '—'}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                            </div>
+                          </div>
+                          {/* Legend */}
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3 pt-3 border-t border-[#1a1a1a]">
+                            {visibleCats.map(c => (
+                              <div key={c} className="flex items-center gap-1.5">
+                                <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: catColors[c] }} />
+                                <span className="text-[10px] font-mono text-gray-400">{c}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </div>
                   );
                 })()}
@@ -1642,7 +1943,7 @@ export default function App() {
                 {/* Real-time configured month budget actual comparison list */}
                 <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
                   <h3 className="font-serif text-[11px] tracking-wide text-[#e5e5e5] italic border-b border-[#222] pb-1.5 mb-3 flex items-center gap-1.5">
-                    <span className="text-[#d4af37]">*</span> Smart Alerts Actual vs Budget List
+                    <BrandIcon size={11} className="text-[#d4af37]" /> Budget Alerts
                   </h3>
 
                   {monthBudgetsList.length === 0 ? (
@@ -1676,9 +1977,13 @@ export default function App() {
                               <span className={percentage >= 100 ? 'text-red-400 font-semibold' : percentage >= 80 ? 'text-yellow-500' : 'text-gray-500'}>
                                 {percentage}% utilized
                               </span>
-                              {isOver && (
+                              {isOver ? (
                                 <span className="text-red-400 text-[8px] font-bold flex items-center gap-0.5 animate-pulse">
-                                  [!]️ Limit Alert! Exceeded ₹{b.spent - b.limit}
+                                  [!] Exceeded ₹{(b.spent - b.limit).toLocaleString('en-IN')}
+                                </span>
+                              ) : (
+                                <span className="text-emerald-400 text-[9px] font-semibold">
+                                  Remaining ₹{(b.limit - b.spent).toLocaleString('en-IN')}
                                 </span>
                               )}
                             </div>
@@ -1695,6 +2000,84 @@ export default function App() {
               </div>
             )}
 
+            {/* === MONTH vs CATEGORY TABLE (bottom, RAW data, ignores filters, latest 6 months, transposed) === */}
+            {(() => {
+              const { months: allMonths, categories: cats, data } = monthCategoryTableData;
+              if (cats.length === 0) return null;
+              // Hide months where no category has any spending
+              const months = allMonths.filter(m => cats.some(c => (data[m]?.[c] || 0) > 0));
+              if (months.length === 0) return null;
+
+              return (
+                <div className={`bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl mt-2 ${tableExpanded ? 'fixed inset-2 z-40 overflow-auto p-4' : 'p-4'}`}>
+                  <div className="flex justify-between items-center border-b border-[#222] pb-2 mb-3">
+                    <h3 className="font-serif text-[13px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5">
+                      <BrandIcon size={13} className="text-[#d4af37]" /> Month vs Category
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-mono text-gray-500">Last 6 months</span>
+                      <button
+                        onClick={() => setTableExpanded(e => !e)}
+                        className="text-[10px] font-mono text-[#d4af37] border border-[#d4af37]/30 px-2 py-0.5 rounded-lg hover:bg-[#d4af37]/10 transition-all"
+                      >
+                        {tableExpanded ? '⊠ Collapse' : '⊞ Expand'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    {/* TRANSPOSED: categories as rows, months as columns */}
+                    <table className="w-full text-[11px] font-mono border-collapse">
+                      <thead>
+                        <tr className="border-b border-[#222]">
+                          <th className="text-left py-2 pr-3 text-gray-500 uppercase tracking-wider font-semibold whitespace-nowrap">Category</th>
+                          {months.map(m => (
+                            <th key={m} className="text-right py-2 px-1.5 text-gray-500 uppercase tracking-wider font-semibold whitespace-nowrap">{m.split('-')[0]}</th>
+                          ))}
+                          <th className="text-right py-2 pl-2 text-[#d4af37] uppercase tracking-wider font-semibold whitespace-nowrap">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cats.map((c, idx) => {
+                          const rowTotal = months.reduce((s, m) => s + (data[m]?.[c] || 0), 0);
+                          return (
+                            <tr key={c} className={`border-b border-[#1a1a1a] ${idx % 2 === 0 ? 'bg-[#0a0a0a]' : ''}`}>
+                              <td className="py-2 pr-3 text-white font-semibold whitespace-nowrap">{c}</td>
+                              {months.map(m => {
+                                const val = data[m]?.[c] || 0;
+                                return (
+                                  <td key={m} className={`text-right py-2 px-1.5 ${val > 0 ? 'text-white' : 'text-gray-700'}`}>
+                                    {val > 0 ? `₹${val.toLocaleString('en-IN')}` : '—'}
+                                  </td>
+                                );
+                              })}
+                              <td className="text-right py-2 pl-2 text-[#d4af37] font-bold">
+                                {rowTotal > 0 ? `₹${rowTotal.toLocaleString('en-IN')}` : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {/* Total row */}
+                        <tr className="border-t-2 border-[#d4af37]/30 bg-[#0a0a0a]">
+                          <td className="py-2 pr-3 text-[#d4af37] font-bold whitespace-nowrap">TOTAL</td>
+                          {months.map(m => {
+                            const colTotal = cats.reduce((s, c) => s + (data[m]?.[c] || 0), 0);
+                            return (
+                              <td key={m} className="text-right py-2 px-1.5 text-[#d4af37] font-bold whitespace-nowrap">
+                                {colTotal > 0 ? `₹${colTotal.toLocaleString('en-IN')}` : '—'}
+                              </td>
+                            );
+                          })}
+                          <td className="text-right py-2 pl-2 text-[#d4af37] font-bold">
+                            ₹{cats.reduce((s, c) => s + months.reduce((s2, m) => s2 + (data[m]?.[c] || 0), 0), 0).toLocaleString('en-IN')}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+
           </div>
         );
       })()}
@@ -1708,6 +2091,14 @@ export default function App() {
             <span className="text-[9px] text-[#888] font-mono tracking-widest uppercase font-bold">Input Module</span>
             <h2 className="font-serif text-base text-white">Add Entry Record</h2>
           </div>
+
+          {/* Success toast */}
+          {addSuccessToast && (
+            <div className="bg-emerald-950/40 border border-emerald-800/50 rounded-xl p-3 flex items-center gap-2 animate-fade-in">
+              <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+              <span className="text-emerald-300 text-[11px] font-mono">Entry saved! Add another below.</span>
+            </div>
+          )}
 
           <form onSubmit={handleAddNewManualEntry} className="space-y-4 bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-5">
             
@@ -2480,6 +2871,136 @@ export default function App() {
             <h2 className="font-serif text-lg text-white">Settings</h2>
           </div>
 
+          {/* ── Appearance / Theme ──────────────────────────────── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
+            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
+              <BrandIcon size={14} className="text-[#d4af37]" />
+              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Appearance</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-white text-[11px] font-mono font-semibold">Theme</p>
+                <p className="text-gray-500 text-[9px] font-mono mt-0.5">Choose your visual mode</p>
+              </div>
+              <div className="flex bg-[#141414] border border-[#222] rounded-xl p-0.5">
+                <button
+                  onClick={() => setTheme('dark')}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-mono uppercase tracking-wider transition-all ${
+                    theme === 'dark' ? 'bg-[#d4af37]/20 text-[#d4af37] font-bold' : 'text-gray-500'
+                  }`}
+                >Dark</button>
+                <button
+                  onClick={() => setTheme('light')}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-mono uppercase tracking-wider transition-all ${
+                    theme === 'light' ? 'bg-[#d4af37]/20 text-[#d4af37] font-bold' : 'text-gray-500'
+                  }`}
+                >Light</button>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Data Management ─────────────────────────────────── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
+            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
+              <Download size={14} className="text-[#d4af37]" />
+              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Data Management</span>
+            </div>
+            <p className="text-gray-500 text-[9px] font-mono leading-relaxed">
+              Backup or restore your transactions. CSV files work with Excel, Google Sheets, or other finance apps.
+            </p>
+
+            {/* Export */}
+            <button
+              onClick={handleCsvExport}
+              className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#d4af37]/10 transition-all flex items-center justify-center gap-2"
+            >
+              <Download size={12} /> Export All Transactions (CSV)
+            </button>
+
+            {/* Import */}
+            <label className="block">
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleCsvImportFile(f);
+                  e.target.value = ''; // allow re-importing same file
+                }}
+              />
+              <div className="w-full border border-[#222] text-gray-300 font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#141414] transition-all flex items-center justify-center gap-2 cursor-pointer">
+                <span className="text-[#d4af37]">⬆</span> Import CSV
+              </div>
+            </label>
+
+            <div className="text-[8px] text-gray-600 font-mono leading-relaxed bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg p-2">
+              <p className="text-gray-500 font-bold mb-1">Required columns (case-insensitive):</p>
+              <p>Date (YYYY-MM-DD), Type (Income/Expense), Amount, Category, Description, Bank, Entry Mode</p>
+              <p className="text-gray-600 mt-1">Date, Amount, Category, Type must not be empty.</p>
+            </div>
+          </div>
+
+          {/* ── CSV Import Preview Modal ─────────────────────────── */}
+          {csvImportPreview && (
+            <div className="bg-[#0a0a0a] border border-[#d4af37]/40 rounded-2xl p-4 space-y-3">
+              <div className="flex justify-between items-center border-b border-[#222] pb-2">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-[#d4af37] font-bold">Import Preview</span>
+                <button onClick={() => setCsvImportPreview(null)} className="text-gray-500 hover:text-white text-xs">✕</button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-emerald-950/30 border border-emerald-900/40 rounded-lg p-2 text-center">
+                  <p className="text-emerald-400 font-mono text-base font-bold">{csvImportPreview.rows.length}</p>
+                  <p className="text-emerald-300 text-[8px] font-mono uppercase">Valid Rows</p>
+                </div>
+                <div className={`border rounded-lg p-2 text-center ${csvImportPreview.errors.length > 0 ? 'bg-red-950/30 border-red-900/40' : 'bg-[#141414] border-[#222]'}`}>
+                  <p className={`font-mono text-base font-bold ${csvImportPreview.errors.length > 0 ? 'text-red-400' : 'text-gray-500'}`}>{csvImportPreview.errors.length}</p>
+                  <p className={`text-[8px] font-mono uppercase ${csvImportPreview.errors.length > 0 ? 'text-red-300' : 'text-gray-500'}`}>Errors</p>
+                </div>
+              </div>
+
+              {/* Errors */}
+              {csvImportPreview.errors.length > 0 && (
+                <div className="max-h-32 overflow-y-auto bg-red-950/10 border border-red-900/30 rounded-lg p-2 space-y-1">
+                  {csvImportPreview.errors.map((err, i) => (
+                    <p key={i} className="text-red-300 text-[9px] font-mono leading-relaxed">• {err}</p>
+                  ))}
+                </div>
+              )}
+
+              {/* Action buttons */}
+              {csvImportPreview.rows.length > 0 ? (
+                <div className="space-y-2 pt-2 border-t border-[#222]">
+                  <p className="text-gray-400 text-[9px] font-mono">Choose how to apply {csvImportPreview.rows.length} valid transactions:</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => applyCsvImport('add')}
+                      className="border border-[#d4af37]/40 text-[#d4af37] font-mono text-[9px] uppercase tracking-wider py-2 rounded-lg hover:bg-[#d4af37]/10 transition-all">
+                      Add (keep existing)
+                    </button>
+                    <button onClick={() => applyCsvImport('merge')}
+                      className="border border-emerald-700/40 text-emerald-400 font-mono text-[9px] uppercase tracking-wider py-2 rounded-lg hover:bg-emerald-950/20 transition-all">
+                      Merge (skip dups)
+                    </button>
+                    <button onClick={() => applyCsvImport('replace')}
+                      className="border border-red-800/50 text-red-400 font-mono text-[9px] uppercase tracking-wider py-2 rounded-lg hover:bg-red-950/30 transition-all">
+                      Replace All
+                    </button>
+                    <button onClick={() => setCsvImportPreview(null)}
+                      className="border border-[#333] text-gray-400 font-mono text-[9px] uppercase tracking-wider py-2 rounded-lg hover:bg-[#141414] transition-all">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => setCsvImportPreview(null)}
+                  className="w-full bg-[#141414] border border-[#333] text-gray-400 font-mono text-[10px] uppercase py-2 rounded-lg">
+                  Close
+                </button>
+              )}
+            </div>
+          )}
+
           {/* ── SMS & Notifications ─────────────────────────────── */}
           <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
             <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
@@ -2579,38 +3100,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* ── Gemini AI API Key ───────────────────────────────── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
-            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
-              <Sparkles size={14} className="text-[#d4af37]" />
-              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Gemini AI API Key</span>
-            </div>
-            <p className="text-[#666] text-[10px] font-mono leading-relaxed">
-              Get a free key at aistudio.google.com — needed for AI SMS parsing and smart insights.
-            </p>
-            <input
-              type="password"
-              placeholder="AIza..."
-              value={geminiKey}
-              onChange={e => setGeminiKeyState(e.target.value)}
-              className="w-full bg-[#141414] border border-[#222] text-white text-xs font-mono px-3 py-2.5 rounded-xl focus:outline-none focus:border-[#d4af37] placeholder-[#444]"
-            />
-            <button
-              onClick={() => {
-                localStorage.setItem(GEMINI_API_KEY_STORAGE, geminiKey);
-                setGeminiKeySaved(true);
-                setTimeout(() => setGeminiKeySaved(false), 2000);
-              }}
-              className="w-full bg-[#d4af37] hover:bg-[#c9a227] text-black font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl transition-all flex items-center justify-center gap-2"
-            >
-              {geminiKeySaved ? <><CheckCircle2 size={13} /> Saved!</> : 'Save API Key'}
-            </button>
-            {geminiKey
-              ? <p className="text-green-400 text-[9px] font-mono text-center">AI features enabled</p>
-              : <p className="text-[#555] text-[9px] font-mono text-center">No key — app uses offline fallback</p>
-            }
-          </div>
-
           {/* ── Notification Permission ─────────────────────────── */}
           <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
             <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
@@ -2681,14 +3170,23 @@ export default function App() {
         <span className="text-[9px] font-mono tracking-wide">SMS</span>
       </button>
 
-      {/* Add — PhonePe/BHIM style prominent center button */}
+      {/* Add — Chinese coin style center button (circle with square hole) */}
       <button onClick={() => setNavTab('add')} className="flex flex-col items-center justify-center gap-1 flex-1 h-full transition-all -mt-6">
-        <div className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg border-4 transition-all ${
+        <div className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all ${
           navTab === 'add'
-            ? 'bg-[#d4af37] border-[#b8962a] shadow-[0_0_20px_rgba(212,175,55,0.4)]'
-            : 'bg-[#d4af37] border-[#b8962a] shadow-[0_4px_15px_rgba(0,0,0,0.5)]'
+            ? 'shadow-[0_0_20px_rgba(212,175,55,0.5)]'
+            : 'shadow-[0_4px_15px_rgba(0,0,0,0.5)]'
         }`}>
-          <Plus size={26} className="text-black" strokeWidth={3} />
+          <svg viewBox="0 0 56 56" className="w-full h-full">
+            {/* Outer gold ring */}
+            <circle cx="28" cy="28" r="27" fill="#d4af37" stroke="#b8962a" strokeWidth="2"/>
+            <circle cx="28" cy="28" r="24" fill="none" stroke="#a07d20" strokeWidth="0.6" opacity="0.5"/>
+            {/* Central square cutout — coin hole */}
+            <rect x="18" y="18" width="20" height="20" fill="#050505" stroke="#a07d20" strokeWidth="1"/>
+            {/* Plus inside the square */}
+            <line x1="28" y1="22" x2="28" y2="34" stroke="#d4af37" strokeWidth="3" strokeLinecap="round"/>
+            <line x1="22" y1="28" x2="34" y2="28" stroke="#d4af37" strokeWidth="3" strokeLinecap="round"/>
+          </svg>
         </div>
         <span className={`text-[9px] font-mono tracking-wide ${navTab === 'add' ? 'text-[#d4af37]' : 'text-gray-500'}`}>Add</span>
       </button>
