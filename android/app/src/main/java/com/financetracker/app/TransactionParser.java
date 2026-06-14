@@ -89,7 +89,7 @@ public class TransactionParser {
     }
 
     /** Parse the SMS text, save to SharedPreferences, fire notification */
-    public static void parseAndNotify(Context ctx, String sender, String body) {
+    public static void parseAndNotify(Context ctx, String sender, String body, long smsReceivedMillis) {
         try {
             // ── Parse amount ──────────────────────────────────────────
             double amount = 0;
@@ -138,7 +138,7 @@ public class TransactionParser {
             record.put("id",            smsId);
             record.put("sender",        sender);
             record.put("text",          body);
-            record.put("timestamp",     new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.ROOT).format(new Date()));
+            record.put("timestamp",     new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.ROOT).format(new Date(smsReceivedMillis)));
             record.put("status",        "pending");
             record.put("parsedAmount",  amount);
             record.put("parsedType",    txType);
@@ -163,6 +163,13 @@ public class TransactionParser {
     // ─────────────────────────────────────────────────────────────────────
     // PRIVATE HELPERS
     // ─────────────────────────────────────────────────────────────────────
+
+
+    /** Backward-compatible overload — uses current time when arrival time isn't known
+     *  (e.g. when called from NotificationListener which doesn't have SMS PDU timestamp). */
+    public static void parseAndNotify(Context ctx, String sender, String body) {
+        parseAndNotify(ctx, sender, body, System.currentTimeMillis());
+    }
 
     private static String inferCategory(String body) {
         String low = body.toLowerCase(Locale.ROOT);
