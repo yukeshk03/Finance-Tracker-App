@@ -243,8 +243,7 @@ const BulletChart = ({ spent, limit }: { spent: number; limit: number }) => {
   return (
     <div className="bg-[#0d0d0d] rounded-2xl border border-[#1a1a1a] p-4 font-mono">
       <div className="flex items-center gap-1.5 mb-2 border-b border-[#141414] pb-1.5">
-        <span className="text-[#d4af37] text-xs">▩</span>
-        <h4 className="text-[10px] uppercase tracking-wider text-[#d4af37] font-semibold">Macro Spend performance (Bullet)</h4>
+        <h4 className="text-[10px] uppercase tracking-wider text-[#d4af37] font-semibold">Budget Overview</h4>
       </div>
 
       <div className="space-y-2">
@@ -482,7 +481,11 @@ export default function App() {
   // Filter conditions — category is now multi-select (empty array = All)
   const [filterCategories, setFilterCategories] = useState<string[]>([]);
   const [filterType, setFilterType] = useState<string>('All');
-  const [filterMonth, setFilterMonth] = useState<string>('All');
+  const [filterMonth, setFilterMonth] = useState<string>(() => {
+    const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const d = new Date();
+    return `${names[d.getMonth()]}-${d.getFullYear()}`;
+  });
   const [searchQuery, setSearchQuery] = useState('');
 
   // Date range filters
@@ -543,6 +546,42 @@ export default function App() {
 
   // ── Dashboard: month×category table expand ────────────────────────────────
   const [tableExpanded, setTableExpanded] = useState(false);
+
+  // ── Smart Alerts: month filter (current + past only) ─────────────────────
+  const currentMonthLabel = (() => {
+    const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const d = new Date();
+    return `${names[d.getMonth()]}-${d.getFullYear()}`;
+  })();
+  const [smartAlertsMonth, setSmartAlertsMonth] = useState<string>(currentMonthLabel);
+
+  // Past + current months that have budgets configured (no future months)
+  const smartAlertsAvailableMonths = useMemo(() => {
+    const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const monthsMap: Record<string,string> = {
+      'Jan':'01','Feb':'02','Mar':'03','Apr':'04','May':'05','Jun':'06',
+      'Jul':'07','Aug':'08','Sep':'09','Oct':'10','Nov':'11','Dec':'12'
+    };
+    const now = new Date();
+    const curKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    const set = new Set<string>();
+    set.add(currentMonthLabel);
+    budgets.forEach(b => {
+      if (!b.month) return;
+      const [mn, yr] = b.month.split('-');
+      const mc = monthsMap[mn];
+      if (mc && yr) {
+        const key = `${yr}-${mc}`;
+        if (key <= curKey) set.add(b.month); // only current or past
+      }
+    });
+    return Array.from(set).sort((a, b) => {
+      const [am, ay] = a.split('-');
+      const [bm, by] = b.split('-');
+      if (ay !== by) return parseInt(by) - parseInt(ay);
+      return parseInt(monthsMap[bm]||'0') - parseInt(monthsMap[am]||'0');
+    });
+  }, [budgets, currentMonthLabel]);
 
   // ── Add Entry success toast (inline, no redirect) ────────────────────────
   const [addSuccessToast, setAddSuccessToast] = useState(false);
@@ -797,20 +836,31 @@ export default function App() {
 
   // Category wise spending representation for filtered selection
   const categorySpendingList = useMemo(() => {
+    // Net Spending = Total Sent (expense) − Total Received (income) per category
     const map: Record<string, number> = {};
     let totalExpense = 0;
 
     filteredTransactions.forEach(t => {
       if (t.type === 'expense') {
         map[t.category] = (map[t.category] || 0) + t.amount;
-        totalExpense += t.amount;
+      } else if (t.type === 'income') {
+        // Refund/reimbursement in the same category subtracts
+        if (map[t.category] !== undefined || filteredTransactions.some(x => x.type === 'expense' && x.category === t.category)) {
+          map[t.category] = (map[t.category] || 0) - t.amount;
+        }
       }
     });
 
-    return Object.entries(map).map(([category, amount]) => {
-      const percentage = totalExpense > 0 ? Math.round((amount / totalExpense) * 100) : 0;
-      return { category, amount, percentage };
-    }).sort((a, b) => b.amount - a.amount);
+    // Compute total of only positive net values for percentage
+    Object.values(map).forEach(v => { if (v > 0) totalExpense += v; });
+
+    return Object.entries(map)
+      .filter(([_, amount]) => amount > 0)
+      .map(([category, amount]) => {
+        const percentage = totalExpense > 0 ? Math.round((amount / totalExpense) * 100) : 0;
+        return { category, amount, percentage };
+      })
+      .sort((a, b) => b.amount - a.amount);
   }, [filteredTransactions]);
 
   // Category spending pattern parser
@@ -873,12 +923,10 @@ export default function App() {
 
   // ── Month × Category comparison table data (RAW transactions, ignores filters) ──
   // Shows latest 6 months from RAW data, transposed (categories as rows, months as columns)
+  // Uses Net Spending = expenses − income (refunds) per category
+  // Categories sorted by total spend descending
   const monthCategoryTableData = useMemo(() => {
     const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const monthsMap: Record<string, string> = {
-      'Jan':'01','Feb':'02','Mar':'03','Apr':'04','May':'05','Jun':'06',
-      'Jul':'07','Aug':'08','Sep':'09','Oct':'10','Nov':'11','Dec':'12'
-    };
     // Generate last 6 months ending at current month (chronological order)
     const now = new Date();
     const monthsList: string[] = [];
@@ -886,10 +934,10 @@ export default function App() {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       monthsList.push(`${monthNames[d.getMonth()]}-${d.getFullYear()}`);
     }
-    // Collect expense categories present in those months
+    // Collect ALL categories present in those months (income or expense)
     const catSet = new Set<string>();
     transactions.forEach(t => {
-      if (t.type === 'expense' && t.date) {
+      if (t.date) {
         const p = t.date.split('-');
         if (p.length >= 2) {
           const key = `${monthNames[parseInt(p[1],10)-1]}-${p[0]}`;
@@ -897,79 +945,92 @@ export default function App() {
         }
       }
     });
-    const cats = Array.from(catSet);
-    // Build data[month][category] = total
+    // Build data[month][category] = net (expense − income)
     const data: Record<string, Record<string, number>> = {};
-    monthsList.forEach(m => { data[m] = {}; cats.forEach(c => { data[m][c] = 0; }); });
+    monthsList.forEach(m => { data[m] = {}; catSet.forEach(c => { data[m][c] = 0; }); });
     transactions.forEach(t => {
-      if (t.type === 'expense' && t.date) {
+      if (t.date) {
         const p = t.date.split('-');
         if (p.length >= 2) {
           const key = `${monthNames[parseInt(p[1],10)-1]}-${p[0]}`;
-          if (data[key]) data[key][t.category] = (data[key][t.category] || 0) + t.amount;
+          if (data[key]) {
+            const sign = t.type === 'expense' ? 1 : -1;
+            data[key][t.category] = (data[key][t.category] || 0) + sign * t.amount;
+          }
         }
       }
     });
+    // Sort categories by total net spend descending (highest first)
+    const cats = Array.from(catSet)
+      .map(c => ({ c, total: monthsList.reduce((s, m) => s + (data[m]?.[c] || 0), 0) }))
+      .filter(x => x.total > 0)
+      .sort((a, b) => b.total - a.total)
+      .map(x => x.c);
     return { months: monthsList, categories: cats, data };
   }, [transactions]);
 
-  // ── NEW: Month vs Spending chart data (respects dashboard filters) ──────────
-  // Default: last 3 months. When a category is filtered: extend to full current year.
+  // ── Month vs Spending chart data ────────────────────────────────────────
+  // RAW data, ignores dashboard filters (per Item 6).
+  // Default: last 4 months. Uses Net Spending = expense − income per category.
+  // Hides zero-value categories from chart and legend.
   const monthVsSpendingChartData = useMemo(() => {
     const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const now = new Date();
-    const hasCategoryFilter = filterCategories.length > 0;
 
-    // Determine the month range
-    let monthsList: string[] = [];
-    if (hasCategoryFilter) {
-      // Full current year (Jan to current month)
-      for (let m = 0; m <= now.getMonth(); m++) {
-        monthsList.push(`${monthNames[m]}-${now.getFullYear()}`);
-      }
-    } else {
-      // Last 3 months ending at current month
-      for (let i = 2; i >= 0; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        monthsList.push(`${monthNames[d.getMonth()]}-${d.getFullYear()}`);
-      }
+    // Last 4 months ending at current month
+    const monthsList: string[] = [];
+    for (let i = 3; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      monthsList.push(`${monthNames[d.getMonth()]}-${d.getFullYear()}`);
     }
 
-    // Filter transactions: expense only, within month list, matching selected categories
+    // Relevant transactions: any type, within month list
     const relevant = transactions.filter(t => {
-      if (t.type !== 'expense' || !t.date) return false;
+      if (!t.date) return false;
       const p = t.date.split('-');
       if (p.length < 2) return false;
       const key = `${monthNames[parseInt(p[1],10)-1]}-${p[0]}`;
-      if (!monthsList.includes(key)) return false;
-      if (hasCategoryFilter && !filterCategories.includes(t.category)) return false;
-      return true;
+      return monthsList.includes(key);
     });
 
-    // Categories shown as stacked segments
-    const visibleCats = hasCategoryFilter ? filterCategories : Array.from(new Set(relevant.map(t => t.category)));
+    // Compute net per [month][category]
+    const netByMonthCat: Record<string, Record<string, number>> = {};
+    monthsList.forEach(m => { netByMonthCat[m] = {}; });
+    relevant.forEach(t => {
+      const p = t.date.split('-');
+      const key = `${monthNames[parseInt(p[1],10)-1]}-${p[0]}`;
+      const sign = t.type === 'expense' ? 1 : -1;
+      netByMonthCat[key][t.category] = (netByMonthCat[key][t.category] || 0) + sign * t.amount;
+    });
 
-    // Build data
+    // Collect categories that have NET > 0 in at least one month (hide zeros entirely)
+    const catTotals: Record<string, number> = {};
+    monthsList.forEach(m => {
+      Object.entries(netByMonthCat[m]).forEach(([cat, val]) => {
+        if (val > 0) catTotals[cat] = (catTotals[cat] || 0) + val;
+      });
+    });
+    const visibleCats = Object.entries(catTotals)
+      .sort((a, b) => b[1] - a[1])
+      .map(([cat]) => cat);
+
+    // Build data: per-month rows with only the visible categories that have positive net in that month
     const result = monthsList.map(month => {
       const row: { month: string; total: number; segments: { category: string; amount: number }[] } = {
         month, total: 0, segments: []
       };
       visibleCats.forEach(cat => {
-        const sum = relevant
-          .filter(t => {
-            const p = t.date.split('-');
-            const key = `${monthNames[parseInt(p[1],10)-1]}-${p[0]}`;
-            return key === month && t.category === cat;
-          })
-          .reduce((s, t) => s + t.amount, 0);
-        if (sum > 0) row.segments.push({ category: cat, amount: sum });
-        row.total += sum;
+        const val = netByMonthCat[month][cat] || 0;
+        if (val > 0) {
+          row.segments.push({ category: cat, amount: val });
+          row.total += val;
+        }
       });
       return row;
     });
 
-    return { months: monthsList, categories: visibleCats, data: result, hasCategoryFilter };
-  }, [transactions, filterCategories]);
+    return { months: monthsList, categories: visibleCats, data: result };
+  }, [transactions]);
 
   // ── Budget: future months only (current + next 5) ─────────────────────────
   const futureBudgetMonths = useMemo(() => {
@@ -1137,6 +1198,10 @@ export default function App() {
 
   // Excel Style Column Exporter matching: Date, Category, Description, Amount In, Amount Out, Balance, Month, Entry Mode
   const handleExportToExcelStyleCsv = () => {
+    if (transactions.length === 0) {
+      alert('No transactions to export.');
+      return;
+    }
     // Generate accurate data representation conforming directly to user's original spreadsheet
     let csvContent = "Date,Category,Description,Amount In,Amount Out,Balance,Month,Entry Mode\n";
     
@@ -1173,14 +1238,18 @@ export default function App() {
 
     csvContent += rows.join('\n');
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `aurelius_finance_export_${new Date().toISOString().substring(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const ok = downloadFile(
+      `finance-tracker-export-${new Date().toISOString().substring(0, 10)}.csv`,
+      csvContent
+    );
+    if (ok) {
+      // Brief visual confirmation
+      setTimeout(() => {
+        const msg = `Exported ${transactions.length} transactions. Check your Downloads folder.`;
+        // Try a non-blocking toast — but on Capacitor alerts work
+        try { alert(msg); } catch {}
+      }, 100);
+    }
   };
 
   // Restore seeded data and erase localStorage state
@@ -1224,6 +1293,48 @@ export default function App() {
     setTimeout(() => setAddSuccessToast(false), 2500);
   };
 
+  // ── Robust download helper — works in browser AND Capacitor WebView ─────
+  // Falls back to data URI + window.open for native WebViews that block blob downloads
+  const downloadFile = (filename: string, content: string, mimeType: string = 'text/csv;charset=utf-8') => {
+    try {
+      const blob = new Blob([content], { type: mimeType });
+
+      // Primary path: blob URL + anchor click (works in most modern browsers)
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      // Cleanup
+      setTimeout(() => {
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }, 300);
+      return true;
+    } catch (err) {
+      console.error('Blob download failed, falling back to data URI:', err);
+      try {
+        // Fallback for restricted WebViews — base64 data URI
+        const encoded = encodeURIComponent(content);
+        const dataUri = `data:${mimeType},${encoded}`;
+        const win = window.open(dataUri, '_blank');
+        if (!win) {
+          // Last-resort: navigate current window (user can save from there)
+          window.location.href = dataUri;
+        }
+        return true;
+      } catch (err2) {
+        console.error('Data URI fallback also failed:', err2);
+        alert('Could not export the file. Please make sure the app has Storage permission.');
+        return false;
+      }
+    }
+  };
+
   // ── CSV Export ────────────────────────────────────────────────────────────
   const handleCsvExport = () => {
     if (transactions.length === 0) {
@@ -1248,15 +1359,7 @@ export default function App() {
       t.entryMode || (t.isSmsDetected ? 'auto' : 'manual')
     ].map(escape).join(','));
     const csv = [header.join(','), ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `finance-tracker-export-${new Date().toISOString().substring(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadFile(`finance-tracker-export-${new Date().toISOString().substring(0, 10)}.csv`, csv);
   };
 
   // ── CSV Parser (simple but handles quoted commas) ────────────────────────
@@ -1579,15 +1682,15 @@ export default function App() {
 
       <div className="flex-1 flex flex-col overflow-hidden bg-[#050505]">
 
-      {/* Top bar with settings button */}
-      <div className="flex justify-between items-center px-4 pt-3 pb-1 shrink-0">
+      {/* Top bar with settings button — safe-area padding for status bar */}
+      <div className="flex justify-between items-center px-4 pb-1 shrink-0" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}>
         <div className="flex items-center gap-2">
           <img src="/icons/icon-72x72.png" className="w-6 h-6 rounded-lg" alt="logo" />
           <span className="text-[11px] font-mono text-[#d4af37] font-semibold tracking-wide">Finance Tracker</span>
         </div>
         <button
           onClick={() => setNavTab('settings')}
-          className={`p-1.5 rounded-xl transition-all ${navTab === 'settings' ? 'bg-[#d4af37]/20 text-[#d4af37]' : 'text-gray-500 hover:text-white'}`}
+          className={`p-1.5 rounded-xl transition-all mt-1 ${navTab === 'settings' ? 'bg-[#d4af37]/20 text-[#d4af37]' : 'text-gray-500 hover:text-white'}`}
         >
           <Info size={18} />
         </button>
@@ -1612,15 +1715,19 @@ export default function App() {
           return '';
         };
 
-        const activeMonthKey = filterMonth === 'All' ? 'May-2026' : filterMonth;
+        const activeMonthKey = smartAlertsMonth;
 
-        // Budgets matched against actual spent for this specific month
+        // Budgets matched against NET spent (expense − income refunds) for this specific month
         const monthBudgetsList = budgets
-          .filter(b => (b.month || 'May-2026') === activeMonthKey)
+          .filter(b => (b.month || currentMonthLabel) === activeMonthKey)
           .map(b => {
-            const spent = transactions
+            const expenseSum = transactions
               .filter(t => t.type === 'expense' && t.category === b.category && getTransactionMonthKey(t.date) === activeMonthKey)
               .reduce((sum, current) => sum + current.amount, 0);
+            const incomeSum = transactions
+              .filter(t => t.type === 'income' && t.category === b.category && getTransactionMonthKey(t.date) === activeMonthKey)
+              .reduce((sum, current) => sum + current.amount, 0);
+            const spent = Math.max(0, expenseSum - incomeSum);
             return {
               category: b.category,
               limit: b.limit,
@@ -1830,7 +1937,7 @@ export default function App() {
 
                 {/* Month vs Spending — Grouped Vertical Bar Chart */}
                 {(() => {
-                  const { months, categories: visibleCats, data, hasCategoryFilter } = monthVsSpendingChartData;
+                  const { months, categories: visibleCats, data } = monthVsSpendingChartData;
 
                   // Find max single-category value (not month total) — used to size bars
                   let maxBar = 0;
@@ -1853,9 +1960,6 @@ export default function App() {
                         <h3 className="font-serif text-[12px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5">
                           <BrandIcon size={12} className="text-[#d4af37]" /> Month vs Spending
                         </h3>
-                        <span className="text-[9px] font-mono text-gray-500">
-                          {hasCategoryFilter ? 'Current Year' : 'Last 3 Months'}
-                        </span>
                       </div>
 
                       {data.every(d => d.total === 0) ? (
@@ -1925,11 +2029,22 @@ export default function App() {
               /* CONDITIONAL SUBVIEW B: MONTHLY BUDGET COMPARISON IN DASHBOARD */
               <div className="space-y-4">
                 
-                {/* Overall month text overview */}
+                {/* Overall month overview + month dropdown */}
                 <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-3 flex justify-between items-center">
                   <div className="flex flex-col">
                     <span className="text-[8px] text-gray-500 font-mono">Calculated For</span>
-                    <span className="text-white text-xs font-mono font-bold uppercase">{activeMonthKey}</span>
+                    <div className="relative mt-0.5">
+                      <select
+                        value={smartAlertsMonth}
+                        onChange={e => setSmartAlertsMonth(e.target.value)}
+                        className="bg-[#141414] border border-[#222] rounded-lg pl-2 pr-6 py-1 text-xs font-mono font-bold text-white uppercase outline-none focus:border-[#d4af37] cursor-pointer appearance-none"
+                      >
+                        {smartAlertsAvailableMonths.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                      <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[#d4af37] pointer-events-none" />
+                    </div>
                   </div>
                   <div className="text-right flex flex-col items-end">
                     <span className="text-[8px] text-gray-500 font-mono">Active Limits Set</span>
@@ -2000,8 +2115,8 @@ export default function App() {
               </div>
             )}
 
-            {/* === MONTH vs CATEGORY TABLE (bottom, RAW data, ignores filters, latest 6 months, transposed) === */}
-            {(() => {
+            {/* === MONTH vs CATEGORY TABLE — only on Recent Activity, not Smart Alerts === */}
+            {dashboardView === 'transactions' && (() => {
               const { months: allMonths, categories: cats, data } = monthCategoryTableData;
               if (cats.length === 0) return null;
               // Hide months where no category has any spending
@@ -2152,11 +2267,12 @@ export default function App() {
                     const curr = parseFloat(formAmount) || 0;
                     setFormAmount(String(Math.max(0, curr - 100)));
                   }}
-                  className="bg-[#121212] border border-[#222] hover:border-gray-600 text-[#d4af37] font-mono font-extrabold w-11 h-11 rounded-xl flex items-center justify-center text-base active:scale-95 transition-all shrink-0 select-none shadow-md"
+                  style={{ flexBasis: '15%' }}
+                  className="bg-[#121212] border border-[#222] hover:border-gray-600 text-[#d4af37] font-mono font-extrabold h-11 rounded-xl flex items-center justify-center text-sm active:scale-95 transition-all shrink-0 select-none shadow-md"
                 >
                   -100
                 </button>
-                <div className="relative flex-1">
+                <div className="relative" style={{ flexBasis: '70%', flexGrow: 1 }}>
                   <input
                     type="number"
                     required
@@ -2172,7 +2288,8 @@ export default function App() {
                     const curr = parseFloat(formAmount) || 0;
                     setFormAmount(String(curr + 100));
                   }}
-                  className="bg-[#121212] border border-[#222] hover:border-gray-600 text-[#d4af37] font-mono font-extrabold w-11 h-11 rounded-xl flex items-center justify-center text-base active:scale-95 transition-all shrink-0 select-none shadow-md"
+                  style={{ flexBasis: '15%' }}
+                  className="bg-[#121212] border border-[#222] hover:border-gray-600 text-[#d4af37] font-mono font-extrabold h-11 rounded-xl flex items-center justify-center text-sm active:scale-95 transition-all shrink-0 select-none shadow-md"
                 >
                   +100
                 </button>
@@ -2305,12 +2422,70 @@ export default function App() {
                 <label className="text-[10px] text-[#d4af37] uppercase font-mono tracking-wider font-semibold">Manage Categories</label>
                 <button 
                   type="button"
-                  onClick={() => setShowManageCategoriesModal(false)}
+                  onClick={() => { setShowManageCategoriesModal(false); setShowNewCategoryModal(false); }}
                   className="text-gray-400 hover:text-white"
                 >
                   ×
                 </button>
               </div>
+
+              {/* + Add Category button at the top */}
+              {!showNewCategoryModal && (
+                <button
+                  type="button"
+                  onClick={() => setShowNewCategoryModal(true)}
+                  className="w-full bg-[#d4af37]/10 border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-lg hover:bg-[#d4af37]/20 transition-all flex items-center justify-center gap-2"
+                >
+                  <Plus size={12} /> Add Category
+                </button>
+              )}
+
+              {/* Create Custom Category — appears INSIDE Manage when + Add clicked */}
+              {showNewCategoryModal && (
+                <div className="p-3 bg-[#0a0a0a] border border-[#d4af37]/30 rounded-lg flex flex-col gap-2.5 animate-fade-in">
+                  <label className="text-[10px] text-[#d4af37] uppercase tracking-wider font-semibold block">Create Custom Category</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Icon"
+                      value={newCategoryIcon}
+                      onChange={(e) => setNewCategoryIcon(e.target.value)}
+                      className="bg-[#050505] border border-[#222] rounded-lg p-2 text-xs w-16 text-center text-white focus:outline-none focus:border-[#d4af37]"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Category Name"
+                      value={newCategoryName}
+                      onChange={(e) => setNewCategoryName(e.target.value)}
+                      className="bg-[#050505] border border-[#222] rounded-lg p-2 text-xs flex-1 text-white focus:outline-none focus:border-[#d4af37]"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setShowNewCategoryModal(false); setNewCategoryName(''); }}
+                      className="flex-1 bg-transparent border border-[#333] text-gray-400 py-2 rounded-lg text-[10px] uppercase tracking-wider hover:bg-[#1a1a1a] transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (newCategoryName.trim()) {
+                          saveNewCategory(newCategoryName.trim(), newCategoryIcon);
+                          setShowNewCategoryModal(false);
+                          setNewCategoryName('');
+                        }
+                      }}
+                      className="flex-1 bg-[#d4af37] text-black py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider hover:opacity-90 transition-all"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* List of categories with delete */}
               <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1 no-scrollbar">
                 {categories.map((cat) => (
                   <div key={cat} className="flex justify-between items-center bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg p-2 text-xs">
@@ -2653,42 +2828,61 @@ export default function App() {
             </button>
           </div>
 
-          {/* Current Setup Listing */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 mt-4 space-y-3">
-            <div className="flex justify-between items-center border-b border-[#222] pb-1.5">
-              <span className="text-[10px] font-mono text-white">Active Limits List ({budgets.length})</span>
-              <span className="text-[8px] font-mono text-gray-500 uppercase font-bold">{budgetMonth} selection view</span>
-            </div>
-            <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
-              {budgets.length === 0 ? (
-                <p className="text-[10px] text-gray-500 italic text-center py-4 font-mono">No category limits exist. Create above!</p>
-              ) : (
-                [...budgets]
-                  .sort((a, b) => (a.month || 'May-2026').localeCompare(b.month || 'May-2026') || a.category.localeCompare(b.category))
-                  .map((b, idx) => (
-                    <div key={`${b.category}-${b.month}-${idx}`} className="bg-[#141414] rounded-lg p-2.5 border border-[#1d1d1d] flex justify-between items-center text-[10px] font-mono">
-                      <div>
-                        <span className="text-white block font-medium">{b.category}</span>
-                        <span className="text-gray-500 text-[8px]">Period: <strong className="text-gray-300 font-mono text-[9px]">{b.month || 'May-2026'}</strong></span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-[#d4af37] font-bold">₹{b.limit.toLocaleString('en-IN')}</span>
-                        <button
-                          onClick={() => {
-                            if (confirm(`Do you want to discard the ${b.category} budget limit for ${b.month || 'May-2026'}?`)) {
-                              setBudgets(prev => prev.filter(item => !(item.category === b.category && (item.month || 'May-2026') === (b.month || 'May-2026'))));
-                            }
-                          }}
-                          className="text-gray-500 hover:text-red-400 text-[10px]"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </div>
-                  ))
-              )}
-            </div>
-          </div>
+          {/* Current Setup Listing — current & future months only, past are locked */}
+          {(() => {
+            const monthsMap: Record<string,string> = {
+              'Jan':'01','Feb':'02','Mar':'03','Apr':'04','May':'05','Jun':'06',
+              'Jul':'07','Aug':'08','Sep':'09','Oct':'10','Nov':'11','Dec':'12'
+            };
+            const now = new Date();
+            const curKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+            // Only show budgets for current or future months
+            const visibleBudgets = budgets.filter(b => {
+              const month = b.month || currentMonthLabel;
+              const [mn, yr] = month.split('-');
+              const mc = monthsMap[mn];
+              if (!mc || !yr) return false;
+              return `${yr}-${mc}` >= curKey;
+            });
+            return (
+              <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 mt-4 space-y-3">
+                <div className="flex justify-between items-center border-b border-[#222] pb-1.5">
+                  <span className="text-[10px] font-mono text-white">Active Limits List ({visibleBudgets.length})</span>
+                  <span className="text-[8px] font-mono text-gray-500 uppercase font-bold">{budgetMonth} view</span>
+                </div>
+                <p className="text-[8px] text-gray-600 font-mono italic">Past budgets are locked and hidden. Only current &amp; future limits are editable.</p>
+                <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                  {visibleBudgets.length === 0 ? (
+                    <p className="text-[10px] text-gray-500 italic text-center py-4 font-mono">No current/future budgets. Create above!</p>
+                  ) : (
+                    [...visibleBudgets]
+                      .sort((a, b) => (a.month || currentMonthLabel).localeCompare(b.month || currentMonthLabel) || a.category.localeCompare(b.category))
+                      .map((b, idx) => (
+                        <div key={`${b.category}-${b.month}-${idx}`} className="bg-[#141414] rounded-lg p-2.5 border border-[#1d1d1d] flex justify-between items-center text-[10px] font-mono">
+                          <div>
+                            <span className="text-white block font-medium">{b.category}</span>
+                            <span className="text-gray-500 text-[8px]">Period: <strong className="text-gray-300 font-mono text-[9px]">{b.month || currentMonthLabel}</strong></span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-[#d4af37] font-bold">₹{b.limit.toLocaleString('en-IN')}</span>
+                            <button
+                              onClick={() => {
+                                if (confirm(`Discard the ${b.category} budget for ${b.month || currentMonthLabel}?`)) {
+                                  setBudgets(prev => prev.filter(item => !(item.category === b.category && (item.month || currentMonthLabel) === (b.month || currentMonthLabel))));
+                                }
+                              }}
+                              className="text-gray-500 hover:text-red-400 text-[10px]"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
         </div>
       )}
@@ -3149,7 +3343,7 @@ export default function App() {
     </div>
 
     {/* Bottom Navigation Bar - PhonePe style with prominent Add */}
-    <div className="h-20 bg-[#090909] border-t border-[#141414] px-2 flex justify-between items-center text-gray-500 select-none shrink-0 relative">
+    <div className="bg-[#090909] border-t border-[#141414] px-2 flex justify-between items-center text-gray-500 select-none shrink-0 relative" style={{ height: 'calc(5rem + env(safe-area-inset-bottom, 0px))', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
 
       {/* Dashboard */}
       <button onClick={() => setNavTab('dashboard')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'dashboard' ? 'text-[#d4af37]' : 'text-gray-500'}`}>
