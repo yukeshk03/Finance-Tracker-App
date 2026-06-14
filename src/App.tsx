@@ -355,8 +355,15 @@ export default function App() {
   });
 
   const saveNewCategory = (name: string, icon: string) => {
-    const newCats = [...categories, name];
-    const newIcons = { ...categoryIcons, [name]: icon || '⭐' };
+    const trimmedName = name.trim();
+    if (!trimmedName) return;
+    // Avoid duplicates
+    if (categories.includes(trimmedName)) return;
+    // Sensible icon default if user left it empty or with the placeholder text
+    let finalIcon = (icon || '').trim();
+    if (!finalIcon || finalIcon === '[?]️' || finalIcon === '[?]' || finalIcon === '⭐') finalIcon = '⭐';
+    const newCats = [...categories, trimmedName];
+    const newIcons = { ...categoryIcons, [trimmedName]: finalIcon };
     setCategories(newCats);
     setCategoryIcons(newIcons);
     localStorage.setItem('aurelius_categories', JSON.stringify(newCats));
@@ -836,32 +843,34 @@ export default function App() {
 
   // Category wise spending representation for filtered selection
   const categorySpendingList = useMemo(() => {
-    // Net Spending = Total Sent (expense) − Total Received (income) per category
-    const map: Record<string, number> = {};
-    let totalExpense = 0;
+    // Net Spending per category = expenses − income refunds (within the filtered set)
+    // A category is included only if it has positive net spending in the filtered period.
+    const map: Record<string, { expense: number; income: number }> = {};
 
     filteredTransactions.forEach(t => {
-      if (t.type === 'expense') {
-        map[t.category] = (map[t.category] || 0) + t.amount;
-      } else if (t.type === 'income') {
-        // Refund/reimbursement in the same category subtracts
-        if (map[t.category] !== undefined || filteredTransactions.some(x => x.type === 'expense' && x.category === t.category)) {
-          map[t.category] = (map[t.category] || 0) - t.amount;
-        }
-      }
+      if (!map[t.category]) map[t.category] = { expense: 0, income: 0 };
+      if (t.type === 'expense') map[t.category].expense += t.amount;
+      else if (t.type === 'income') map[t.category].income += t.amount;
     });
 
-    // Compute total of only positive net values for percentage
-    Object.values(map).forEach(v => { if (v > 0) totalExpense += v; });
+    // Compute net per category and filter to positive net values only
+    const netList = Object.entries(map)
+      .map(([category, { expense, income }]) => ({
+        category,
+        amount: Math.max(0, expense - income) // Net = expense − income, never negative
+      }))
+      .filter(item => item.amount > 0);
 
-    return Object.entries(map)
-      .filter(([_, amount]) => amount > 0)
-      .map(([category, amount]) => {
-        const percentage = totalExpense > 0 ? Math.round((amount / totalExpense) * 100) : 0;
-        return { category, amount, percentage };
-      })
+    // Total of positive nets for percentage scaling
+    const totalNet = netList.reduce((s, item) => s + item.amount, 0);
+
+    return netList
+      .map(item => ({
+        ...item,
+        percentage: totalNet > 0 ? Math.round((item.amount / totalNet) * 100) : 0
+      }))
       .sort((a, b) => b.amount - a.amount);
-  }, [filteredTransactions]);
+  }, [filteredTransactions, categories]);
 
   // Category spending pattern parser
   const weeklySpendingTrend = useMemo(() => {
@@ -1846,7 +1855,7 @@ export default function App() {
                                     : 'bg-[#0a0a0a] border-[#222] text-gray-400 hover:border-gray-500'
                                 }`}
                               >
-                                {categoryIcons[cat]} {cat}
+                                {categoryIcons[cat] || '⭐'} {cat}
                               </button>
                             );
                           })}
@@ -1905,28 +1914,31 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Traditional Static Visual Progress Bar - Expenditure by category title */}
+                {/* Expenditure by Category - shows TOP categories by Net Spending */}
                 <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
                   <h3 className="font-serif text-[11px] tracking-wide text-[#e5e5e5] italic border-b border-[#222] pb-1.5 mb-3 flex items-center gap-1.5">
                     <BrandIcon size={11} className="text-[#d4af37]" /> Expenditure by Category
                   </h3>
-                  
+
                   {categorySpendingList.length === 0 ? (
                     <p className="text-[10px] text-gray-500 italic text-center py-2 font-mono">No expenses registered in this period.</p>
                   ) : (
                     <div className="space-y-2.5">
-                      {categorySpendingList.slice(0, 4).map(item => (
+                      {categorySpendingList.slice(0, 6).map(item => (
                         <div key={item.category} className="w-full">
-                          <div className="flex justify-between items-center text-[9px] mb-0.5 font-mono">
-                            <span className="text-gray-400 truncate">{item.category}</span>
-                            <span className="text-white">
+                          <div className="flex justify-between items-center text-[10px] mb-0.5 font-mono">
+                            <span className="text-gray-400 truncate flex items-center gap-1">
+                              <span className="shrink-0">{categoryIcons[item.category] || '⭐'}</span>
+                              <span className="truncate">{item.category}</span>
+                            </span>
+                            <span className="text-white whitespace-nowrap pl-2">
                               ₹{item.amount.toLocaleString('en-IN')} ({item.percentage}%)
                             </span>
                           </div>
-                          <div className="w-full h-1 bg-[#1a1a1a] rounded-full overflow-hidden">
-                            <div 
-                              className="bg-[#d4af37] h-full" 
-                              style={{ width: `${item.percentage}%` }} 
+                          <div className="w-full h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
+                            <div
+                              className="bg-[#d4af37] h-full transition-all duration-300"
+                              style={{ width: `${Math.max(item.percentage, 2)}%` }}
                             />
                           </div>
                         </div>
@@ -2337,7 +2349,7 @@ export default function App() {
                   className="w-full bg-[#141414] border border-[#222] rounded-xl p-3 pr-10 text-xs text-[#e5e5e5] focus:outline-none focus:border-[#d4af37] appearance-none cursor-pointer"
                 >
                   {categories.map(category => (
-                    <option key={category} value={category}>{categoryIcons[category]} {category}</option>
+                    <option key={category} value={category}>{categoryIcons[category] || '⭐'} {category}</option>
                   ))}
                   <option value="ADD_NEW">+ Add New Category</option>
                 </select>
@@ -2490,7 +2502,7 @@ export default function App() {
                 {categories.map((cat) => (
                   <div key={cat} className="flex justify-between items-center bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg p-2 text-xs">
                     <div className="flex items-center gap-2 text-[#e5e5e5]">
-                      <span>{categoryIcons[cat]}</span>
+                      <span>{categoryIcons[cat] || '⭐'}</span>
                       <span>{cat}</span>
                     </div>
                     <button
@@ -2643,7 +2655,7 @@ export default function App() {
                   <div className="relative">
                     <select value={parseWizard.proposedCategory} onChange={e => setParseWizard({ ...parseWizard, proposedCategory: e.target.value })}
                       className="w-full bg-[#050505] p-2 pr-7 rounded-lg text-xs font-mono text-[#e5e5e5] border border-[#222] focus:outline-none focus:border-[#d4af37] appearance-none cursor-pointer">
-                      {categories.map(c => <option key={c} value={c}>{categoryIcons[c]} {c}</option>)}
+                      {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                     </select>
                     <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
                   </div>
@@ -2920,7 +2932,7 @@ export default function App() {
                   <div className="relative">
                     <select value={editCategory} onChange={e => setEditCategory(e.target.value)}
                       className="w-full bg-[#141414] border border-[#222] rounded-xl p-2.5 pr-8 text-xs text-white appearance-none outline-none focus:border-[#d4af37]">
-                      {categories.map(c => <option key={c} value={c}>{categoryIcons[c]} {c}</option>)}
+                      {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                     </select>
                     <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                   </div>
@@ -2969,7 +2981,7 @@ export default function App() {
                 <select value={historyFilterCategory} onChange={e => setHistoryFilterCategory(e.target.value)}
                   className="bg-[#141414] border border-[#222] rounded-lg py-1.5 px-2 text-[10px] text-white appearance-none outline-none focus:border-[#d4af37]">
                   <option value="All">All</option>
-                  {categories.map(c => <option key={c} value={c}>{categoryIcons[c]} {c}</option>)}
+                  {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                 </select>
               </div>
               <div className="flex flex-col gap-1">
@@ -3040,7 +3052,7 @@ export default function App() {
                     <div className="flex gap-1.5 text-[9px] text-gray-500 font-mono mt-0.5">
                       <span>{item.date}</span>
                       <span>•</span>
-                      <span>{categoryIcons[item.category]} {item.category}</span>
+                      <span>{categoryIcons[item.category] || '⭐'} {item.category}</span>
                     </div>
                   </div>
                   <div className="text-right shrink-0">
