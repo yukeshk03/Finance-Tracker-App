@@ -1247,18 +1247,10 @@ export default function App() {
 
     csvContent += rows.join('\n');
 
-    const ok = downloadFile(
+    downloadFile(
       `finance-tracker-export-${new Date().toISOString().substring(0, 10)}.csv`,
       csvContent
     );
-    if (ok) {
-      // Brief visual confirmation
-      setTimeout(() => {
-        const msg = `Exported ${transactions.length} transactions. Check your Downloads folder.`;
-        // Try a non-blocking toast — but on Capacitor alerts work
-        try { alert(msg); } catch {}
-      }, 100);
-    }
   };
 
   // Restore seeded data and erase localStorage state
@@ -1302,45 +1294,52 @@ export default function App() {
     setTimeout(() => setAddSuccessToast(false), 2500);
   };
 
-  // ── Robust download helper — works in browser AND Capacitor WebView ─────
-  // Falls back to data URI + window.open for native WebViews that block blob downloads
-  const downloadFile = (filename: string, content: string, mimeType: string = 'text/csv;charset=utf-8') => {
+  // ── Robust export — works in browser AND Capacitor WebView ──────────────
+  // Strategy: on mobile/WebView, use the native Share sheet (most reliable way
+  // to get a file OUT of an Android app). On desktop, use normal download.
+  const downloadFile = async (filename: string, content: string, mimeType: string = 'text/csv;charset=utf-8') => {
+    // 1) Try native Web Share with a file (Android Chrome / WebView supports this)
+    try {
+      const file = new File([content], filename, { type: mimeType });
+      const nav = navigator as Navigator & { canShare?: (d: { files: File[] }) => boolean; share?: (d: unknown) => Promise<void> };
+      if (nav.share && nav.canShare && nav.canShare({ files: [file] })) {
+        await nav.share({ files: [file], title: filename, text: 'Finance Tracker backup' });
+        return true;
+      }
+    } catch (err) {
+      // user may have cancelled the share sheet — that's fine, fall through
+      console.log('Share not available or cancelled:', err);
+    }
+
+    // 2) Try classic blob download (works on desktop browsers)
     try {
       const blob = new Blob([content], { type: mimeType });
-
-      // Primary path: blob URL + anchor click (works in most modern browsers)
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.download = filename;
-      link.target = '_blank';
       link.rel = 'noopener';
       link.style.display = 'none';
       document.body.appendChild(link);
       link.click();
-      // Cleanup
       setTimeout(() => {
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
       }, 300);
       return true;
     } catch (err) {
-      console.error('Blob download failed, falling back to data URI:', err);
-      try {
-        // Fallback for restricted WebViews — base64 data URI
-        const encoded = encodeURIComponent(content);
-        const dataUri = `data:${mimeType},${encoded}`;
-        const win = window.open(dataUri, '_blank');
-        if (!win) {
-          // Last-resort: navigate current window (user can save from there)
-          window.location.href = dataUri;
-        }
-        return true;
-      } catch (err2) {
-        console.error('Data URI fallback also failed:', err2);
-        alert('Could not export the file. Please make sure the app has Storage permission.');
-        return false;
-      }
+      console.error('Blob download failed:', err);
+    }
+
+    // 3) Last resort — open as data URI so the user can copy/save manually
+    try {
+      const dataUri = `data:${mimeType},${encodeURIComponent(content)}`;
+      window.open(dataUri, '_blank');
+      return true;
+    } catch (err) {
+      console.error('All export methods failed:', err);
+      alert('Could not export automatically. Please grant Storage permission to the app and try again.');
+      return false;
     }
   };
 
