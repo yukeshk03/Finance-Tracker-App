@@ -3430,6 +3430,45 @@ export default function App() {
             <p className="text-[#888] text-[10px] font-mono">Finance Tracker v1.0.0</p>
             <p className="text-[#555] text-[9px] font-mono leading-relaxed">All data stays on your device. No login required.</p>
           </div>
+
+          {/* ── Danger Zone ─────────────────────────────────────── */}
+          <div className="bg-[#0f0f0f] border border-red-900/50 rounded-2xl p-4 space-y-3">
+            <div className="flex items-center gap-2 border-b border-red-900/30 pb-2">
+              <span className="text-red-500 text-[14px]">⚠</span>
+              <span className="font-mono text-[10px] uppercase tracking-widest text-red-500 font-semibold">Danger Zone</span>
+            </div>
+            <p className="text-gray-500 text-[9px] font-mono leading-relaxed">
+              Permanent actions. These cannot be undone. Export your data first if you want to keep it.
+            </p>
+
+            {/* Delete All Data */}
+            <div className="flex items-center justify-between py-1 border-t border-red-900/20">
+              <div>
+                <p className="text-white text-[11px] font-mono font-semibold">Delete All Data</p>
+                <p className="text-gray-500 text-[9px] font-mono mt-0.5">Wipes transactions, SMS records &amp; budgets</p>
+              </div>
+              <button
+                onClick={() => {
+                  if (window.confirm('⚠ DELETE ALL DATA?\n\nThis will permanently erase:\n• All transactions\n• All SMS records\n• All budget limits\n\nThis cannot be undone.\n\nAre you sure?')) {
+                    if (window.confirm('Last warning — are you absolutely sure you want to delete everything?')) {
+                      localStorage.removeItem('aurelius_transactions');
+                      localStorage.removeItem('aurelius_sms');
+                      localStorage.removeItem('aurelius_budgets');
+                      setTransactions([]);
+                      setSmsMessages([]);
+                      setBudgets([]);
+                      setNavTab('dashboard');
+                      alert('All data deleted.');
+                    }
+                  }
+                }}
+                className="bg-red-950/40 border border-red-800/60 text-red-400 font-mono text-[10px] uppercase tracking-wider px-3 py-2 rounded-xl hover:bg-red-900/40 active:scale-95 transition-all"
+              >
+                Delete All
+              </button>
+            </div>
+          </div>
+
         </div>
       )}
 
