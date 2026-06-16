@@ -1636,27 +1636,66 @@ export default function App() {
             Pick a way to save your data. Share is the most reliable on phone.
           </p>
 
-          {/* Share button — most reliable on Android */}
+          {/* Share button — uses native Capacitor Share on phone, Web Share on PWA, falls back gracefully */}
           <button
             onClick={async () => {
+              const fileName = exportTextModal.filename;
+              const fileContent = exportTextModal.content;
+              const fileMime = exportTextModal.mimeType;
+
+              // 1) Try native Capacitor Share (most reliable on installed APK).
+              // We access plugins through the global Capacitor object so the bundler
+              // doesn't try to resolve these modules at build time.
+              try {
+                const cap = (window as any).Capacitor;
+                if (cap && cap.isNativePlatform && cap.isNativePlatform() && cap.Plugins) {
+                  const Filesystem = cap.Plugins.Filesystem;
+                  const Share = cap.Plugins.Share;
+                  if (Filesystem && Share) {
+                    // Write file to app cache directory (Capacitor 7 uses 'CACHE' as the Directory value)
+                    const writeRes = await Filesystem.writeFile({
+                      path: fileName,
+                      data: fileContent,
+                      directory: 'CACHE',
+                      encoding: 'utf8'
+                    });
+                    // Trigger the Android share sheet with the file URI
+                    await Share.share({
+                      title: 'Finance Tracker Backup',
+                      text: 'Finance Tracker data export',
+                      url: writeRes.uri,
+                      dialogTitle: 'Save backup to...'
+                    });
+                    return;
+                  }
+                }
+              } catch (err: any) {
+                if (err && (err.message === 'Share canceled' || /cancel/i.test(String(err.message)))) return;
+                console.warn('Native share failed:', err);
+                // fall through to Web Share / final fallback
+              }
+
+              // 2) Try Web Share API (browsers, PWA)
               try {
                 const nav = navigator as Navigator & { share?: (d: unknown) => Promise<void>; canShare?: (d: { files: File[] }) => boolean };
                 if (typeof File !== 'undefined' && nav.share && nav.canShare) {
-                  const file = new File([exportTextModal.content], exportTextModal.filename, { type: exportTextModal.mimeType });
+                  const file = new File([fileContent], fileName, { type: fileMime });
                   if (nav.canShare({ files: [file] })) {
-                    await nav.share({ files: [file], title: exportTextModal.filename });
+                    await nav.share({ files: [file], title: fileName });
                     return;
                   }
                 }
                 if (nav.share) {
-                  await nav.share({ title: exportTextModal.filename, text: exportTextModal.content });
+                  await nav.share({ title: fileName, text: fileContent });
                   return;
                 }
-                alert('Share not available on this device. Use Copy instead.');
               } catch (err: any) {
                 if (err && err.name === 'AbortError') return;
-                alert('Share failed. Use Copy instead.');
+                console.warn('Web share failed:', err);
               }
+
+              // 3) Last-resort message
+              alert('Share not available on this device. Use Copy All Text instead and paste into Drive/Notes.');
             }}
             className="w-full bg-[#d4af37] text-black font-mono font-bold text-[11px] uppercase tracking-wider py-3 rounded-xl hover:opacity-90 transition-all"
           >
@@ -1684,15 +1723,6 @@ export default function App() {
           >
             Copy All Text
           </button>
-
-          {/* Download (works on desktop browsers) */}
-          <a
-            href={`data:${exportTextModal.mimeType},${encodeURIComponent(exportTextModal.content)}`}
-            download={exportTextModal.filename}
-            className="w-full border border-[#333] text-gray-300 font-mono text-[11px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#141414] transition-all text-center block"
-          >
-            Download (browser)
-          </a>
 
           {/* Preview / Manual copy */}
           <details className="border border-[#1a1a1a] rounded-xl">
