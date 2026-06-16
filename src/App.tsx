@@ -32,7 +32,7 @@ import {
 } from 'lucide-react';
 
 import { Transaction, SmsMessage, BudgetLimit } from './types';
-import { HISTORICAL_TRANSACTIONS } from './historicalData';
+
 
 // Mobile: Direct Gemini API helper
 const GEMINI_API_KEY_STORAGE = 'finance_tracker_gemini_key';
@@ -300,10 +300,10 @@ export default function App() {
       try {
         return JSON.parse(saved);
       } catch (e) {
-        return HISTORICAL_TRANSACTIONS;
+        return [];
       }
     }
-    return HISTORICAL_TRANSACTIONS;
+    return [];
   });
 
   // Track user-added custom SMS templates or lists
@@ -1253,16 +1253,17 @@ export default function App() {
     );
   };
 
-  // Restore seeded data and erase localStorage state
+  // Erase all local data (transactions, SMS, budgets)
   const handleRestoreDefaultSeed = () => {
-    if (window.confirm('Are you sure you want to reset simulated records back to original April-May 2026 spreadsheet data? This overrides custom listings.')) {
+    if (window.confirm('Erase ALL transactions, SMS records, and budgets? This cannot be undone. Export your data first if you want to keep it.')) {
       localStorage.removeItem('aurelius_transactions');
       localStorage.removeItem('aurelius_sms');
       localStorage.removeItem('aurelius_budgets');
-      setTransactions(HISTORICAL_TRANSACTIONS);
+      setTransactions([]);
       setSmsMessages([]);
+      setBudgets([]);
       setNavTab('dashboard');
-      alert('Preloaded seeded logs imported successfully!');
+      alert('All local data cleared.');
     }
   };
 
@@ -1293,54 +1294,17 @@ export default function App() {
     setAddSuccessToast(true);
     setTimeout(() => setAddSuccessToast(false), 2500);
   };
+  // ── Export modal state — shows CSV in a copyable text area as last resort
+  const [exportTextModal, setExportTextModal] = useState<{ filename: string; content: string; mimeType: string } | null>(null);
 
-  // ── Robust export — works in browser AND Capacitor WebView ──────────────
-  // Strategy: on mobile/WebView, use the native Share sheet (most reliable way
-  // to get a file OUT of an Android app). On desktop, use normal download.
-  const downloadFile = async (filename: string, content: string, mimeType: string = 'text/csv;charset=utf-8') => {
-    // 1) Try native Web Share with a file (Android Chrome / WebView supports this)
-    try {
-      const file = new File([content], filename, { type: mimeType });
-      const nav = navigator as Navigator & { canShare?: (d: { files: File[] }) => boolean; share?: (d: unknown) => Promise<void> };
-      if (nav.share && nav.canShare && nav.canShare({ files: [file] })) {
-        await nav.share({ files: [file], title: filename, text: 'Finance Tracker backup' });
-        return true;
-      }
-    } catch (err) {
-      // user may have cancelled the share sheet — that's fine, fall through
-      console.log('Share not available or cancelled:', err);
-    }
-
-    // 2) Try classic blob download (works on desktop browsers)
-    try {
-      const blob = new Blob([content], { type: mimeType });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      link.rel = 'noopener';
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => {
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-      }, 300);
-      return true;
-    } catch (err) {
-      console.error('Blob download failed:', err);
-    }
-
-    // 3) Last resort — open as data URI so the user can copy/save manually
-    try {
-      const dataUri = `data:${mimeType},${encodeURIComponent(content)}`;
-      window.open(dataUri, '_blank');
-      return true;
-    } catch (err) {
-      console.error('All export methods failed:', err);
-      alert('Could not export automatically. Please grant Storage permission to the app and try again.');
-      return false;
-    }
+  // ── Robust export — opens an in-app modal with the data + share/copy options.
+  // This is the most reliable approach in Capacitor WebView since file downloads
+  // are unreliable. The modal lets the user share via Android share sheet OR copy text.
+  const downloadFile = (filename: string, content: string, mimeType: string = 'text/csv;charset=utf-8') => {
+    // ALWAYS open the in-app modal first. The modal has buttons for Share + Copy
+    // + a regular download link that works on desktop. This way the user ALWAYS
+    // sees something visible after tapping Export — no silent failures.
+    setExportTextModal({ filename, content, mimeType });
   };
 
   // ── CSV Export ────────────────────────────────────────────────────────────
@@ -1655,6 +1619,94 @@ export default function App() {
           </p>
         </div>
       )}
+
+          {/* Export Modal — visible from any tab. Lets user share, copy, or download CSV */}
+    {exportTextModal && (
+      <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 animate-fade-in" onClick={() => setExportTextModal(null)}>
+        <div className="bg-[#0a0a0a] border border-[#d4af37]/40 rounded-2xl p-4 max-w-[420px] w-full max-h-[85vh] flex flex-col gap-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="flex justify-between items-center border-b border-[#222] pb-2">
+            <div>
+              <p className="text-[10px] font-mono text-[#d4af37] uppercase tracking-wider font-bold">Export Ready</p>
+              <p className="text-[9px] font-mono text-gray-500 truncate">{exportTextModal.filename}</p>
+            </div>
+            <button onClick={() => setExportTextModal(null)} className="text-gray-400 hover:text-white text-xl leading-none px-1">×</button>
+          </div>
+
+          <p className="text-[10px] font-mono text-gray-400">
+            Pick a way to save your data. Share is the most reliable on phone.
+          </p>
+
+          {/* Share button — most reliable on Android */}
+          <button
+            onClick={async () => {
+              try {
+                const nav = navigator as Navigator & { share?: (d: unknown) => Promise<void>; canShare?: (d: { files: File[] }) => boolean };
+                if (typeof File !== 'undefined' && nav.share && nav.canShare) {
+                  const file = new File([exportTextModal.content], exportTextModal.filename, { type: exportTextModal.mimeType });
+                  if (nav.canShare({ files: [file] })) {
+                    await nav.share({ files: [file], title: exportTextModal.filename });
+                    return;
+                  }
+                }
+                if (nav.share) {
+                  await nav.share({ title: exportTextModal.filename, text: exportTextModal.content });
+                  return;
+                }
+                alert('Share not available on this device. Use Copy instead.');
+              } catch (err: any) {
+                if (err && err.name === 'AbortError') return;
+                alert('Share failed. Use Copy instead.');
+              }
+            }}
+            className="w-full bg-[#d4af37] text-black font-mono font-bold text-[11px] uppercase tracking-wider py-3 rounded-xl hover:opacity-90 transition-all"
+          >
+            Share / Save to Drive
+          </button>
+
+          {/* Copy button */}
+          <button
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(exportTextModal.content);
+                alert('Copied to clipboard. Paste into any note or sheet app.');
+              } catch {
+                // Fallback for old browsers
+                const ta = document.createElement('textarea');
+                ta.value = exportTextModal.content;
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); alert('Copied to clipboard.'); }
+                catch { alert('Could not copy. Use the text area below to copy manually.'); }
+                document.body.removeChild(ta);
+              }
+            }}
+            className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[11px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#d4af37]/10 transition-all"
+          >
+            Copy All Text
+          </button>
+
+          {/* Download (works on desktop browsers) */}
+          <a
+            href={`data:${exportTextModal.mimeType},${encodeURIComponent(exportTextModal.content)}`}
+            download={exportTextModal.filename}
+            className="w-full border border-[#333] text-gray-300 font-mono text-[11px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#141414] transition-all text-center block"
+          >
+            Download (browser)
+          </a>
+
+          {/* Preview / Manual copy */}
+          <details className="border border-[#1a1a1a] rounded-xl">
+            <summary className="cursor-pointer text-[10px] font-mono text-gray-400 px-3 py-2">View raw data</summary>
+            <textarea
+              readOnly
+              value={exportTextModal.content}
+              className="w-full bg-[#050505] border-t border-[#1a1a1a] text-[10px] font-mono text-gray-300 p-2 h-40 outline-none resize-none"
+              onClick={e => (e.target as HTMLTextAreaElement).select()}
+            />
+          </details>
+        </div>
+      </div>
+    )}
 
           {/* Simulated App Banner Alert for push notifications */}
     {incomingSmsBanner && (
