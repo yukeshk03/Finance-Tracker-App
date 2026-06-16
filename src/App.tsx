@@ -1969,7 +1969,10 @@ export default function App() {
                           <input
                             type="date"
                             value={startDate}
-                            onChange={(e) => setStartDate(e.target.value)}
+                            onChange={(e) => {
+                              setStartDate(e.target.value);
+                              if (e.target.value) setFilterMonth('All'); // date set → clear month
+                            }}
                             className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl py-2 pl-3 pr-2 text-[11px] text-[#e5e5e5] outline-none focus:border-[#d4af37] appearance-none"
                           />
                         </div>
@@ -1978,15 +1981,24 @@ export default function App() {
                           <input
                             type="date"
                             value={endDate}
-                            onChange={(e) => setEndDate(e.target.value)}
+                            onChange={(e) => {
+                              setEndDate(e.target.value);
+                              if (e.target.value) setFilterMonth('All'); // date set → clear month
+                            }}
                             className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl py-2 pl-3 pr-2 text-[11px] text-[#e5e5e5] outline-none focus:border-[#d4af37] appearance-none"
                           />
                         </div>
                       </div>
 
-                      {/* 5. Clear All */}
+                      {/* 5. Clear All — resets month back to current month */}
                       <button
-                        onClick={() => { setFilterCategories([]); setFilterMonth('All'); setStartDate(''); setEndDate(''); setSearchQuery(''); }}
+                        onClick={() => {
+                          setFilterCategories([]);
+                          setFilterMonth(currentMonthDefault);
+                          setStartDate('');
+                          setEndDate('');
+                          setSearchQuery('');
+                        }}
                         className="w-full bg-[#d4af37]/10 border border-[#d4af37]/20 text-[#d4af37] hover:bg-[#d4af37]/20 text-[10px] font-mono py-2 rounded-xl transition-colors uppercase tracking-widest font-semibold cursor-pointer"
                       >
                         Clear All Filters
@@ -3078,17 +3090,31 @@ export default function App() {
             <div className="grid grid-cols-2 gap-2">
               <div className="flex flex-col gap-1">
                 <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Start</label>
-                <input type="date" value={historyStartDate} onChange={e => setHistoryStartDate(e.target.value)}
+                <input type="date" value={historyStartDate}
+                  onChange={e => {
+                    setHistoryStartDate(e.target.value);
+                    if (e.target.value) setHistoryMonthFilter('All');
+                  }}
                   className="bg-[#141414] border border-[#222] rounded-lg py-1.5 px-2 text-[10px] text-white outline-none focus:border-[#d4af37]" />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">End</label>
-                <input type="date" value={historyEndDate} onChange={e => setHistoryEndDate(e.target.value)}
+                <input type="date" value={historyEndDate}
+                  onChange={e => {
+                    setHistoryEndDate(e.target.value);
+                    if (e.target.value) setHistoryMonthFilter('All');
+                  }}
                   className="bg-[#141414] border border-[#222] rounded-lg py-1.5 px-2 text-[10px] text-white outline-none focus:border-[#d4af37]" />
               </div>
             </div>
             {(historyMonthFilter !== currentMonthDefault || historyFilterCategory !== 'All' || historyFilterType !== 'All' || historyStartDate || historyEndDate) && (
-              <button onClick={() => { setHistoryMonthFilter(currentMonthDefault); setHistoryFilterCategory('All'); setHistoryFilterType('All'); setHistoryStartDate(''); setHistoryEndDate(''); }}
+              <button onClick={() => {
+                setHistoryMonthFilter(currentMonthDefault);
+                setHistoryFilterCategory('All');
+                setHistoryFilterType('All');
+                setHistoryStartDate('');
+                setHistoryEndDate('');
+              }}
                 className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">
                 Reset to Current Month
               </button>
