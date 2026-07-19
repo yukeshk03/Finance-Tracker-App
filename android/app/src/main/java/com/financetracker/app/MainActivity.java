@@ -46,7 +46,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
-    protected void onResume() {
+    public void onResume() {
         super.onResume();
         checkExportReminder(); // re-check every time app comes to foreground
     }
