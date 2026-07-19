@@ -138,7 +138,9 @@ public class TransactionParser {
             record.put("id",            smsId);
             record.put("sender",        sender);
             record.put("text",          body);
-            record.put("timestamp",     new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.ROOT).format(new Date(smsReceivedMillis)));
+            SimpleDateFormat isoUtc = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.ROOT);
+            isoUtc.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+            record.put("timestamp",     isoUtc.format(new Date(smsReceivedMillis)));
             record.put("status",        "pending");
             record.put("parsedAmount",  amount);
             record.put("parsedType",    txType);
