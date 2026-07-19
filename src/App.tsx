@@ -1431,64 +1431,125 @@ export default function App() {
         setCsvImportPreview({ rows: [], errors: ['File is empty or has no data rows.'], raw: text });
         return;
       }
-      const header = parseCsvLine(lines[0]).map(h => h.toLowerCase());
-      const idx = {
-        date: header.indexOf('date'),
-        type: header.indexOf('type'),
-        amount: header.indexOf('amount'),
-        category: header.indexOf('category'),
-        description: header.indexOf('description'),
-        bank: header.indexOf('bank'),
-        mode: header.indexOf('entry mode'),
-      };
-      const missing: string[] = [];
-      if (idx.date < 0) missing.push('Date');
-      if (idx.amount < 0) missing.push('Amount');
-      if (idx.category < 0) missing.push('Category');
-      if (idx.type < 0) missing.push('Type');
-      if (missing.length) {
-        setCsvImportPreview({
-          rows: [],
-          errors: [`Required column(s) missing: ${missing.join(', ')}. Header must include Date, Type, Amount, Category.`],
-          raw: text
-        });
-        return;
-      }
+      const header = parseCsvLine(lines[0]).map(h => h.toLowerCase().trim());
+
+      // ── Auto-detect format ──────────────────────────────────────────────
+      // Format A (export format): Date, Category, Description, Amount In, Amount Out, Balance, Month, Entry Mode
+      // Format B (import template): Date, Type, Amount, Category, Description, Bank, Entry Mode
+      const isExportFormat = header.includes('amount in') || header.includes('amount out');
+
       const errors: string[] = [];
       const rows: Transaction[] = [];
-      for (let i = 1; i < lines.length; i++) {
-        const cols = parseCsvLine(lines[i]);
-        const rowNum = i + 1;
-        const date = cols[idx.date];
-        const amountStr = cols[idx.amount];
-        const category = cols[idx.category];
-        const typeStr = (cols[idx.type] || '').toLowerCase();
-        if (!date) { errors.push(`Row ${rowNum}: Date is empty.`); continue; }
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-          errors.push(`Row ${rowNum}: Date "${date}" must be in YYYY-MM-DD format.`); continue;
+
+      if (isExportFormat) {
+        // ── FORMAT A: our own export file ──
+        const ix = {
+          date:     header.indexOf('date'),
+          cat:      header.indexOf('category'),
+          desc:     header.indexOf('description'),
+          amtIn:    header.indexOf('amount in'),
+          amtOut:   header.indexOf('amount out'),
+          mode:     header.indexOf('entry mode'),
+        };
+        const missing: string[] = [];
+        if (ix.date < 0) missing.push('Date');
+        if (ix.cat < 0) missing.push('Category');
+        if (ix.amtIn < 0 && ix.amtOut < 0) missing.push('Amount In / Amount Out');
+        if (missing.length) {
+          setCsvImportPreview({ rows: [], errors: [`Missing columns: ${missing.join(', ')}`], raw: text });
+          return;
         }
-        if (!amountStr) { errors.push(`Row ${rowNum}: Amount is empty.`); continue; }
-        const amount = parseFloat(amountStr);
-        if (isNaN(amount) || amount <= 0) {
-          errors.push(`Row ${rowNum}: Amount "${amountStr}" must be a positive number.`); continue;
+        for (let i = 1; i < lines.length; i++) {
+          const cols = parseCsvLine(lines[i]);
+          const rowNum = i + 1;
+          const date = (cols[ix.date] || '').trim();
+          const cat  = (cols[ix.cat]  || '').trim();
+          const desc = ix.desc >= 0 ? (cols[ix.desc] || '').trim() : '';
+          const amtInStr  = ix.amtIn  >= 0 ? (cols[ix.amtIn]  || '').trim() : '';
+          const amtOutStr = ix.amtOut >= 0 ? (cols[ix.amtOut] || '').trim() : '';
+          const mode = ix.mode >= 0 ? (cols[ix.mode] || '').trim() : 'manual';
+
+          if (!date) { errors.push(`Row ${rowNum}: Date empty`); continue; }
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { errors.push(`Row ${rowNum}: Date "${date}" must be YYYY-MM-DD`); continue; }
+          if (!cat) { errors.push(`Row ${rowNum}: Category empty`); continue; }
+
+          // Auto-create unknown categories
+          if (!categories.includes(cat)) categories.push(cat);
+
+          const amtIn  = parseFloat(amtInStr.replace(/[^0-9.]/g, ''));
+          const amtOut = parseFloat(amtOutStr.replace(/[^0-9.]/g, ''));
+          const hasIn  = !isNaN(amtIn)  && amtIn  > 0;
+          const hasOut = !isNaN(amtOut) && amtOut > 0;
+
+          if (!hasIn && !hasOut) { errors.push(`Row ${rowNum}: Both Amount In and Amount Out are empty`); continue; }
+
+          // If both have values (shouldn't happen but handle gracefully)
+          // Treat as whichever is larger
+          const type: 'income' | 'expense' = hasIn && (!hasOut || amtIn >= amtOut) ? 'income' : 'expense';
+          const amount = type === 'income' ? amtIn : amtOut;
+
+          rows.push({
+            id: 'tx-csv-' + Date.now() + '-' + i,
+            date, amount, category: cat, type,
+            description: desc,
+            entryMode: mode === 'auto' ? 'auto' : 'manual',
+            isSmsDetected: mode === 'auto',
+          });
         }
-        if (!category) { errors.push(`Row ${rowNum}: Category is empty.`); continue; }
-        if (!categories.includes(category)) {
-          errors.push(`Row ${rowNum}: Category "${category}" is not a known category. Known: ${categories.join(', ')}.`); continue;
+
+      } else {
+        // ── FORMAT B: import template (Date, Type, Amount, Category, ...) ──
+        const idx = {
+          date:     header.indexOf('date'),
+          type:     header.indexOf('type'),
+          amount:   header.indexOf('amount'),
+          category: header.indexOf('category'),
+          description: header.indexOf('description'),
+          bank:     header.indexOf('bank'),
+          mode:     header.indexOf('entry mode'),
+        };
+        const missing: string[] = [];
+        if (idx.date < 0) missing.push('Date');
+        if (idx.amount < 0) missing.push('Amount');
+        if (idx.category < 0) missing.push('Category');
+        if (idx.type < 0) missing.push('Type');
+        if (missing.length) {
+          setCsvImportPreview({
+            rows: [],
+            errors: [`Required column(s) missing: ${missing.join(', ')}. Header must include Date, Type, Amount, Category.`],
+            raw: text
+          });
+          return;
         }
-        let type: 'income' | 'expense';
-        if (typeStr === 'income' || typeStr === 'received') type = 'income';
-        else if (typeStr === 'expense' || typeStr === 'sent') type = 'expense';
-        else { errors.push(`Row ${rowNum}: Type "${cols[idx.type]}" must be "Income" or "Expense".`); continue; }
-        rows.push({
-          id: 'tx-csv-' + Date.now() + '-' + i,
-          date, amount, category, type,
-          description: idx.description >= 0 ? (cols[idx.description] || '') : '',
-          bankName: idx.bank >= 0 ? (cols[idx.bank] || undefined) : undefined,
-          entryMode: idx.mode >= 0 && cols[idx.mode] === 'auto' ? 'auto' : 'manual',
-          isSmsDetected: idx.mode >= 0 && cols[idx.mode] === 'auto'
-        });
+        for (let i = 1; i < lines.length; i++) {
+          const cols = parseCsvLine(lines[i]);
+          const rowNum = i + 1;
+          const date     = (cols[idx.date] || '').trim();
+          const amountStr = (cols[idx.amount] || '').trim();
+          const category = (cols[idx.category] || '').trim();
+          const typeStr  = (cols[idx.type] || '').toLowerCase().trim();
+          if (!date) { errors.push(`Row ${rowNum}: Date is empty.`); continue; }
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { errors.push(`Row ${rowNum}: Date "${date}" must be YYYY-MM-DD.`); continue; }
+          if (!amountStr) { errors.push(`Row ${rowNum}: Amount is empty.`); continue; }
+          const amount = parseFloat(amountStr.replace(/[^0-9.]/g, ''));
+          if (isNaN(amount) || amount <= 0) { errors.push(`Row ${rowNum}: Amount "${amountStr}" must be a positive number.`); continue; }
+          if (!category) { errors.push(`Row ${rowNum}: Category is empty.`); continue; }
+          if (!categories.includes(category)) categories.push(category);
+          let type: 'income' | 'expense';
+          if (typeStr === 'income' || typeStr === 'received') type = 'income';
+          else if (typeStr === 'expense' || typeStr === 'sent') type = 'expense';
+          else { errors.push(`Row ${rowNum}: Type "${cols[idx.type]}" must be "Income" or "Expense".`); continue; }
+          rows.push({
+            id: 'tx-csv-' + Date.now() + '-' + i,
+            date, amount, category, type,
+            description: idx.description >= 0 ? (cols[idx.description] || '') : '',
+            bankName: idx.bank >= 0 ? (cols[idx.bank] || undefined) : undefined,
+            entryMode: idx.mode >= 0 && cols[idx.mode] === 'auto' ? 'auto' : 'manual',
+            isSmsDetected: idx.mode >= 0 && cols[idx.mode] === 'auto',
+          });
+        }
       }
+
       setCsvImportPreview({ rows, errors, raw: text });
     };
     reader.onerror = () => setCsvImportPreview({ rows: [], errors: ['Could not read the file.'], raw: '' });
