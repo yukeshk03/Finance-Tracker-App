@@ -285,6 +285,19 @@ const BulletChart = ({ spent, limit }: { spent: number; limit: number }) => {
 };
 
 // ── Brand icon — circle with square inside (Chinese coin style) ─────────────
+// ── Timezone-safe date helpers ────────────────────────────────────────────
+// toISOString() is UTC — in India (UTC+5:30) it gives YESTERDAY's date before
+// 5:30 AM. These helpers always use the device's local calendar date.
+const toLocalDateString = (d: Date): string => {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const todayLocal = (): string => toLocalDateString(new Date());
+const monthOf = (ds: string): string => {
+  const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const p = ds.split('-');
+  return `${MN[parseInt(p[1],10)-1]}-${p[0]}`;
+};
+
 const BrandIcon = ({ size = 12, className = '' }: { size?: number; className?: string }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className} style={{ display: 'inline-block', verticalAlign: 'middle' }}>
     <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" fill="none"/>
@@ -417,6 +430,23 @@ export default function App() {
   };
 
   // Pre-seed category budget limits
+  // ── Opening balances per month ────────────────────────────────────────
+  // Structure: { 'Jun-2026': { opening: 26000, closing: 38000 } }
+  const [monthBalances, setMonthBalances] = useState<Record<string, { opening?: number; closing?: number }>>(() => {
+    const saved = localStorage.getItem('ft_month_balances');
+    if (saved) { try { return JSON.parse(saved); } catch (e) { return {}; } }
+    return {};
+  });
+  useEffect(() => {
+    localStorage.setItem('ft_month_balances', JSON.stringify(monthBalances));
+  }, [monthBalances]);
+  const setMonthBalance = (month: string, field: 'opening' | 'closing', val: number | undefined) => {
+    setMonthBalances(prev => ({
+      ...prev,
+      [month]: { ...prev[month], [field]: val }
+    }));
+  };
+
   const [budgets, setBudgets] = useState<BudgetLimit[]>(() => {
     const saved = localStorage.getItem('aurelius_budgets');
     if (saved) {
@@ -464,6 +494,9 @@ export default function App() {
 
   // Sub-navigation on mobile dashboard (either transaction lists or monthly budget limits list)
   const [dashboardView, setDashboardView] = useState<'transactions' | 'budgets'>('transactions');
+  // Dashboard drill-down: week (1-5) and single day within the selected month
+  const [dashWeek, setDashWeek] = useState<number | null>(null);
+  const [dashDay, setDashDay] = useState<string | null>(null);
   const [isFiltersExpanded, setIsFiltersExpanded] = useState(false);
   const [geminiKey, setGeminiKeyState] = useState<string>(() => localStorage.getItem(GEMINI_API_KEY_STORAGE) || '');
   const [geminiKeySaved, setGeminiKeySaved] = useState(false);
@@ -479,7 +512,7 @@ export default function App() {
   const [budgetAmountInput, setBudgetAmountInput] = useState('');
 
   // New manual entry inputs
-  const [formDate, setFormDate] = useState(new Date().toISOString().substring(0, 10));
+  const [formDate, setFormDate] = useState(todayLocal());
   const [formCategory, setFormCategory] = useState('Food & Beverages');
   const [formDescription, setFormDescription] = useState('');
   const [formAmount, setFormAmount] = useState('');
@@ -528,6 +561,39 @@ export default function App() {
     return s ? parseInt(s, 10) : 7;
   });
 
+  // ── Export reminder ────────────────────────────────────────────────────
+  const [settingExportReminderDays, setSettingExportReminderDays] = useState<number>(() => {
+    const s = localStorage.getItem('ft_setting_export_reminder_days');
+    return s ? parseInt(s, 10) : 7;
+  });
+  const [lastExportDate, setLastExportDate] = useState<string>(() => {
+    return localStorage.getItem('ft_last_export_date') || '';
+  });
+  const recordExport = () => {
+    const today = todayLocal();
+    localStorage.setItem('ft_last_export_date', today);
+    setLastExportDate(today);
+    // Tell Java so it can cancel the reminder notification immediately
+    try {
+      const bridge = (window as any).AndroidBridge;
+      if (bridge && bridge.recordExportDate) bridge.recordExportDate(today);
+    } catch (e) { /* not native */ }
+  };
+  const exportOverdueDays = lastExportDate
+    ? Math.floor((new Date(todayLocal()).getTime() - new Date(lastExportDate).getTime()) / (1000 * 60 * 60 * 24))
+    : null;
+  const exportOverdue = transactions.length > 0 && (
+    lastExportDate === '' || (exportOverdueDays !== null && exportOverdueDays >= settingExportReminderDays)
+  );
+
+  useEffect(() => {
+    localStorage.setItem('ft_setting_export_reminder_days', String(settingExportReminderDays));
+    try {
+      const bridge = (window as any).AndroidBridge;
+      if (bridge && bridge.setExportReminderDays) bridge.setExportReminderDays(settingExportReminderDays);
+    } catch (e) { /* not native */ }
+  }, [settingExportReminderDays]);
+
   // Persist settings
   useEffect(() => { localStorage.setItem('ft_setting_sms_reader', String(settingSmsReader)); }, [settingSmsReader]);
   useEffect(() => { localStorage.setItem('ft_setting_tx_notif', String(settingTxNotif)); }, [settingTxNotif]);
@@ -553,6 +619,13 @@ export default function App() {
 
   // ── Dashboard: month×category table expand ────────────────────────────────
   const [tableExpanded, setTableExpanded] = useState(false);
+  // Balance widget visibility (hidden by default, eye icon reveals)
+  const [balanceVisible, setBalanceVisible] = useState(false);
+  // Ledger table period filter
+  const [ledgerPeriod, setLedgerPeriod] = useState<'6m' | '12m' | string>('6m');
+  // Expand/collapse expense and income rows in ledger table
+  const [ledgerExpenseExpanded, setLedgerExpenseExpanded] = useState(false);
+  const [ledgerIncomeExpanded, setLedgerIncomeExpanded] = useState(false);
 
   // ── Smart Alerts: month filter (current + past only) ─────────────────────
   const currentMonthLabel = (() => {
@@ -609,6 +682,7 @@ export default function App() {
     proposedCategory: string;
     description: string;
     originalSmsId?: string;
+    smsTimestamp?: string;   // ISO timestamp of when the SMS actually arrived
   } | null>(null);
 
   // SMS Generator Inputs (The simulator controls)
@@ -639,12 +713,16 @@ export default function App() {
 
   // ── SW message listener: notification tap opens SMS tab ─────────────────
   useEffect(() => {
-    // Register global handler for SW → App message
     (window as Window).__openSmsTab = (smsId?: string) => {
       setNavTab('sms');
       if (smsId) console.log('[App] Opening SMS tab for id:', smsId);
     };
-    return () => { delete (window as Window).__openSmsTab; };
+    // Export reminder notification opens Settings tab
+    (window as Window).__openSettingsTab = () => { setNavTab('settings'); };
+    return () => {
+      delete (window as Window).__openSmsTab;
+      delete (window as Window).__openSettingsTab;
+    };
   }, []);
 
   // ── SMS auto-expiry: use settingRetentionDays for both confirmed & skipped
@@ -843,31 +921,19 @@ export default function App() {
 
   // Category wise spending representation for filtered selection
   const categorySpendingList = useMemo(() => {
-    // Net Spending per category = expenses − income refunds (within the filtered set)
-    // A category is included only if it has positive net spending in the filtered period.
-    const map: Record<string, { expense: number; income: number }> = {};
-
+    // Gross spending — expense only, no subtraction of income
+    const map: Record<string, number> = {};
+    let total = 0;
     filteredTransactions.forEach(t => {
-      if (!map[t.category]) map[t.category] = { expense: 0, income: 0 };
-      if (t.type === 'expense') map[t.category].expense += t.amount;
-      else if (t.type === 'income') map[t.category].income += t.amount;
+      if (t.type === 'expense') {
+        map[t.category] = (map[t.category] || 0) + t.amount;
+        total += t.amount;
+      }
     });
-
-    // Compute net per category and filter to positive net values only
-    const netList = Object.entries(map)
-      .map(([category, { expense, income }]) => ({
-        category,
-        amount: Math.max(0, expense - income) // Net = expense − income, never negative
-      }))
-      .filter(item => item.amount > 0);
-
-    // Total of positive nets for percentage scaling
-    const totalNet = netList.reduce((s, item) => s + item.amount, 0);
-
-    return netList
-      .map(item => ({
-        ...item,
-        percentage: totalNet > 0 ? Math.round((item.amount / totalNet) * 100) : 0
+    return Object.entries(map)
+      .map(([category, amount]) => ({
+        category, amount,
+        percentage: total > 0 ? Math.round((amount / total) * 100) : 0
       }))
       .sort((a, b) => b.amount - a.amount);
   }, [filteredTransactions, categories]);
@@ -936,46 +1002,34 @@ export default function App() {
   // Categories sorted by total spend descending
   const monthCategoryTableData = useMemo(() => {
     const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    // Generate last 6 months ending at current month (chronological order)
     const now = new Date();
     const monthsList: string[] = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       monthsList.push(`${monthNames[d.getMonth()]}-${d.getFullYear()}`);
     }
-    // Collect ALL categories present in those months (income or expense)
-    const catSet = new Set<string>();
+    const keyOf = (ds: string) => { const p = ds.split('-'); return `${monthNames[parseInt(p[1],10)-1]}-${p[0]}`; };
+    // Separate expense and income maps: exp[month][cat], inc[month][cat]
+    const exp: Record<string, Record<string, number>> = {};
+    const inc: Record<string, Record<string, number>> = {};
+    monthsList.forEach(m => { exp[m] = {}; inc[m] = {}; });
     transactions.forEach(t => {
-      if (t.date) {
-        const p = t.date.split('-');
-        if (p.length >= 2) {
-          const key = `${monthNames[parseInt(p[1],10)-1]}-${p[0]}`;
-          if (monthsList.includes(key)) catSet.add(t.category);
-        }
-      }
+      if (!t.date) return;
+      const k = keyOf(t.date);
+      if (!monthsList.includes(k)) return;
+      const map = t.type === 'expense' ? exp : inc;
+      map[k][t.category] = (map[k][t.category] || 0) + t.amount;
     });
-    // Build data[month][category] = net (expense − income)
-    const data: Record<string, Record<string, number>> = {};
-    monthsList.forEach(m => { data[m] = {}; catSet.forEach(c => { data[m][c] = 0; }); });
-    transactions.forEach(t => {
-      if (t.date) {
-        const p = t.date.split('-');
-        if (p.length >= 2) {
-          const key = `${monthNames[parseInt(p[1],10)-1]}-${p[0]}`;
-          if (data[key]) {
-            const sign = t.type === 'expense' ? 1 : -1;
-            data[key][t.category] = (data[key][t.category] || 0) + sign * t.amount;
-          }
-        }
-      }
-    });
-    // Sort categories by total net spend descending (highest first)
-    const cats = Array.from(catSet)
-      .map(c => ({ c, total: monthsList.reduce((s, m) => s + (data[m]?.[c] || 0), 0) }))
-      .filter(x => x.total > 0)
-      .sort((a, b) => b.total - a.total)
-      .map(x => x.c);
-    return { months: monthsList, categories: cats, data };
+    // Expense categories sorted by total desc; income categories likewise
+    const totalsOf = (map: Record<string, Record<string, number>>) => {
+      const t: Record<string, number> = {};
+      monthsList.forEach(m => Object.entries(map[m]).forEach(([cat, v]) => { t[cat] = (t[cat] || 0) + v; }));
+      return t;
+    };
+    const expTotals = totalsOf(exp), incTotals = totalsOf(inc);
+    const expCats = Object.keys(expTotals).sort((a,b) => expTotals[b] - expTotals[a]);
+    const incCats = Object.keys(incTotals).sort((a,b) => incTotals[b] - incTotals[a]);
+    return { months: monthsList, expCats, incCats, exp, inc };
   }, [transactions]);
 
   // ── Month vs Spending chart data ────────────────────────────────────────
@@ -1101,7 +1155,8 @@ export default function App() {
         bankName: info.bankName || 'Bank',
         proposedCategory: proposedCat,
         description: '', // Leave description completely empty as requested so user types it manually
-        originalSmsId: newSms.id
+        originalSmsId: newSms.id,
+        smsTimestamp: newSms.timestamp
       });
 
       // Fire notification via Service Worker (works even when app is backgrounded)
@@ -1140,7 +1195,8 @@ export default function App() {
         bankName: 'HDFC Bank',
         proposedCategory: 'Grocery & Essentials',
         description: '', // Leave description empty so user can fill manually
-        originalSmsId: mockId
+        originalSmsId: mockId,
+        smsTimestamp: newSms.timestamp
       });
       setNavTab('sms');
     } finally {
@@ -1152,9 +1208,18 @@ export default function App() {
   const saveTransactionFromSmsWizard = () => {
     if (!parseWizard) return;
 
+    // ✅ Use the SMS ARRIVAL date, not today's date. If you confirm on 19-09
+    // an SMS that arrived 12-09, the transaction is dated 12-09.
+    // Converted through local timezone (IST-safe), never UTC.
+    let txDate = todayLocal();
+    if (parseWizard.smsTimestamp) {
+      const d = new Date(parseWizard.smsTimestamp);
+      if (!isNaN(d.getTime())) txDate = toLocalDateString(d);
+    }
+
     const newTx: Transaction = {
       id: 'tx-' + Date.now(),
-      date: new Date().toISOString().substring(0, 10),
+      date: txDate,
       category: parseWizard.proposedCategory,
       description: parseWizard.description.trim() || 'SMS Transaction',
       amount: parseWizard.amount,
@@ -1248,9 +1313,10 @@ export default function App() {
     csvContent += rows.join('\n');
 
     downloadFile(
-      `finance-tracker-export-${new Date().toISOString().substring(0, 10)}.csv`,
+      `finance-tracker-export-${todayLocal()}.csv`,
       csvContent
     );
+    recordExport();
   };
 
   // Erase all local data (transactions, SMS, budgets)
@@ -1331,7 +1397,8 @@ export default function App() {
       t.entryMode || (t.isSmsDetected ? 'auto' : 'manual')
     ].map(escape).join(','));
     const csv = [header.join(','), ...rows].join('\n');
-    downloadFile(`finance-tracker-export-${new Date().toISOString().substring(0, 10)}.csv`, csv);
+    downloadFile(`finance-tracker-export-${todayLocal()}.csv`, csv);
+    recordExport();
   };
 
   // ── CSV Parser (simple but handles quoted commas) ────────────────────────
@@ -1841,6 +1908,29 @@ export default function App() {
               </div>
             </div>
 
+            {/* ── Export overdue warning banner ── */}
+            {exportOverdue && (
+              <div className="bg-yellow-950/40 border border-yellow-700/50 rounded-xl p-3 flex items-center justify-between gap-2 animate-fade-in">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-yellow-400 text-base shrink-0">⚠</span>
+                  <div className="min-w-0">
+                    <p className="text-yellow-300 text-[11px] font-mono font-semibold">Backup overdue</p>
+                    <p className="text-yellow-600 text-[9px] font-mono">
+                      {lastExportDate
+                        ? `Last export: ${lastExportDate} · ${exportOverdueDays}d ago`
+                        : 'You have never exported your data'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleCsvExport}
+                  className="shrink-0 bg-[#d4af37] text-black font-mono font-bold text-[9px] uppercase tracking-wider px-3 py-1.5 rounded-lg hover:opacity-90 transition-all"
+                >
+                  Export Now
+                </button>
+              </div>
+            )}
+
             {/* Sub-tab navigation selector: Transactions vs Budgets view */}
             <div className="grid grid-cols-2 gap-1.5 bg-[#0a0a0a] p-1 rounded-xl border border-[#181818]">
               <button
@@ -1865,272 +1955,298 @@ export default function App() {
               </button>
             </div>
 
-            {/* Quick statistical aggregate blocks */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-[#0b0b0b] border border-[#1a1a1a] rounded-xl p-3 flex flex-col justify-between h-18">
-                <div className="flex items-center gap-1 text-gray-500">
-                  <TrendingUp size={11} className="text-emerald-400" />
-                  <span className="text-[9px] font-mono uppercase tracking-widest">Inflow</span>
-                </div>
-                <p className="text-sm font-semibold text-emerald-400 font-mono mt-0.5">
-                  ₹{currentMonthTotals.income.toLocaleString('en-IN')}
-                </p>
-              </div>
-
-              <div className="bg-[#0b0b0b] border border-[#1a1a1a] rounded-xl p-3 flex flex-col justify-between h-18">
-                <div className="flex items-center gap-1 text-gray-500">
-                  <TrendingDown size={11} className="text-rose-400" />
-                  <span className="text-[9px] font-mono uppercase tracking-widest">Outflow</span>
-                </div>
-                <p className="text-sm font-semibold text-rose-400 font-mono mt-0.5">
-                  ₹{currentMonthTotals.expense.toLocaleString('en-IN')}
-                </p>
-              </div>
-            </div>
-
             {/* CONDITIONAL SUBVIEW A: ACTIVITIES (TRANSACTIONS WITH FILTERS) */}
-            {dashboardView === 'transactions' ? (
+            {dashboardView === 'transactions' ? (() => {
+              const mNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+              const selMonth = filterMonth === 'All' ? currentMonthLabel : filterMonth;
+              const [selMn, selYr] = selMonth.split('-');
+              const selMi = mNames.indexOf(selMn);
+              const daysInSel = new Date(parseInt(selYr), selMi + 1, 0).getDate();
+              const weekOfDay = (dayNum: number) => Math.min(5, Math.ceil(dayNum / 7));
+              const catOk = (t: Transaction) => filterCategories.length === 0 || filterCategories.includes(t.category);
+              const inPeriod = (t: Transaction) => {
+                if (monthOf(t.date) !== selMonth) return false;
+                if (dashDay) return t.date === dashDay && catOk(t);
+                if (dashWeek) { const d = parseInt(t.date.split('-')[2], 10); if (weekOfDay(d) !== dashWeek) return false; }
+                return catOk(t);
+              };
+              const periodTx = transactions.filter(inPeriod);
+              const sent     = periodTx.filter(t => t.type === 'expense').reduce((s,t)=>s+t.amount, 0);
+              const received = periodTx.filter(t => t.type === 'income').reduce((s,t)=>s+t.amount, 0);
+
+              // delta vs previous period
+              let prevSent = 0; let deltaLabel = '';
+              const now = new Date();
+              if (dashDay) {
+                const pd = new Date(dashDay); pd.setDate(pd.getDate()-1);
+                prevSent = transactions.filter(t=>t.type==='expense'&&t.date===toLocalDateString(pd)&&catOk(t)).reduce((s,t)=>s+t.amount,0);
+                deltaLabel='vs prev day';
+              } else if (dashWeek && dashWeek > 1) {
+                prevSent = transactions.filter(t=>{if(t.type!=='expense'||monthOf(t.date)!==selMonth||!catOk(t))return false;const d=parseInt(t.date.split('-')[2],10);return weekOfDay(d)===dashWeek-1;}).reduce((s,t)=>s+t.amount,0);
+                deltaLabel='vs W'+(dashWeek-1);
+              } else if (!dashWeek && !dashDay) {
+                const pm = new Date(parseInt(selYr), selMi-1, 1);
+                const pKey = `${mNames[pm.getMonth()]}-${pm.getFullYear()}`;
+                prevSent = transactions.filter(t=>t.type==='expense'&&monthOf(t.date)===pKey&&catOk(t)).reduce((s,t)=>s+t.amount,0);
+                deltaLabel='vs '+mNames[pm.getMonth()];
+              }
+              const deltaPct = prevSent > 0 ? Math.round(((sent-prevSent)/prevSent)*100) : null;
+              const isCurMonth = selMonth===currentMonthLabel&&!dashWeek&&!dashDay;
+              const daysElapsed = dashDay?1:dashWeek?7:(isCurMonth?now.getDate():daysInSel);
+              const avgDay = daysElapsed > 0 ? Math.round(sent/daysElapsed) : 0;
+
+              // opening/closing chain
+              const allMonthsForChain: string[] = [];
+              for (let i=23;i>=0;i--) { const d=new Date(now.getFullYear(),now.getMonth()-i,1); allMonthsForChain.push(`${mNames[d.getMonth()]}-${d.getFullYear()}`); }
+              const txYrsChain = Array.from(new Set(transactions.map(t=>t.date?.split('-')[0]).filter(Boolean)));
+              txYrsChain.forEach(yr=>{ for(let m=0;m<12;m++){const k=`${mNames[m]}-${yr}`;if(!allMonthsForChain.includes(k))allMonthsForChain.push(k);} });
+              allMonthsForChain.sort((a,b)=>{const[am,ay]=a.split('-');const[bm,by]=b.split('-');return parseInt(ay)-parseInt(by)||mNames.indexOf(am)-mNames.indexOf(bm);});
+              let firstOpen: number|undefined, firstMonth='';
+              for(const m of allMonthsForChain){if(monthBalances[m]?.opening!==undefined){firstOpen=monthBalances[m].opening;firstMonth=m;break;}}
+              const balChain: Record<string,{opening:number;closing:number}> = {};
+              if(firstOpen!==undefined){
+                let run=firstOpen;
+                const si=allMonthsForChain.indexOf(firstMonth);
+                for(let i=si;i<allMonthsForChain.length;i++){
+                  const m=allMonthsForChain[i];
+                  const mIn=transactions.filter(t=>t.type==='income'&&monthOf(t.date)===m).reduce((s,t)=>s+t.amount,0);
+                  const mOut=transactions.filter(t=>t.type==='expense'&&monthOf(t.date)===m).reduce((s,t)=>s+t.amount,0);
+                  balChain[m]={opening:run, closing:run+mIn-mOut};
+                  run=run+mIn-mOut;
+                }
+              }
+              const curBal = balChain[selMonth];
+
+              // MoM bars
+              const momBars:{key:string;label:string;val:number}[] = [];
+              for(let i=5;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);const key=`${mNames[d.getMonth()]}-${d.getFullYear()}`;const val=transactions.filter(t=>t.type==='expense'&&monthOf(t.date)===key&&catOk(t)).reduce((s,t)=>s+t.amount,0);momBars.push({key,label:mNames[d.getMonth()],val});}
+              const momMax=Math.max(1,...momBars.map(b=>b.val));
+
+              // WoW bars
+              const wowBars:{w:number;val:number}[]=[1,2,3,4,5].map(w=>({w,val:transactions.filter(t=>{if(t.type!=='expense'||monthOf(t.date)!==selMonth||!catOk(t))return false;const d=parseInt(t.date.split('-')[2],10);return weekOfDay(d)===w;}).reduce((s,t)=>s+t.amount,0)})).filter(b=>b.w<=weekOfDay(daysInSel));
+              const wowMax=Math.max(1,...wowBars.map(b=>b.val));
+
+              // Day strip
+              const weekDays:{ds:string;dn:number;val:number}[]=[];
+              if(dashWeek){const startD=(dashWeek-1)*7+1;const endD=Math.min(dashWeek*7,daysInSel);for(let dn=startD;dn<=endD;dn++){const ds=`${selYr}-${String(selMi+1).padStart(2,'0')}-${String(dn).padStart(2,'0')}`;weekDays.push({ds,dn,val:transactions.filter(t=>t.type==='expense'&&t.date===ds&&catOk(t)).reduce((s,t)=>s+t.amount,0)});}}
+
+              // Donut
+              const catMap:Record<string,number>={};
+              periodTx.forEach(t=>{if(t.type==='expense')catMap[t.category]=(catMap[t.category]||0)+t.amount;});
+              const catList=Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
+              const top5=catList.slice(0,5);
+              const othersVal=catList.slice(5).reduce((s,x)=>s+x[1],0);
+              const donutData=othersVal>0?[...top5,['Others',othersVal] as [string,number]]:top5;
+              const donutTotal=donutData.reduce((s,x)=>s+x[1],0);
+              const palette=['#d4af37','#a8c5a0','#9ab7d8','#c9a4d4','#e8b4a0','#8a8272'];
+
+              const periodLabel = dashDay?dashDay:dashWeek?`W${dashWeek}·${selMonth}`:selMonth;
+
+              return (
               <div className="space-y-4">
-                
-                {/* Main filters drawer button */}
-                <div className="bg-[#121212] border border-[#1c1c1c] rounded-2xl overflow-hidden transition-all duration-300">
-                  <button 
-                    type="button" 
-                    onClick={() => setIsFiltersExpanded(!isFiltersExpanded)} 
-                    className="w-full p-4 flex justify-between items-center bg-[#121212] hover:bg-[#181818] transition-colors"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div className="bg-[#d4af37]/10 p-1.5 rounded-lg border border-[#d4af37]/20 text-[#d4af37]">
-                        <SlidersHorizontal size={14} />
-                      </div>
-                      <span className="text-[11px] font-mono font-bold text-[#e5e5e5] tracking-wide uppercase">Filter Transactions</span>
+
+                {/* ── FILTER BAR ── */}
+                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-3 space-y-2.5">
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <select value={selMonth} onChange={e=>{setFilterMonth(e.target.value);setDashWeek(null);setDashDay(null);}}
+                        className="w-full bg-[#141414] border border-[#222] rounded-lg py-2 px-3 pr-7 text-[11px] font-mono font-bold text-white appearance-none outline-none focus:border-[#d4af37] cursor-pointer">
+                        {availableMonths.map(m=><option key={m} value={m}>{m}</option>)}
+                        {!availableMonths.includes(currentMonthLabel)&&<option value={currentMonthLabel}>{currentMonthLabel}</option>}
+                      </select>
+                      <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#d4af37] pointer-events-none"/>
                     </div>
-                    <ChevronDown size={14} className={`text-gray-400 transition-transform duration-300 ${isFiltersExpanded ? 'rotate-180' : ''}`} />
-                  </button>
-
-                  {/* Filters detail drawer - expanded view */}
-                  {isFiltersExpanded && (
-                    <div className="p-4 pt-0 border-t border-[#1c1c1c] bg-[#121212] space-y-4 animate-fade-in mt-4">
-                      
-                      {/* 1. Category — multi-select chip UI */}
-                      <div className="flex flex-col gap-1.5">
-                        <div className="flex justify-between items-center">
-                          <label className="text-[9px] uppercase tracking-wider font-mono text-gray-500 font-semibold">Category (multi-select)</label>
-                          {filterCategories.length > 0 && (
-                            <button onClick={() => setFilterCategories([])} className="text-[8px] text-[#d4af37] font-mono hover:underline">Clear</button>
-                          )}
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {categories.map(cat => {
-                            const selected = filterCategories.includes(cat);
-                            return (
-                              <button
-                                key={cat}
-                                type="button"
-                                onClick={() => setFilterCategories(prev =>
-                                  selected ? prev.filter(c => c !== cat) : [...prev, cat]
-                                )}
-                                className={`px-2 py-1 rounded-lg text-[9px] font-mono border transition-all ${
-                                  selected
-                                    ? 'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37] font-semibold'
-                                    : 'bg-[#0a0a0a] border-[#222] text-gray-400 hover:border-gray-500'
-                                }`}
-                              >
-                                {categoryIcons[cat] || '⭐'} {cat}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        {filterCategories.length === 0 && <p className="text-[8px] text-gray-600 font-mono italic">None selected = All categories</p>}
-                      </div>
-
-                      {/* 2. Month filter */}
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-[9px] uppercase tracking-wider font-mono text-gray-500 font-semibold">Month</label>
-                        <div className="relative">
-                          <select
-                            value={filterMonth}
-                            onChange={(e) => { selectQuickMonthFilter(e.target.value); if (e.target.value !== 'All') setBudgetMonth(e.target.value); }}
-                            className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl py-2 px-3 pr-8 text-xs text-[#e5e5e5] appearance-none outline-none focus:border-[#d4af37] shadow-inner transition-colors cursor-pointer"
-                          >
-                            <option value="All">All Time</option>
-                            {availableMonths.map(m => (
-                              <option key={m} value={m}>{m}</option>
-                            ))}
-                          </select>
-                          <ChevronDown size={12} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
-                        </div>
-                      </div>
-
-                      {/* 3 & 4. Start / End date */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="flex flex-col gap-1.5">
-                          <label className="text-[9px] uppercase tracking-wider font-mono text-gray-500 font-semibold">Start</label>
-                          <input
-                            type="date"
-                            value={startDate}
-                            onChange={(e) => {
-                              setStartDate(e.target.value);
-                              if (e.target.value) setFilterMonth('All'); // date set → clear month
-                            }}
-                            className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl py-2 pl-3 pr-2 text-[11px] text-[#e5e5e5] outline-none focus:border-[#d4af37] appearance-none"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                          <label className="text-[9px] uppercase tracking-wider font-mono text-gray-500 font-semibold">End</label>
-                          <input
-                            type="date"
-                            value={endDate}
-                            onChange={(e) => {
-                              setEndDate(e.target.value);
-                              if (e.target.value) setFilterMonth('All'); // date set → clear month
-                            }}
-                            className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl py-2 pl-3 pr-2 text-[11px] text-[#e5e5e5] outline-none focus:border-[#d4af37] appearance-none"
-                          />
-                        </div>
-                      </div>
-
-                      {/* 5. Clear All — resets month back to current month */}
-                      <button
-                        onClick={() => {
-                          setFilterCategories([]);
-                          setFilterMonth(currentMonthDefault);
-                          setStartDate('');
-                          setEndDate('');
-                          setSearchQuery('');
-                        }}
-                        className="w-full bg-[#d4af37]/10 border border-[#d4af37]/20 text-[#d4af37] hover:bg-[#d4af37]/20 text-[10px] font-mono py-2 rounded-xl transition-colors uppercase tracking-widest font-semibold cursor-pointer"
-                      >
-                        Clear All Filters
-                      </button>
-                    </div>
+                    <input type="date" value={dashDay||''}
+                      onChange={e=>{const v=e.target.value;if(v){setDashDay(v);setDashWeek(null);setFilterMonth(monthOf(v));}else setDashDay(null);}}
+                      className={`flex-1 bg-[#141414] border rounded-lg py-2 px-2.5 text-[11px] font-mono outline-none focus:border-[#d4af37] ${dashDay?'border-[#d4af37] text-[#d4af37]':'border-[#222] text-gray-400'}`}/>
+                  </div>
+                  <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{scrollbarWidth:'none'}}>
+                    {categories.map(cat=>{const on=filterCategories.includes(cat);return(
+                      <button key={cat} type="button" onClick={()=>setFilterCategories(prev=>on?prev.filter(x=>x!==cat):[...prev,cat])}
+                        className={`px-2.5 py-1 rounded-full text-[9px] font-mono border whitespace-nowrap shrink-0 transition-all ${on?'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37] font-bold':'bg-[#0a0a0a] border-[#222] text-gray-500'}`}>
+                        {categoryIcons[cat]||'⭐'} {cat}
+                      </button>);
+                    })}
+                  </div>
+                  {(dashDay||dashWeek||filterCategories.length>0||selMonth!==currentMonthLabel)&&(
+                    <button onClick={()=>{setFilterMonth(currentMonthLabel);setDashWeek(null);setDashDay(null);setFilterCategories([]);}}
+                      className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">↺ Reset to {currentMonthLabel}</button>
                   )}
                 </div>
 
-                {/* Expenditure by Category - shows TOP categories by Net Spending */}
-                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
-                  <h3 className="font-serif text-[11px] tracking-wide text-[#e5e5e5] italic border-b border-[#222] pb-1.5 mb-3 flex items-center gap-1.5">
-                    <BrandIcon size={11} className="text-[#d4af37]" /> Expenditure by Category
-                  </h3>
-
-                  {categorySpendingList.length === 0 ? (
-                    <p className="text-[10px] text-gray-500 italic text-center py-2 font-mono">No expenses registered in this period.</p>
-                  ) : (
-                    <div className="space-y-2.5">
-                      {categorySpendingList.slice(0, 6).map(item => (
-                        <div key={item.category} className="w-full">
-                          <div className="flex justify-between items-center text-[10px] mb-0.5 font-mono">
-                            <span className="text-gray-400 truncate flex items-center gap-1">
-                              <span className="shrink-0">{categoryIcons[item.category] || '⭐'}</span>
-                              <span className="truncate">{item.category}</span>
-                            </span>
-                            <span className="text-white whitespace-nowrap pl-2">
-                              ₹{item.amount.toLocaleString('en-IN')} ({item.percentage}%)
-                            </span>
-                          </div>
-                          <div className="w-full h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
-                            <div
-                              className="bg-[#d4af37] h-full transition-all duration-300"
-                              style={{ width: `${Math.max(item.percentage, 2)}%` }}
-                            />
-                          </div>
-                        </div>
-                      ))}
+                {/* ── INFLOW | OUTFLOW cards ── */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3">
+                    <div className="flex items-center gap-1 mb-1">
+                      <TrendingUp size={11} className="text-emerald-400"/>
+                      <span className="text-[9px] font-mono uppercase tracking-widest text-gray-500">Inflow</span>
                     </div>
-                  )}
+                    <p className="text-xl font-mono font-semibold text-emerald-400">₹{received.toLocaleString('en-IN')}</p>
+                    <p className="text-[8px] font-mono text-gray-600 mt-1">{periodLabel}</p>
+                  </div>
+                  <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3">
+                    <div className="flex items-center gap-1 mb-1">
+                      <TrendingDown size={11} className="text-rose-400"/>
+                      <span className="text-[9px] font-mono uppercase tracking-widest text-gray-500">Outflow</span>
+                    </div>
+                    <p className="text-xl font-mono font-semibold text-rose-400">₹{sent.toLocaleString('en-IN')}</p>
+                    <div className="flex justify-between mt-1">
+                      {deltaPct!==null?<span className={`text-[9px] font-mono font-bold ${deltaPct>0?'text-rose-400':'text-emerald-400'}`}>{deltaPct>0?'▲':'▼'}{Math.abs(deltaPct)}% {deltaLabel}</span>:<span className="text-[9px] text-gray-600 font-mono">—</span>}
+                      <span className="text-[8px] font-mono text-gray-500">₹{avgDay.toLocaleString('en-IN')}/d</span>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Month vs Spending — Grouped Vertical Bar Chart */}
-                {(() => {
-                  const { months, categories: visibleCats, data } = monthVsSpendingChartData;
-
-                  // Find max single-category value (not month total) — used to size bars
-                  let maxBar = 0;
-                  data.forEach(row => {
-                    visibleCats.forEach(cat => {
-                      const seg = row.segments.find(s => s.category === cat);
-                      if (seg && seg.amount > maxBar) maxBar = seg.amount;
-                    });
-                  });
-                  maxBar = Math.max(1, maxBar);
-
-                  // Category color palette
-                  const catColors: Record<string, string> = {};
-                  const palette = ['#d4af37','#e8b4a0','#a8c5a0','#9ab7d8','#c9a4d4','#e8c47a','#a0d4c8','#d4a0a0','#b8b8d4','#d4d4a0'];
-                  visibleCats.forEach((c, i) => { catColors[c] = palette[i % palette.length]; });
-
-                  return (
-                    <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
-                      <div className="flex justify-between items-center border-b border-[#222] pb-1.5 mb-3">
-                        <h3 className="font-serif text-[12px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5">
-                          <BrandIcon size={12} className="text-[#d4af37]" /> Month vs Spending
-                        </h3>
-                      </div>
-
-                      {data.every(d => d.total === 0) ? (
-                        <p className="text-[10px] text-gray-500 italic text-center py-6 font-mono">No spending data in this period.</p>
-                      ) : (
-                        <>
-                          {/* Grouped vertical bar chart — each month gets a cluster of category bars */}
-                          <div className="overflow-x-auto pb-2">
-                            <div className="flex items-end gap-4 h-48 pt-4" style={{ minWidth: `${data.length * visibleCats.length * 16 + data.length * 24}px` }}>
-                              {data.map(monthRow => (
-                                <div key={monthRow.month} className="flex flex-col items-center gap-1 flex-1 h-full">
-                                  {/* Bar cluster */}
-                                  <div className="flex-1 w-full flex items-end justify-center gap-[3px]">
-                                    {visibleCats.map(cat => {
-                                      const seg = monthRow.segments.find(s => s.category === cat);
-                                      const val = seg ? seg.amount : 0;
-                                      const heightPct = (val / maxBar) * 100;
-                                      return (
-                                        <div key={cat} className="flex flex-col items-center justify-end h-full group relative" style={{ width: '14px' }}>
-                                          {/* Tooltip on hover */}
-                                          {val > 0 && (
-                                            <span className="absolute -top-4 text-[8px] font-mono text-gray-400 opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none transition-opacity z-10 bg-[#050505] px-1 rounded">
-                                              ₹{val.toLocaleString('en-IN')}
-                                            </span>
-                                          )}
-                                          <div
-                                            className="w-full rounded-t-sm transition-all"
-                                            style={{
-                                              height: `${Math.max(val > 0 ? 2 : 0, heightPct)}%`,
-                                              backgroundColor: catColors[cat] || '#d4af37',
-                                              minHeight: val > 0 ? '3px' : '0'
-                                            }}
-                                            title={`${cat}: ₹${val.toLocaleString('en-IN')}`}
-                                          />
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                  {/* Month label + total */}
-                                  <div className="flex flex-col items-center pt-1 border-t border-[#1a1a1a] w-full">
-                                    <span className="text-[10px] font-mono text-gray-300 whitespace-nowrap">{monthRow.month.split('-')[0]}</span>
-                                    <span className="text-[9px] font-mono text-[#d4af37]">
-                                      {monthRow.total > 0 ? `₹${(monthRow.total/1000).toFixed(1)}k` : '—'}
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                          {/* Legend */}
-                          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3 pt-3 border-t border-[#1a1a1a]">
-                            {visibleCats.map(c => (
-                              <div key={c} className="flex items-center gap-1.5">
-                                <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: catColors[c] }} />
-                                <span className="text-[10px] font-mono text-gray-400">{c}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </>
+                {/* ── OPENING | CLOSING cards (collapsible via eye icon) ── */}
+                <div className="bg-[#0b0b0b] border border-[#1a1a1a] rounded-xl overflow-hidden">
+                  <div className="flex justify-between items-center px-3 py-2.5">
+                    <div>
+                      <span className="text-[9px] font-mono uppercase tracking-widest text-gray-500">Balance · {selMonth}</span>
+                      {!balanceVisible && curBal && (
+                        <span className="text-[9px] font-mono text-[#d4af37] ml-2">₹{curBal.closing.toLocaleString('en-IN')}</span>
                       )}
                     </div>
-                  );
-                })()}
+                    <button onClick={()=>setBalanceVisible(v=>!v)} className="text-gray-500 hover:text-[#d4af37] transition-colors p-0.5">
+                      {balanceVisible
+                        ? <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/><line x1="3" y1="3" x2="21" y2="21"/></svg>
+                        : <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      }
+                    </button>
+                  </div>
+                  {balanceVisible && (
+                    <div className="grid grid-cols-2 gap-2 px-3 pb-3 border-t border-[#1a1a1a] pt-2.5">
+                      <div className="bg-[#141414] rounded-lg p-2.5">
+                        <p className="text-[8px] font-mono text-gray-500 uppercase tracking-wider">Opening · 1 {selMn}</p>
+                        {curBal
+                          ? <p className="text-[#d4af37] font-mono font-bold text-sm mt-0.5">₹{curBal.opening.toLocaleString('en-IN')}</p>
+                          : firstOpen===undefined
+                            ? <div className="mt-1">
+                                <input type="number" inputMode="numeric" placeholder="Enter ₹"
+                                  className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-1.5 text-[11px] font-mono text-white outline-none focus:border-[#d4af37]"
+                                  onBlur={e=>{if(e.target.value)setMonthBalance(selMonth,'opening',parseFloat(e.target.value));}}/>
+                                <p className="text-[7px] text-gray-600 font-mono mt-0.5">Enter once → all months auto-calculate</p>
+                              </div>
+                            : <p className="text-gray-600 font-mono text-[11px] mt-0.5">before tracked period</p>
+                        }
+                      </div>
+                      <div className="bg-[#141414] rounded-lg p-2.5">
+                        <p className="text-[8px] font-mono text-gray-500 uppercase tracking-wider">Closing · now</p>
+                        {curBal
+                          ? <>
+                              <p className="text-emerald-400 font-mono font-bold text-sm mt-0.5">₹{curBal.closing.toLocaleString('en-IN')}</p>
+                              <p className="text-[7px] text-gray-600 font-mono mt-0.5">estimated · check vs bank</p>
+                            </>
+                          : <p className="text-gray-600 font-mono text-[11px] mt-0.5">enter opening first</p>
+                        }
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── EXPENDITURE BY CATEGORY (kept exactly as before) ── */}
+                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
+                  <h3 className="font-serif text-[11px] tracking-wide text-[#e5e5e5] italic border-b border-[#222] pb-1.5 mb-3 flex items-center gap-1.5">
+                    <BrandIcon size={11} className="text-[#d4af37]"/> Expenditure by Category
+                  </h3>
+                  {categorySpendingList.length===0
+                    ? <p className="text-[10px] text-gray-500 italic text-center py-2 font-mono">No expenses in this period.</p>
+                    : <div className="space-y-2.5">
+                        {categorySpendingList.slice(0,6).map(item=>(
+                          <div key={item.category} className="w-full">
+                            <div className="flex justify-between items-center text-[10px] mb-0.5 font-mono">
+                              <span className="text-gray-400 truncate flex items-center gap-1">
+                                <span className="shrink-0">{categoryIcons[item.category]||'⭐'}</span>
+                                <span className="truncate">{item.category}</span>
+                              </span>
+                              <span className="text-white whitespace-nowrap pl-2">₹{item.amount.toLocaleString('en-IN')} ({item.percentage}%)</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
+                              <div className="bg-[#d4af37] h-full transition-all duration-300" style={{width:`${Math.max(item.percentage,2)}%`}}/>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                  }
+                </div>
+
+                {/* ── MONTH-ON-MONTH bar chart ── */}
+                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
+                  <h3 className="font-serif text-[12px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5 border-b border-[#222] pb-1.5 mb-3">
+                    <BrandIcon size={12} className="text-[#d4af37]"/> Month vs Spending
+                  </h3>
+                  <div className="flex items-end justify-between gap-2 h-28">
+                    {momBars.map(b=>{const on=b.key===selMonth;return(
+                      <button key={b.key} onClick={()=>{setFilterMonth(b.key);setDashWeek(null);setDashDay(null);}}
+                        className="flex flex-col items-center gap-1 flex-1 h-full justify-end group">
+                        <span className={`text-[8px] font-mono ${on?'text-[#d4af37] font-bold':'text-gray-500'}`}>{b.val>0?`₹${(b.val/1000).toFixed(1)}k`:'—'}</span>
+                        <div className={`w-full rounded-t transition-all ${on?'bg-[#d4af37]':'bg-[#3a3324] group-hover:bg-[#57491f]'}`} style={{height:`${Math.max(b.val>0?4:1,(b.val/momMax)*70)}%`}}/>
+                        <span className={`text-[9px] font-mono ${on?'text-[#d4af37] font-bold':'text-gray-500'}`}>{b.label}</span>
+                      </button>);
+                    })}
+                  </div>
+                  <p className="text-[8px] text-gray-600 font-mono text-center mt-2">tap a month to switch</p>
+                </div>
+
+                {/* ── WEEK-ON-WEEK ── */}
+                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
+                  <h3 className="font-serif text-[12px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5 border-b border-[#222] pb-1.5 mb-3">
+                    <BrandIcon size={12} className="text-[#d4af37]"/> Week on Week · {selMonth}
+                  </h3>
+                  <div className="flex items-end justify-between gap-2 h-24">
+                    {wowBars.map(b=>{const on=dashWeek===b.w;return(
+                      <button key={b.w} onClick={()=>{setDashDay(null);setDashWeek(on?null:b.w);}}
+                        className="flex flex-col items-center gap-1 flex-1 h-full justify-end group">
+                        <span className={`text-[8px] font-mono ${on?'text-[#d4af37] font-bold':'text-gray-500'}`}>{b.val>0?`₹${(b.val/1000).toFixed(1)}k`:'—'}</span>
+                        <div className={`w-full rounded-t transition-all ${on?'bg-[#d4af37]':'bg-[#3a3324] group-hover:bg-[#57491f]'}`} style={{height:`${Math.max(b.val>0?4:1,(b.val/wowMax)*65)}%`}}/>
+                        <span className={`text-[9px] font-mono ${on?'text-[#d4af37] font-bold':'text-gray-500'}`}>W{b.w}</span>
+                      </button>);
+                    })}
+                  </div>
+                  {dashWeek&&(
+                    <div className="flex gap-1.5 mt-3 pt-3 border-t border-[#1a1a1a] overflow-x-auto">
+                      {weekDays.map(d=>{const on=dashDay===d.ds;return(
+                        <button key={d.ds} onClick={()=>setDashDay(on?null:d.ds)}
+                          className={`flex flex-col items-center px-2 py-1.5 rounded-lg border shrink-0 min-w-[42px] transition-all ${on?'bg-[#d4af37]/20 border-[#d4af37]':'bg-[#0a0a0a] border-[#222]'}`}>
+                          <span className={`text-[10px] font-mono font-bold ${on?'text-[#d4af37]':'text-white'}`}>{d.dn}</span>
+                          <span className={`text-[7px] font-mono ${d.val>0?'text-gray-400':'text-gray-700'}`}>{d.val>0?`₹${d.val>=1000?(d.val/1000).toFixed(1)+'k':d.val}`:'·'}</span>
+                        </button>);
+                      })}
+                    </div>
+                  )}
+                  <p className="text-[8px] text-gray-600 font-mono text-center mt-2">tap week → tap day to drill down</p>
+                </div>
+
+                {/* ── DONUT ── */}
+                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
+                  <h3 className="font-serif text-[12px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5 border-b border-[#222] pb-1.5 mb-3">
+                    <BrandIcon size={12} className="text-[#d4af37]"/> Spend Share · {periodLabel}
+                  </h3>
+                  {donutTotal===0
+                    ? <p className="text-[10px] text-gray-500 italic text-center py-5 font-mono">No spending in this period.</p>
+                    : <div className="flex items-center gap-4">
+                        <svg viewBox="0 0 42 42" className="w-28 h-28 shrink-0">
+                          {(()=>{let acc=0;return donutData.map(([name,val],i)=>{const pct=val/donutTotal*100;const el=(<circle key={String(name)} cx="21" cy="21" r="15.9155" fill="none" stroke={palette[i%palette.length]} strokeWidth="6" strokeDasharray={`${pct} ${100-pct}`} strokeDashoffset={-acc+25}/>);acc+=pct;return el;})})()}
+                          <text x="21" y="20" textAnchor="middle" fill="#d4af37" fontSize="4.8" fontFamily="monospace" fontWeight="bold">₹{sent>=1000?(sent/1000).toFixed(1)+'k':sent}</text>
+                          <text x="21" y="26" textAnchor="middle" fill="#666" fontSize="2.8" fontFamily="monospace">SENT</text>
+                        </svg>
+                        <div className="flex-1 space-y-1.5 min-w-0">
+                          {donutData.map(([name,val],i)=>(
+                            <div key={String(name)} className="flex justify-between items-center text-[10px] font-mono">
+                              <span className="flex items-center gap-1.5 text-gray-400 truncate">
+                                <span className="w-2 h-2 rounded-sm shrink-0" style={{backgroundColor:palette[i%palette.length]}}/>
+                                <span className="truncate">{name}</span>
+                              </span>
+                              <span className="text-white pl-2 whitespace-nowrap">₹{Number(val).toLocaleString('en-IN')} <span className="text-gray-600">({Math.round(Number(val)/donutTotal*100)}%)</span></span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                  }
+                </div>
 
               </div>
-            ) : (
+              );
+            })() : (
               /* CONDITIONAL SUBVIEW B: MONTHLY BUDGET COMPARISON IN DASHBOARD */
               <div className="space-y-4">
                 
@@ -2220,80 +2336,268 @@ export default function App() {
               </div>
             )}
 
-            {/* === MONTH vs CATEGORY TABLE — only on Recent Activity, not Smart Alerts === */}
+            {/* === TALLY-STYLE LEDGER TABLE === */}
             {dashboardView === 'transactions' && (() => {
-              const { months: allMonths, categories: cats, data } = monthCategoryTableData;
-              if (cats.length === 0) return null;
-              // Hide months where no category has any spending
-              const months = allMonths.filter(m => cats.some(c => (data[m]?.[c] || 0) > 0));
-              if (months.length === 0) return null;
+              const MN12 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+              // ── Determine months list — DESCENDING (latest first) ──
+              const now = new Date();
+              const curYear = now.getFullYear();
+              let months: string[] = [];
+
+              if (ledgerPeriod === '6m') {
+                // Last 6 months, latest first
+                for (let i = 0; i <= 5; i++) {
+                  const d = new Date(curYear, now.getMonth() - i, 1);
+                  months.push(`${MN12[d.getMonth()]}-${d.getFullYear()}`);
+                }
+              } else if (ledgerPeriod === '12m') {
+                // Last 12 months, latest first
+                for (let i = 0; i <= 11; i++) {
+                  const d = new Date(curYear, now.getMonth() - i, 1);
+                  months.push(`${MN12[d.getMonth()]}-${d.getFullYear()}`);
+                }
+              } else {
+                // Year filter — Dec to Jan (descending)
+                const yr = parseInt(ledgerPeriod, 10);
+                for (let m = 11; m >= 0; m--) {
+                  months.push(`${MN12[m]}-${yr}`);
+                }
+              }
+
+              // Available years from data + current year, descending
+              const txYrs = Array.from(new Set(
+                transactions.map(t => t.date?.split('-')[0]).filter(Boolean)
+              )).map(Number);
+              if (!txYrs.includes(curYear)) txYrs.push(curYear);
+              const availYears = Array.from(new Set(txYrs)).sort((a, b) => b - a);
+
+              // ── Build expense/income maps ──
+              const exp: Record<string, Record<string, number>> = {};
+              const inc: Record<string, Record<string, number>> = {};
+              months.forEach(m => { exp[m] = {}; inc[m] = {}; });
+              transactions.forEach(t => {
+                if (!t.date) return;
+                const k = monthOf(t.date);
+                if (!months.includes(k)) return;
+                if (t.type === 'expense') exp[k][t.category] = (exp[k][t.category] || 0) + t.amount;
+                else inc[k][t.category] = (inc[k][t.category] || 0) + t.amount;
+              });
+
+              // ── Totals per month ──
+              const monthSent     = (m: string) => Object.values(exp[m] || {}).reduce((s, v) => s + v, 0);
+              const monthReceived = (m: string) => Object.values(inc[m] || {}).reduce((s, v) => s + v, 0);
+
+              // ── Opening / Closing balance chain ──
+              // Find first manually entered opening balance in the full 12-month window
+              const allForChain: string[] = [];
+              for (let i = 11; i >= 0; i--) {
+                const d = new Date(curYear, now.getMonth() - i, 1);
+                allForChain.push(`${MN12[d.getMonth()]}-${d.getFullYear()}`);
+              }
+              // Also check years before current year
+              const availableYears = Array.from(new Set(transactions.map(t => t.date?.split('-')[0]).filter(Boolean))).sort();
+              for (const yr of availableYears) {
+                for (let m = 0; m < 12; m++) {
+                  const key = `${MN12[m]}-${yr}`;
+                  if (!allForChain.includes(key)) allForChain.push(key);
+                }
+              }
+              allForChain.sort((a, b) => {
+                const [am, ay] = a.split('-'); const [bm, by] = b.split('-');
+                return parseInt(ay) - parseInt(by) || MN12.indexOf(am) - MN12.indexOf(bm);
+              });
+
+              let firstOpen: number | undefined;
+              let firstMonth = '';
+              for (const m of allForChain) {
+                if (monthBalances[m]?.opening !== undefined) { firstOpen = monthBalances[m].opening; firstMonth = m; break; }
+              }
+
+              // Walk from firstMonth forward, computing opening/closing for each month
+              const balanceChain: Record<string, { opening?: number; closing?: number }> = {};
+              if (firstOpen !== undefined) {
+                let running = firstOpen;
+                const startIdx = allForChain.indexOf(firstMonth);
+                for (let i = startIdx; i < allForChain.length; i++) {
+                  const m = allForChain[i];
+                  // Find all tx for this month from raw transactions
+                  const mIn  = transactions.filter(t => t.type === 'income'  && monthOf(t.date) === m).reduce((s,t)=>s+t.amount, 0);
+                  const mOut = transactions.filter(t => t.type === 'expense' && monthOf(t.date) === m).reduce((s,t)=>s+t.amount, 0);
+                  balanceChain[m] = { opening: running, closing: running + mIn - mOut };
+                  running = running + mIn - mOut;
+                }
+              }
+
+              // Expense and income categories present in selected months
+              const expCats = Array.from(new Set(months.flatMap(m => Object.keys(exp[m] || {}))))
+                .filter(c => months.some(m => (exp[m]?.[c] || 0) > 0))
+                .sort((a, b) => {
+                  const ta = months.reduce((s, m) => s + (exp[m]?.[a] || 0), 0);
+                  const tb = months.reduce((s, m) => s + (exp[m]?.[b] || 0), 0);
+                  return tb - ta;
+                });
+              const incCats = Array.from(new Set(months.flatMap(m => Object.keys(inc[m] || {}))))
+                .filter(c => months.some(m => (inc[m]?.[c] || 0) > 0))
+                .sort((a, b) => {
+                  const ta = months.reduce((s, m) => s + (inc[m]?.[a] || 0), 0);
+                  const tb = months.reduce((s, m) => s + (inc[m]?.[b] || 0), 0);
+                  return tb - ta;
+                });
+
+              if (expCats.length === 0 && incCats.length === 0) return null;
+
+              const fmt2 = (v: number) => v > 0 ? `₹${v.toLocaleString('en-IN')}` : '—';
+              const th = 'text-right py-2 px-1.5 text-[10px] font-mono font-semibold whitespace-nowrap';
+              const td = 'text-right py-1.5 px-1.5 text-[10px] font-mono whitespace-nowrap';
 
               return (
-                <div className={`bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl mt-2 ${tableExpanded ? 'fixed inset-2 z-40 overflow-auto p-4' : 'p-4'}`}>
-                  <div className="flex justify-between items-center border-b border-[#222] pb-2 mb-3">
+                <div className={`bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl mt-2 ${tableExpanded ? 'fixed inset-2 z-40 overflow-auto p-4 bg-[#0f0f0f]' : 'p-0'}`}>
+
+                  {/* ── Header + controls ── */}
+                  <div className="flex justify-between items-center p-4 border-b border-[#222]">
                     <h3 className="font-serif text-[13px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5">
-                      <BrandIcon size={13} className="text-[#d4af37]" /> Month vs Category
+                      <BrandIcon size={13} className="text-[#d4af37]" /> Ledger
                     </h3>
                     <div className="flex items-center gap-2">
-                      <span className="text-[9px] font-mono text-gray-500">Last 6 months</span>
-                      <button
-                        onClick={() => setTableExpanded(e => !e)}
-                        className="text-[10px] font-mono text-[#d4af37] border border-[#d4af37]/30 px-2 py-0.5 rounded-lg hover:bg-[#d4af37]/10 transition-all"
-                      >
-                        {tableExpanded ? '⊠ Collapse' : '⊞ Expand'}
+                      {/* Period filter — 6M | 12M | years from data */}
+                      <div className="flex bg-[#141414] border border-[#222] rounded-lg overflow-hidden text-[9px] font-mono overflow-x-auto max-w-[240px]">
+                        {(['6m','12m'] as const).map(p => (
+                          <button key={p} onClick={() => setLedgerPeriod(p)}
+                            className={`px-2.5 py-1.5 transition-colors shrink-0 ${ledgerPeriod === p ? 'bg-[#d4af37]/20 text-[#d4af37] font-bold' : 'text-gray-500'}`}>
+                            {p === '6m' ? '6M' : '12M'}
+                          </button>
+                        ))}
+                        {availYears.map(yr => (
+                          <button key={yr} onClick={() => setLedgerPeriod(String(yr))}
+                            className={`px-2.5 py-1.5 transition-colors shrink-0 ${ledgerPeriod === String(yr) ? 'bg-[#d4af37]/20 text-[#d4af37] font-bold' : 'text-gray-500'}`}>
+                            {yr}
+                          </button>
+                        ))}
+                      </div>
+                      <button onClick={() => setTableExpanded(e => !e)}
+                        className="text-[9px] font-mono text-[#d4af37] border border-[#d4af37]/30 px-2 py-1 rounded-lg hover:bg-[#d4af37]/10 transition-all shrink-0">
+                        {tableExpanded ? '⊠' : '⊞'}
                       </button>
                     </div>
                   </div>
-                  <div className="overflow-x-auto">
-                    {/* TRANSPOSED: categories as rows, months as columns */}
-                    <table className="w-full text-[11px] font-mono border-collapse">
+
+                  {/* ── Table ── */}
+                  <div className="overflow-x-auto p-4 pt-3">
+                    <table className="w-full border-collapse" style={{minWidth: `${months.length * 100 + 160}px`}}>
                       <thead>
                         <tr className="border-b border-[#222]">
-                          <th className="text-left py-2 pr-3 text-gray-500 uppercase tracking-wider font-semibold whitespace-nowrap">Category</th>
+                          <th className="text-left py-2 pr-4 text-[10px] font-mono text-gray-500 uppercase tracking-wider whitespace-nowrap w-40">Category</th>
                           {months.map(m => (
-                            <th key={m} className="text-right py-2 px-1.5 text-gray-500 uppercase tracking-wider font-semibold whitespace-nowrap">{m.split('-')[0]}</th>
+                            <th key={m} className={`${th} text-gray-500 uppercase tracking-wider`}>{m.split('-')[0]}</th>
                           ))}
-                          <th className="text-right py-2 pl-2 text-[#d4af37] uppercase tracking-wider font-semibold whitespace-nowrap">Total</th>
+                          <th className={`${th} text-[#d4af37]`}>Total</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {cats.map((c, idx) => {
-                          const rowTotal = months.reduce((s, m) => s + (data[m]?.[c] || 0), 0);
-                          return (
-                            <tr key={c} className={`border-b border-[#1a1a1a] ${idx % 2 === 0 ? 'bg-[#0a0a0a]' : ''}`}>
-                              <td className="py-2 pr-3 text-white font-semibold whitespace-nowrap">{c}</td>
-                              {months.map(m => {
-                                const val = data[m]?.[c] || 0;
-                                return (
-                                  <td key={m} className={`text-right py-2 px-1.5 ${val > 0 ? 'text-white' : 'text-gray-700'}`}>
-                                    {val > 0 ? `₹${val.toLocaleString('en-IN')}` : '—'}
-                                  </td>
-                                );
-                              })}
-                              <td className="text-right py-2 pl-2 text-[#d4af37] font-bold">
-                                {rowTotal > 0 ? `₹${rowTotal.toLocaleString('en-IN')}` : '—'}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                        {/* Total row */}
-                        <tr className="border-t-2 border-[#d4af37]/30 bg-[#0a0a0a]">
-                          <td className="py-2 pr-3 text-[#d4af37] font-bold whitespace-nowrap">TOTAL</td>
+
+                        {/* ── Opening Balance row ── */}
+                        <tr className="border-b-2 border-[#d4af37]/30 bg-[#0a0a0a]">
+                          <td className="py-2 pr-4 text-[#d4af37] font-bold text-[10px] font-mono whitespace-nowrap">Opening Balance</td>
                           {months.map(m => {
-                            const colTotal = cats.reduce((s, c) => s + (data[m]?.[c] || 0), 0);
+                            const bc = balanceChain[m];
+                            const hasEntry = bc?.opening !== undefined;
+                            const isFirst = !firstMonth || m === firstMonth || (firstMonth && months.indexOf(m) === 0 && !balanceChain[m]);
                             return (
-                              <td key={m} className="text-right py-2 px-1.5 text-[#d4af37] font-bold whitespace-nowrap">
-                                {colTotal > 0 ? `₹${colTotal.toLocaleString('en-IN')}` : '—'}
+                              <td key={m} className={`${td} text-[#d4af37] font-bold`}>
+                                {hasEntry
+                                  ? `₹${bc!.opening!.toLocaleString('en-IN')}`
+                                  : (firstOpen === undefined && (months.indexOf(m) === 0 || !firstMonth))
+                                    ? <input type="number" inputMode="numeric" placeholder="Enter ₹"
+                                        className="w-20 bg-[#0a0a0a] border border-[#d4af37]/40 rounded p-1 text-[10px] font-mono text-[#d4af37] outline-none focus:border-[#d4af37] text-right"
+                                        onBlur={e => { if (e.target.value) setMonthBalance(m, 'opening', parseFloat(e.target.value)); }} />
+                                    : <span className="text-gray-700">—</span>
+                                }
                               </td>
                             );
                           })}
-                          <td className="text-right py-2 pl-2 text-[#d4af37] font-bold">
-                            ₹{cats.reduce((s, c) => s + months.reduce((s2, m) => s2 + (data[m]?.[c] || 0), 0), 0).toLocaleString('en-IN')}
+                          <td className={`${td} text-gray-600`}>—</td>
+                        </tr>
+
+                        {/* ── Expense section ── */}
+                        <tr className="bg-[#111] cursor-pointer" onClick={() => setLedgerExpenseExpanded(e => !e)}>
+                          <td colSpan={months.length + 2} className="py-2 px-2">
+                            <span className="text-[9px] font-mono text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                              <span className="text-[#d4af37]">{ledgerExpenseExpanded ? '▾' : '▸'}</span>
+                              Expenses {ledgerExpenseExpanded ? '' : `(${expCats.length} categories)`}
+                            </span>
                           </td>
                         </tr>
+
+                        {ledgerExpenseExpanded && expCats.map((ct, idx) => (
+                          <tr key={'e-'+ct} className={`border-b border-[#1a1a1a] ${idx % 2 === 0 ? 'bg-[#0a0a0a]' : ''}`}>
+                            <td className="py-1.5 pr-4 text-white text-[10px] font-mono whitespace-nowrap truncate max-w-[140px]" title={ct}>{ct}</td>
+                            {months.map(m => <td key={m} className={`${td} ${(exp[m]?.[ct]||0) > 0 ? 'text-white' : 'text-gray-700'}`}>{fmt2(exp[m]?.[ct]||0)}</td>)}
+                            <td className={`${td} text-white font-bold`}>{fmt2(months.reduce((s,m)=>s+(exp[m]?.[ct]||0),0))}</td>
+                          </tr>
+                        ))}
+
+                        {/* ── Total Sent row ── */}
+                        <tr className="border-b-2 border-[#333] bg-[#0a0a0a]">
+                          <td className="py-2 pr-4 text-white font-bold text-[10px] font-mono">Total Sent</td>
+                          {months.map(m => {
+                            const v = monthSent(m);
+                            return <td key={m} className={`${td} text-white font-bold`}>{fmt2(v)}</td>;
+                          })}
+                          <td className={`${td} text-white font-bold`}>{fmt2(months.reduce((s,m)=>s+monthSent(m),0))}</td>
+                        </tr>
+
+                        {/* ── Income section ── */}
+                        <tr className="bg-[#111] cursor-pointer" onClick={() => setLedgerIncomeExpanded(e => !e)}>
+                          <td colSpan={months.length + 2} className="py-2 px-2">
+                            <span className="text-[9px] font-mono text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                              <span className="text-emerald-400">{ledgerIncomeExpanded ? '▾' : '▸'}</span>
+                              Income {ledgerIncomeExpanded ? '' : `(${incCats.length} categories)`}
+                            </span>
+                          </td>
+                        </tr>
+
+                        {ledgerIncomeExpanded && incCats.map((ct, idx) => (
+                          <tr key={'i-'+ct} className={`border-b border-[#1a1a1a] ${idx % 2 === 0 ? 'bg-[#0a0a0a]' : ''}`}>
+                            <td className="py-1.5 pr-4 text-emerald-400 text-[10px] font-mono whitespace-nowrap truncate max-w-[140px]" title={ct}>{ct}</td>
+                            {months.map(m => <td key={m} className={`${td} ${(inc[m]?.[ct]||0) > 0 ? 'text-emerald-400' : 'text-gray-700'}`}>{fmt2(inc[m]?.[ct]||0)}</td>)}
+                            <td className={`${td} text-emerald-400 font-bold`}>{fmt2(months.reduce((s,m)=>s+(inc[m]?.[ct]||0),0))}</td>
+                          </tr>
+                        ))}
+
+                        {/* ── Total Received row ── */}
+                        <tr className="border-b-2 border-[#333] bg-[#0a0a0a]">
+                          <td className="py-2 pr-4 text-emerald-400 font-bold text-[10px] font-mono">Total Received</td>
+                          {months.map(m => {
+                            const v = monthReceived(m);
+                            return <td key={m} className={`${td} text-emerald-400 font-bold`}>{fmt2(v)}</td>;
+                          })}
+                          <td className={`${td} text-emerald-400 font-bold`}>{fmt2(months.reduce((s,m)=>s+monthReceived(m),0))}</td>
+                        </tr>
+
+                        {/* ── Closing Balance row ── */}
+                        <tr className="bg-[#0a0a0a]">
+                          <td className="py-2 pr-4 text-[#d4af37] font-bold text-[10px] font-mono whitespace-nowrap">Closing Balance</td>
+                          {months.map(m => {
+                            const bc = balanceChain[m];
+                            return (
+                              <td key={m} className={`${td} text-[#d4af37] font-bold`}>
+                                {bc?.closing !== undefined ? `₹${bc.closing.toLocaleString('en-IN')}` : <span className="text-gray-700">—</span>}
+                              </td>
+                            );
+                          })}
+                          <td className={`${td} text-gray-600`}>—</td>
+                        </tr>
+
                       </tbody>
                     </table>
                   </div>
+
+                  {!firstMonth && (
+                    <p className="text-[9px] font-mono text-gray-600 text-center pb-3">
+                      Enter an opening balance in the first month column to enable balance tracking
+                    </p>
+                  )}
                 </div>
               );
             })()}
@@ -2635,7 +2939,8 @@ export default function App() {
             bankName: sms.parsedBank || 'Bank',
             proposedCategory: proposedCat,
             description: '',
-            originalSmsId: sms.id
+            originalSmsId: sms.id,
+            smsTimestamp: sms.timestamp
           });
           setInlineWizardSmsId(sms.id);
         };
@@ -3087,26 +3392,40 @@ export default function App() {
                 </select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="flex flex-col gap-1">
-                <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Start</label>
-                <input type="date" value={historyStartDate}
-                  onChange={e => {
-                    setHistoryStartDate(e.target.value);
-                    if (e.target.value) setHistoryMonthFilter('All');
-                  }}
-                  className="bg-[#141414] border border-[#222] rounded-lg py-1.5 px-2 text-[10px] text-white outline-none focus:border-[#d4af37]" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">End</label>
-                <input type="date" value={historyEndDate}
-                  onChange={e => {
-                    setHistoryEndDate(e.target.value);
-                    if (e.target.value) setHistoryMonthFilter('All');
-                  }}
-                  className="bg-[#141414] border border-[#222] rounded-lg py-1.5 px-2 text-[10px] text-white outline-none focus:border-[#d4af37]" />
-              </div>
-            </div>
+            {(() => {
+              const histDateError = historyStartDate && historyEndDate && historyStartDate > historyEndDate;
+              const errCls = 'border-red-500 text-red-400';
+              const normCls = 'border-[#222] text-white';
+              return (
+                <div className="flex flex-col gap-1.5">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="flex flex-col gap-1">
+                      <label className={`text-[9px] font-mono uppercase tracking-wider ${histDateError ? 'text-red-400' : 'text-gray-500'}`}>Start</label>
+                      <input type="date" value={historyStartDate}
+                        onChange={e => {
+                          setHistoryStartDate(e.target.value);
+                          if (e.target.value) setHistoryMonthFilter('All');
+                        }}
+                        className={`bg-[#141414] border rounded-lg py-1.5 px-2 text-[10px] outline-none focus:border-[#d4af37] transition-colors ${histDateError ? errCls : normCls}`} />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className={`text-[9px] font-mono uppercase tracking-wider ${histDateError ? 'text-red-400' : 'text-gray-500'}`}>End</label>
+                      <input type="date" value={historyEndDate}
+                        onChange={e => {
+                          setHistoryEndDate(e.target.value);
+                          if (e.target.value) setHistoryMonthFilter('All');
+                        }}
+                        className={`bg-[#141414] border rounded-lg py-1.5 px-2 text-[10px] outline-none focus:border-[#d4af37] transition-colors ${histDateError ? errCls : normCls}`} />
+                    </div>
+                  </div>
+                  {histDateError && (
+                    <p className="text-red-400 text-[9px] font-mono flex items-center gap-1">
+                      <span>⚠</span> End date must be after start date
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
             {(historyMonthFilter !== currentMonthDefault || historyFilterCategory !== 'All' || historyFilterType !== 'All' || historyStartDate || historyEndDate) && (
               <button onClick={() => {
                 setHistoryMonthFilter(currentMonthDefault);
@@ -3405,6 +3724,54 @@ export default function App() {
                   onClick={() => setSettingRetentionDays(d)}
                   className={`py-1.5 rounded-lg text-[9px] font-mono border transition-all ${
                     settingRetentionDays === d
+                      ? 'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37] font-bold'
+                      : 'bg-[#141414] border-[#222] text-gray-400 hover:border-gray-500'
+                  }`}
+                >{d}d</button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Export Reminder ─────────────────────────────────── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
+            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
+              <Download size={14} className="text-[#d4af37]" />
+              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Export Reminder</span>
+            </div>
+            <p className="text-gray-500 text-[9px] font-mono leading-relaxed">
+              A warning banner + Android notification fires if you haven't exported in this many days.
+            </p>
+            {lastExportDate ? (
+              <p className="text-[9px] font-mono text-emerald-400">Last exported: {lastExportDate}
+                {exportOverdueDays !== null && exportOverdueDays > 0
+                  ? <span className="text-yellow-500"> · {exportOverdueDays}d ago</span>
+                  : <span className="text-emerald-500"> · today ✓</span>}
+              </p>
+            ) : (
+              <p className="text-[9px] font-mono text-yellow-500">⚠ Never exported — your data has no backup</p>
+            )}
+            {/* +/- control */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSettingExportReminderDays(d => Math.max(1, d - 1))}
+                className="w-9 h-9 rounded-xl bg-[#141414] border border-[#222] text-[#d4af37] font-mono font-bold text-base flex items-center justify-center hover:border-[#d4af37]/50 active:scale-95 transition-all"
+              >−</button>
+              <span className="flex-1 text-center font-mono text-white text-base font-bold">
+                {settingExportReminderDays} <span className="text-[9px] text-gray-500">days</span>
+              </span>
+              <button
+                onClick={() => setSettingExportReminderDays(d => Math.min(90, d + 1))}
+                className="w-9 h-9 rounded-xl bg-[#141414] border border-[#222] text-[#d4af37] font-mono font-bold text-base flex items-center justify-center hover:border-[#d4af37]/50 active:scale-95 transition-all"
+              >+</button>
+            </div>
+            {/* Preset buttons */}
+            <div className="grid grid-cols-4 gap-1.5">
+              {[3, 7, 14, 30].map(d => (
+                <button
+                  key={d}
+                  onClick={() => setSettingExportReminderDays(d)}
+                  className={`py-1.5 rounded-lg text-[9px] font-mono border transition-all ${
+                    settingExportReminderDays === d
                       ? 'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37] font-bold'
                       : 'bg-[#141414] border-[#222] text-gray-400 hover:border-gray-500'
                   }`}
