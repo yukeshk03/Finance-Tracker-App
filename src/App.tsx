@@ -507,7 +507,11 @@ export default function App() {
   const [historyEndDate, setHistoryEndDate] = useState('');
 
   // Budgets configuration inputs (custom dropdown states instead of JS prompt)
-  const [budgetMonth, setBudgetMonth] = useState('May-2026');
+  const [budgetMonth, setBudgetMonth] = useState(() => {
+    const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const d = new Date();
+    return `${names[d.getMonth()]}-${d.getFullYear()}`;
+  });
   const [budgetCategory, setBudgetCategory] = useState('Food & Beverages');
   const [budgetAmountInput, setBudgetAmountInput] = useState('');
 
@@ -2984,9 +2988,11 @@ export default function App() {
       {/* --- TAB 3: SMS INBOX --- */}
       {navTab === 'sms' && (() => {
         // Sort messages: Pending first, then Confirmed, then Skipped
-        const pendingSms = smsMessages.filter(s => s.status === 'pending');
-        const confirmedSms = smsMessages.filter(s => s.status === 'confirmed');
-        const skippedSms = smsMessages.filter(s => s.status === 'skipped');
+        const sortByLatest = (a: SmsMessage, b: SmsMessage) =>
+          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+        const pendingSms   = smsMessages.filter(s => s.status === 'pending').sort(sortByLatest);
+        const confirmedSms = smsMessages.filter(s => s.status === 'confirmed').sort(sortByLatest);
+        const skippedSms   = smsMessages.filter(s => s.status === 'skipped').sort(sortByLatest);
 
         const openInlineWizard = (sms: SmsMessage) => {
           let proposedCat = sms.parsedType === 'income' ? 'Income' : 'Grocery & Essentials';
@@ -3281,7 +3287,7 @@ export default function App() {
                 }
                 setBudgets(prev => {
                   // Check if budget already exists for that specific month & category
-                  const existsIndex = prev.findIndex(b => b.category === budgetCategory && (b.month || 'May-2026') === budgetMonth);
+                  const existsIndex = prev.findIndex(b => b.category === budgetCategory && (b.month || currentMonthLabel) === budgetMonth);
                   if (existsIndex >= 0) {
                     const updated = [...prev];
                     updated[existsIndex] = { category: budgetCategory, limit: val, month: budgetMonth };
@@ -3290,7 +3296,7 @@ export default function App() {
                     return [...prev, { category: budgetCategory, limit: val, month: budgetMonth }];
                   }
                 });
-                alert(`Success! Configured ${budgetCategory} limit = ₹${val} for ${budgetMonth}`);
+                alert(`Budget saved: ${budgetCategory} → ₹${val} for ${budgetMonth}`);
                 setBudgetAmountInput('');
               }}
               className="w-full bg-[#d4af37] hover:opacity-95 text-black font-semibold uppercase text-[10px] tracking-wider py-3 px-4 rounded-xl shadow-lg transition-all font-mono"
