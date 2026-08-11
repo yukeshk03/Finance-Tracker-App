@@ -15,8 +15,6 @@ import androidx.core.app.NotificationCompat;
 
 import com.getcapacitor.BridgeActivity;
 
-import org.json.JSONArray;
-
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -26,7 +24,6 @@ public class MainActivity extends BridgeActivity {
 
     private static final String TAG        = "FinanceTracker.Main";
     private static final String PREFS_NAME = "FinanceTrackerPrefs";
-    private static final String PREFS_KEY  = "ft_pending_sms";
     private static final String CHANNEL_ID = "finance_tracker_export";
     private static final int    EXPORT_NOTIF_ID = 9001;
 
@@ -36,7 +33,8 @@ public class MainActivity extends BridgeActivity {
         setupJsBridge();
         handleNotificationTap(getIntent());
         createExportNotificationChannel();
-        checkExportReminder();
+        // Check export reminder on every cold start
+        BootReceiver.checkAndNotify(this);
     }
 
     @Override
@@ -48,7 +46,9 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
-        checkExportReminder(); // re-check every time app comes to foreground
+        // Check export reminder each time app comes to foreground
+        // This gives a "daily notification" effect without needing AlarmManager
+        BootReceiver.checkAndNotify(this);
     }
 
     // ── JavaScript bridge ─────────────────────────────────────────────────
@@ -63,8 +63,8 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public String getPendingSms() {
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-            String json = prefs.getString(PREFS_KEY, "[]");
-            prefs.edit().putString(PREFS_KEY, "[]").apply();
+            String json = prefs.getString("ft_pending_sms", "[]");
+            prefs.edit().putString("ft_pending_sms", "[]").apply();
             Log.d(TAG, "getPendingSms: " + json.substring(0, Math.min(120, json.length())));
             return json;
         }
@@ -87,7 +87,7 @@ public class MainActivity extends BridgeActivity {
                 .putString("ft_last_export_date", dateStr)
                 .apply();
             Log.d(TAG, "Export date recorded: " + dateStr);
-            // Cancel any pending export reminder notification
+            // Cancel the pending export reminder notification
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm != null) nm.cancel(EXPORT_NOTIF_ID);
         }
@@ -103,7 +103,7 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    // ── Export reminder notification ──────────────────────────────────────
+    // ── Export notification channel ───────────────────────────────────────
     private void createExportNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel ch = new NotificationChannel(
@@ -114,71 +114,6 @@ public class MainActivity extends BridgeActivity {
             ch.setDescription("Reminds you to back up your Finance Tracker data");
             NotificationManager nm = getSystemService(NotificationManager.class);
             if (nm != null) nm.createNotificationChannel(ch);
-        }
-    }
-
-    private void checkExportReminder() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String lastExport = prefs.getString("ft_last_export_date", "");
-        int reminderDays = prefs.getInt("ft_export_reminder_days", 7);
-
-        boolean overdue = false;
-        long daysSince = -1;
-
-        if (lastExport == null || lastExport.isEmpty()) {
-            // Never exported — remind after first day of use
-            overdue = true;
-            daysSince = 0;
-        } else {
-            try {
-                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT);
-                Date last = sdf.parse(lastExport);
-                Date now = new Date();
-                if (last != null) {
-                    daysSince = TimeUnit.MILLISECONDS.toDays(now.getTime() - last.getTime());
-                    overdue = daysSince >= reminderDays;
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "Could not parse last export date: " + lastExport);
-                overdue = true;
-            }
-        }
-
-        if (!overdue) {
-            Log.d(TAG, "Export up to date — " + daysSince + " days since last export");
-            return;
-        }
-
-        Log.d(TAG, "Export overdue — firing reminder notification (daysSince=" + daysSince + ")");
-
-        String body = lastExport == null || lastExport.isEmpty()
-            ? "You have never backed up your data. Tap to export now."
-            : "Last backup was " + daysSince + " day" + (daysSince == 1 ? "" : "s") + " ago. Tap to export now.";
-
-        // Intent opens app to Settings tab
-        Intent intent = new Intent(this, MainActivity.class);
-        intent.putExtra("openTab", "settings");
-        intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-
-        int flags = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-            ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-            : PendingIntent.FLAG_UPDATE_CURRENT;
-
-        PendingIntent pi = PendingIntent.getActivity(this, EXPORT_NOTIF_ID, intent, flags);
-
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("Finance Tracker — Back up your data")
-            .setContentText(body)
-            .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
-            .setContentIntent(pi);
-
-        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        if (nm != null) {
-            try { nm.notify(EXPORT_NOTIF_ID, builder.build()); }
-            catch (SecurityException e) { Log.w(TAG, "No notification permission: " + e.getMessage()); }
         }
     }
 
