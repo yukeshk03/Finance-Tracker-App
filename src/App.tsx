@@ -1454,6 +1454,123 @@ export default function App() {
     recordExport();
   };
 
+  // ── Ledger CSV Export — all months with data ──────────────────────────
+  const handleLedgerExport = () => {
+    if (transactions.length === 0) {
+      alert('No transactions to export ledger.');
+      return;
+    }
+    const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    // Collect all unique months from transactions, sorted oldest first
+    const monthSet = new Set<string>();
+    transactions.forEach(t => {
+      if (t.date) {
+        const p = t.date.split('-');
+        if (p.length >= 2) monthSet.add(`${MN[parseInt(p[1],10)-1]}-${p[0]}`);
+      }
+    });
+    const months = Array.from(monthSet).sort((a, b) => {
+      const [am, ay] = a.split('-'); const [bm, by] = b.split('-');
+      return parseInt(ay) - parseInt(by) || MN.indexOf(am) - MN.indexOf(bm);
+    });
+
+    if (months.length === 0) { alert('No data to export.'); return; }
+
+    // Build expense and income maps per month
+    const exp: Record<string, Record<string, number>> = {};
+    const inc: Record<string, Record<string, number>> = {};
+    months.forEach(m => { exp[m] = {}; inc[m] = {}; });
+    transactions.forEach(t => {
+      if (!t.date) return;
+      const p = t.date.split('-');
+      const key = `${MN[parseInt(p[1],10)-1]}-${p[0]}`;
+      if (!months.includes(key)) return;
+      if (t.type === 'expense') exp[key][t.category] = (exp[key][t.category] || 0) + t.amount;
+      else inc[key][t.category] = (inc[key][t.category] || 0) + t.amount;
+    });
+
+    // Categories sorted by total
+    const expCats = Array.from(new Set(months.flatMap(m => Object.keys(exp[m]))))
+      .sort((a, b) => months.reduce((s,m) => s+(exp[m]?.[b]||0)-(exp[m]?.[a]||0), 0));
+    const incCats = Array.from(new Set(months.flatMap(m => Object.keys(inc[m]))))
+      .sort((a, b) => months.reduce((s,m) => s+(inc[m]?.[b]||0)-(inc[m]?.[a]||0), 0));
+
+    // Build opening/closing balance chain
+    const balChain: Record<string, { opening?: number; closing?: number }> = {};
+    let firstOpen: number | undefined;
+    let firstMonth = '';
+    for (const m of months) {
+      if (monthBalances[m]?.opening !== undefined) {
+        firstOpen = monthBalances[m].opening;
+        firstMonth = m;
+        break;
+      }
+    }
+    if (firstOpen !== undefined) {
+      let run = firstOpen;
+      const si = months.indexOf(firstMonth);
+      for (let i = si; i < months.length; i++) {
+        const m = months[i];
+        const mIn  = transactions.filter(t => t.type==='income'  && monthOf(t.date)===m).reduce((s,t)=>s+t.amount,0);
+        const mOut = transactions.filter(t => t.type==='expense' && monthOf(t.date)===m).reduce((s,t)=>s+t.amount,0);
+        balChain[m] = { opening: run, closing: run + mIn - mOut };
+        run = run + mIn - mOut;
+      }
+    }
+
+    const fmtNum = (n: number) => n > 0 ? n.toFixed(2) : '';
+    const esc = (v: any) => { const s = String(v??''); return s.includes(',') ? `"${s}"` : s; };
+
+    // Build CSV rows
+    const lines: string[] = [];
+
+    // Header
+    lines.push(['Category', ...months, 'Total'].map(esc).join(','));
+
+    // Opening Balance row
+    lines.push([
+      'Opening Balance',
+      ...months.map(m => balChain[m]?.opening !== undefined ? balChain[m].opening!.toFixed(2) : ''),
+      ''
+    ].map(esc).join(','));
+
+    // Expense categories
+    expCats.forEach(cat => {
+      const rowTotal = months.reduce((s,m) => s + (exp[m]?.[cat]||0), 0);
+      lines.push([cat, ...months.map(m => fmtNum(exp[m]?.[cat]||0)), fmtNum(rowTotal)].map(esc).join(','));
+    });
+
+    // Total Sent
+    lines.push([
+      'TOTAL SENT',
+      ...months.map(m => fmtNum(Object.values(exp[m]||{}).reduce((s,v)=>s+v,0))),
+      fmtNum(months.reduce((s,m) => s + Object.values(exp[m]||{}).reduce((s2,v)=>s2+v,0), 0))
+    ].map(esc).join(','));
+
+    // Income categories
+    incCats.forEach(cat => {
+      const rowTotal = months.reduce((s,m) => s + (inc[m]?.[cat]||0), 0);
+      lines.push([cat, ...months.map(m => fmtNum(inc[m]?.[cat]||0)), fmtNum(rowTotal)].map(esc).join(','));
+    });
+
+    // Total Received
+    lines.push([
+      'TOTAL RECEIVED',
+      ...months.map(m => fmtNum(Object.values(inc[m]||{}).reduce((s,v)=>s+v,0))),
+      fmtNum(months.reduce((s,m) => s + Object.values(inc[m]||{}).reduce((s2,v)=>s2+v,0), 0))
+    ].map(esc).join(','));
+
+    // Closing Balance
+    lines.push([
+      'Closing Balance',
+      ...months.map(m => balChain[m]?.closing !== undefined ? balChain[m].closing!.toFixed(2) : ''),
+      ''
+    ].map(esc).join(','));
+
+    downloadFile(`finance-tracker-ledger-${todayLocal()}.csv`, lines.join('\n'));
+  };
+
   // ── CSV Parser (simple but handles quoted commas) ────────────────────────
   const parseCsvLine = (line: string): string[] => {
     const result: string[] = [];
@@ -3783,12 +3900,20 @@ export default function App() {
               Backup or restore your transactions. CSV files work with Excel, Google Sheets, or other finance apps.
             </p>
 
-            {/* Export */}
+            {/* Export Transactions */}
             <button
               onClick={handleCsvExport}
               className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#d4af37]/10 transition-all flex items-center justify-center gap-2"
             >
               <Download size={12} /> Export All Transactions (CSV)
+            </button>
+
+            {/* Export Ledger */}
+            <button
+              onClick={handleLedgerExport}
+              className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#d4af37]/10 transition-all flex items-center justify-center gap-2"
+            >
+              <Download size={12} /> Export Ledger (CSV)
             </button>
 
             {/* Import */}
