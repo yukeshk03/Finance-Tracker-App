@@ -19,15 +19,16 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Fires on device boot.
- * 1. Reconnects NotificationListenerService
- * 2. Checks if export reminder is due — fires a notification if so
+ * Checks if export reminder is due — fires a notification if so.
+ * Daily notifications are handled by MainActivity.onResume() each time
+ * the user opens the app.
  */
 public class BootReceiver extends BroadcastReceiver {
 
-    private static final String TAG        = "FinanceTracker.Boot";
-    private static final String PREFS_NAME = "FinanceTrackerPrefs";
-    private static final String CHANNEL_ID = "finance_tracker_export";
-    private static final int    EXPORT_NOTIF_ID = 9001;
+    private static final String TAG          = "FinanceTracker.Boot";
+    private static final String PREFS_NAME   = "FinanceTrackerPrefs";
+    private static final String CHANNEL_ID   = "finance_tracker_export";
+    private static final int    EXPORT_NOTIF = 9001;
 
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -37,7 +38,7 @@ public class BootReceiver extends BroadcastReceiver {
 
         Log.d(TAG, "Boot completed — checking export reminder");
         createChannel(context);
-        checkExportReminder(context);
+        checkAndNotify(context);
     }
 
     private void createChannel(Context context) {
@@ -50,13 +51,13 @@ public class BootReceiver extends BroadcastReceiver {
         }
     }
 
-    private void checkExportReminder(Context context) {
+    static void checkAndNotify(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        String lastExport  = prefs.getString("ft_last_export_date", "");
-        int reminderDays   = prefs.getInt("ft_export_reminder_days", 7);
+        String lastExport = prefs.getString("ft_last_export_date", "");
+        int reminderDays  = prefs.getInt("ft_export_reminder_days", 7);
 
-        boolean overdue  = false;
-        long daysSince   = -1;
+        boolean overdue = false;
+        long daysSince  = -1;
 
         if (lastExport == null || lastExport.isEmpty()) {
             overdue = true;
@@ -79,7 +80,8 @@ public class BootReceiver extends BroadcastReceiver {
 
         String body = (lastExport == null || lastExport.isEmpty())
             ? "You have never backed up Finance Tracker data. Open the app to export."
-            : "Last backup was " + daysSince + " day" + (daysSince == 1 ? "" : "s") + " ago. Open Finance Tracker to export.";
+            : "Last backup was " + daysSince + " day" + (daysSince == 1 ? "" : "s")
+              + " ago. Open Finance Tracker to export now.";
 
         Intent openIntent = new Intent(context, MainActivity.class);
         openIntent.putExtra("openTab", "settings");
@@ -89,7 +91,7 @@ public class BootReceiver extends BroadcastReceiver {
             ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
             : PendingIntent.FLAG_UPDATE_CURRENT;
 
-        PendingIntent pi = PendingIntent.getActivity(context, EXPORT_NOTIF_ID, openIntent, piFlags);
+        PendingIntent pi = PendingIntent.getActivity(context, EXPORT_NOTIF, openIntent, piFlags);
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
@@ -102,8 +104,8 @@ public class BootReceiver extends BroadcastReceiver {
 
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm != null) {
-            try { nm.notify(EXPORT_NOTIF_ID, builder.build()); }
-            catch (SecurityException e) { Log.w(TAG, "No notification permission: " + e.getMessage()); }
+            try { nm.notify(EXPORT_NOTIF, builder.build()); }
+            catch (SecurityException e) { Log.w(TAG, "No notification permission"); }
         }
     }
 }
