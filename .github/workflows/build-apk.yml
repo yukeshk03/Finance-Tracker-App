@@ -55,7 +55,7 @@ jobs:
 
       # ── 6. Install npm packages ───────────────────────────────────────────
       - name: Install npm packages
-        run: npm ci --legacy-peer-deps
+        run: npm install --legacy-peer-deps
 
       # ── 7. Build React app ────────────────────────────────────────────────
       - name: Build React app
