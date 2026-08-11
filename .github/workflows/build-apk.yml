@@ -1,73 +1,140 @@
-name: Build Finance Tracker APK
+package com.financetracker.app;
 
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.os.Build;
+import android.os.Bundle;
+import android.util.Log;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebView;
 
-jobs:
-  build:
-    name: Build Android APK
-    runs-on: ubuntu-22.04
+import androidx.core.app.NotificationCompat;
 
-    steps:
+import com.getcapacitor.BridgeActivity;
 
-      - name: Checkout code
-        uses: actions/checkout@v4
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 
-      - name: Set up Java 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
+public class MainActivity extends BridgeActivity {
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
+    private static final String TAG        = "FinanceTracker.Main";
+    private static final String PREFS_NAME = "FinanceTrackerPrefs";
+    private static final String CHANNEL_ID = "finance_tracker_export";
+    private static final int    EXPORT_NOTIF_ID = 9001;
 
-      - name: Install Android SDK
-        run: |
-          mkdir -p $HOME/android-sdk/cmdline-tools
-          cd $HOME/android-sdk/cmdline-tools
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O tools.zip
-          unzip -q tools.zip
-          mv cmdline-tools latest
-          echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
-          echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setupJsBridge();
+        handleNotificationTap(getIntent());
+        createExportNotificationChannel();
+        // Check export reminder on every cold start
+        BootReceiver.checkAndNotify(this);
+    }
 
-      - name: Accept licenses and install packages
-        run: |
-          yes | sdkmanager --sdk_root=$HOME/android-sdk --licenses || true
-          sdkmanager --sdk_root=$HOME/android-sdk \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        handleNotificationTap(intent);
+    }
 
-      - name: Install npm packages
-        run: npm install --legacy-peer-deps
+    @Override
+    public void onResume() {
+        super.onResume();
+        // Check export reminder each time app comes to foreground
+        // This gives a "daily notification" effect without needing AlarmManager
+        BootReceiver.checkAndNotify(this);
+    }
 
-      - name: Build React app
-        run: npm run build
+    // ── JavaScript bridge ─────────────────────────────────────────────────
+    private void setupJsBridge() {
+        WebView webView = getBridge().getWebView();
+        webView.addJavascriptInterface(new AndroidBridge(), "AndroidBridge");
+        Log.d(TAG, "JS bridge registered");
+    }
 
-      - name: Sync Capacitor
-        run: npx cap sync android
+    public class AndroidBridge {
 
-      - name: Make gradlew executable
-        run: chmod +x android/gradlew
+        @JavascriptInterface
+        public String getPendingSms() {
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            String json = prefs.getString("ft_pending_sms", "[]");
+            prefs.edit().putString("ft_pending_sms", "[]").apply();
+            Log.d(TAG, "getPendingSms: " + json.substring(0, Math.min(120, json.length())));
+            return json;
+        }
 
-      - name: Build APK
-        run: |
-          cd android
-          ./gradlew assembleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx2g"
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
+        @JavascriptInterface
+        public void markSmsProcessed(String smsId) {
+            Log.d(TAG, "markSmsProcessed: " + smsId);
+        }
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: finance-tracker-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
+        @JavascriptInterface
+        public boolean isAndroidApp() {
+            return true;
+        }
+
+        // Called by React after every export so Java stays in sync
+        @JavascriptInterface
+        public void recordExportDate(String dateStr) {
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .edit()
+                .putString("ft_last_export_date", dateStr)
+                .apply();
+            Log.d(TAG, "Export date recorded: " + dateStr);
+            // Cancel the pending export reminder notification
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancel(EXPORT_NOTIF_ID);
+        }
+
+        // Called by React when user changes the reminder day setting
+        @JavascriptInterface
+        public void setExportReminderDays(int days) {
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .edit()
+                .putInt("ft_export_reminder_days", days)
+                .apply();
+            Log.d(TAG, "Export reminder days set: " + days);
+        }
+    }
+
+    // ── Export notification channel ───────────────────────────────────────
+    private void createExportNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel ch = new NotificationChannel(
+                CHANNEL_ID,
+                "Export Reminders",
+                NotificationManager.IMPORTANCE_DEFAULT
+            );
+            ch.setDescription("Reminds you to back up your Finance Tracker data");
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (nm != null) nm.createNotificationChannel(ch);
+        }
+    }
+
+    // ── Handle notification tap ───────────────────────────────────────────
+    private void handleNotificationTap(Intent intent) {
+        if (intent == null) return;
+        String openTab = intent.getStringExtra("openTab");
+        String smsId   = intent.getStringExtra("smsId");
+
+        if ("sms".equals(openTab)) {
+            Log.d(TAG, "Opened via SMS notification — smsId=" + smsId);
+            getBridge().getWebView().postDelayed(() -> {
+                String js = "window.__openSmsTab && window.__openSmsTab('" + (smsId != null ? smsId : "") + "');";
+                getBridge().getWebView().evaluateJavascript(js, null);
+            }, 800);
+        } else if ("settings".equals(openTab)) {
+            Log.d(TAG, "Opened via export reminder notification");
+            getBridge().getWebView().postDelayed(() -> {
+                String js = "window.__openSettingsTab && window.__openSettingsTab();";
+                getBridge().getWebView().evaluateJavascript(js, null);
+            }, 800);
+        }
+    }
+}
