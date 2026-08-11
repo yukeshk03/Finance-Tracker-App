@@ -394,16 +394,26 @@ export default function App() {
       alert("Core category 'Income' cannot be deleted.");
       return;
     }
+    if (catToDelete === 'Uncategorized') {
+      alert("'Uncategorized' cannot be deleted — it holds transactions from deleted categories.");
+      return;
+    }
 
     const hasTransactions = transactions.some(t => t.category === catToDelete);
     if (hasTransactions) {
-      if (window.confirm(`"${catToDelete}" has transactions. To delete it, they will be marked as "Uncategorized". Proceed?`)) {
-        // Ensure "Uncategorized" exists as a fallback category
-        if (!categories.includes('Uncategorized')) {
-          saveNewCategory('Uncategorized', '[+]');
-        }
-        setTransactions(prev => prev.map(t => t.category === catToDelete ? { ...t, category: 'Uncategorized' } : t));
-        removeCategorySilently(catToDelete);
+      if (window.confirm(`"${catToDelete}" has transactions. They will be moved to "Uncategorized" so you can re-categorize them. Proceed?`)) {
+        // Add Uncategorized to categories list synchronously before moving transactions
+        const newCats = categories.includes('Uncategorized')
+          ? categories.filter(c => c !== catToDelete)
+          : [...categories.filter(c => c !== catToDelete), 'Uncategorized'];
+        const newIcons = { ...categoryIcons, 'Uncategorized': '📂' };
+        setCategories(newCats);
+        setCategoryIcons(newIcons);
+        localStorage.setItem('aurelius_categories', JSON.stringify(newCats));
+        localStorage.setItem('aurelius_category_icons', JSON.stringify(newIcons));
+        setTransactions(prev => prev.map(t =>
+          t.category === catToDelete ? { ...t, category: 'Uncategorized' } : t
+        ));
       }
     } else {
       if (window.confirm(`Are you sure you want to delete the category "${catToDelete}"?`)) {
@@ -590,6 +600,39 @@ export default function App() {
     lastExportDate === '' || (exportOverdueDays !== null && exportOverdueDays >= settingExportReminderDays)
   );
 
+  // ── Export modal (shown on app open when overdue) ─────────────────────
+  const [exportModalDismissed, setExportModalDismissed] = useState<boolean>(() => {
+    const t = localStorage.getItem('ft_export_modal_dismissed');
+    if (!t) return false;
+    return Date.now() - parseInt(t, 10) < 24 * 60 * 60 * 1000; // 24h
+  });
+  const showExportModal = exportOverdue && !exportModalDismissed && transactions.length > 0;
+  const dismissExportModal = () => {
+    localStorage.setItem('ft_export_modal_dismissed', String(Date.now()));
+    setExportModalDismissed(true);
+  };
+
+  // ── Transaction table state ───────────────────────────────────────────
+  const [txTableView, setTxTableView] = useState<'sent' | 'received'>('sent');
+  const [txTablePage, setTxTablePage] = useState(1);
+  const TX_PAGE_SIZE = 20;
+
+  // Reset page when filters change
+  useEffect(() => { setTxTablePage(1); }, [filterMonth, filterCategories, dashWeek, dashDay, txTableView]);
+  const [excludedCategories, setExcludedCategories] = useState<string[]>(() => {
+    const s = localStorage.getItem('ft_excluded_categories');
+    if (s) { try { return JSON.parse(s); } catch { return []; } }
+    return [];
+  });
+  useEffect(() => {
+    localStorage.setItem('ft_excluded_categories', JSON.stringify(excludedCategories));
+  }, [excludedCategories]);
+  const toggleExcluded = (cat: string) => {
+    setExcludedCategories(prev =>
+      prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
+    );
+  };
+
   useEffect(() => {
     localStorage.setItem('ft_setting_export_reminder_days', String(settingExportReminderDays));
     try {
@@ -705,6 +748,15 @@ export default function App() {
   // Synchronization with LocalStorage
   useEffect(() => {
     localStorage.setItem('aurelius_transactions', JSON.stringify(transactions));
+    // Auto-ensure "Uncategorized" is in categories list if any transaction uses it
+    if (transactions.some(t => t.category === 'Uncategorized') && !categories.includes('Uncategorized')) {
+      const newCats = [...categories, 'Uncategorized'];
+      const newIcons = { ...categoryIcons, 'Uncategorized': '📂' };
+      setCategories(newCats);
+      setCategoryIcons(newIcons);
+      localStorage.setItem('aurelius_categories', JSON.stringify(newCats));
+      localStorage.setItem('aurelius_category_icons', JSON.stringify(newIcons));
+    }
   }, [transactions]);
 
   useEffect(() => {
@@ -801,28 +853,25 @@ export default function App() {
 
   // Months lists
   const availableMonths = useMemo(() => {
+    const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const list = new Set<string>();
+    // Always include current month
+    list.add(currentMonthLabel);
     transactions.forEach(t => {
-      // Parse YYYY-MM-DD to Month-YYYY label
       if (t.date) {
         const parts = t.date.split('-');
         if (parts.length >= 2) {
-          const year = parts[0];
-          const monthNum = parseInt(parts[1], 10);
-          const monthNames = [
-            'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-            'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-          ];
-          const name = `${monthNames[monthNum - 1]}-${year}`;
-          list.add(name);
+          list.add(`${MN[parseInt(parts[1],10)-1]}-${parts[0]}`);
         }
       }
     });
-    // Add default options if empty or matching user spreadsheet logs
-    list.add('Apr-2026');
-    list.add('May-2026');
-    return Array.from(list);
-  }, [transactions]);
+    // Sort newest first
+    return Array.from(list).sort((a, b) => {
+      const [am, ay] = a.split('-'); const [bm, by] = b.split('-');
+      if (ay !== by) return parseInt(by) - parseInt(ay);
+      return MN.indexOf(bm) - MN.indexOf(am);
+    });
+  }, [transactions, currentMonthLabel]);
 
   // Filtered transactions for viewing & calculations
   const filteredTransactions = useMemo(() => {
@@ -925,11 +974,11 @@ export default function App() {
 
   // Category wise spending representation for filtered selection
   const categorySpendingList = useMemo(() => {
-    // Gross spending — expense only, no subtraction of income
+    // Gross spending — expense only, exclude analysisExcluded categories
     const map: Record<string, number> = {};
     let total = 0;
     filteredTransactions.forEach(t => {
-      if (t.type === 'expense') {
+      if (t.type === 'expense' && !excludedCategories.includes(t.category)) {
         map[t.category] = (map[t.category] || 0) + t.amount;
         total += t.amount;
       }
@@ -940,7 +989,7 @@ export default function App() {
         percentage: total > 0 ? Math.round((amount / total) * 100) : 0
       }))
       .sort((a, b) => b.amount - a.amount);
-  }, [filteredTransactions, categories]);
+  }, [filteredTransactions, categories, excludedCategories]);
 
   // Category spending pattern parser
   const weeklySpendingTrend = useMemo(() => {
@@ -1752,6 +1801,40 @@ export default function App() {
         </div>
       )}
 
+          {/* Export Overdue Modal — shown on app open when backup is overdue */}
+    {showExportModal && (
+      <div className="fixed inset-0 z-[200] bg-black/85 flex items-center justify-center p-5 animate-fade-in">
+        <div className="bg-[#0f0f0f] border border-yellow-700/50 rounded-2xl p-5 w-full max-w-[380px] shadow-2xl space-y-4">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">⚠️</span>
+            <div>
+              <p className="text-yellow-300 font-mono font-bold text-[13px]">Backup Overdue</p>
+              <p className="text-gray-500 text-[10px] font-mono mt-0.5">
+                {lastExportDate
+                  ? `Last export: ${lastExportDate} · ${exportOverdueDays}d ago`
+                  : 'You have never backed up your data'}
+              </p>
+            </div>
+          </div>
+          <p className="text-gray-400 text-[11px] leading-relaxed">
+            Your data only lives on this device. If you uninstall or change phones, it's gone forever. Export now to keep a safe copy.
+          </p>
+          <button
+            onClick={() => { handleCsvExport(); dismissExportModal(); }}
+            className="w-full bg-[#d4af37] text-black font-mono font-bold text-[11px] uppercase tracking-wider py-3 rounded-xl hover:opacity-90 transition-all"
+          >
+            Export Now
+          </button>
+          <button
+            onClick={dismissExportModal}
+            className="w-full border border-[#333] text-gray-400 font-mono text-[11px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#141414] transition-all"
+          >
+            Remind Me Tomorrow
+          </button>
+        </div>
+      </div>
+    )}
+
           {/* Export Modal — visible from any tab. Lets user share, copy, or download CSV */}
     {exportTextModal && (
       <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 animate-fade-in" onClick={() => setExportTextModal(null)}>
@@ -1973,29 +2056,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* ── Export overdue warning banner ── */}
-            {exportOverdue && (
-              <div className="bg-yellow-950/40 border border-yellow-700/50 rounded-xl p-3 flex items-center justify-between gap-2 animate-fade-in">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-yellow-400 text-base shrink-0">⚠</span>
-                  <div className="min-w-0">
-                    <p className="text-yellow-300 text-[11px] font-mono font-semibold">Backup overdue</p>
-                    <p className="text-yellow-600 text-[9px] font-mono">
-                      {lastExportDate
-                        ? `Last export: ${lastExportDate} · ${exportOverdueDays}d ago`
-                        : 'You have never exported your data'}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={handleCsvExport}
-                  className="shrink-0 bg-[#d4af37] text-black font-mono font-bold text-[9px] uppercase tracking-wider px-3 py-1.5 rounded-lg hover:opacity-90 transition-all"
-                >
-                  Export Now
-                </button>
-              </div>
-            )}
-
             {/* Sub-tab navigation selector: Transactions vs Budgets view */}
             <div className="grid grid-cols-2 gap-1.5 bg-[#0a0a0a] p-1 rounded-xl border border-[#181818]">
               <button
@@ -2028,7 +2088,9 @@ export default function App() {
               const selMi = mNames.indexOf(selMn);
               const daysInSel = new Date(parseInt(selYr), selMi + 1, 0).getDate();
               const weekOfDay = (dayNum: number) => Math.min(5, Math.ceil(dayNum / 7));
-              const catOk = (t: Transaction) => filterCategories.length === 0 || filterCategories.includes(t.category);
+              const catOk = (t: Transaction) =>
+                (filterCategories.length === 0 || filterCategories.includes(t.category)) &&
+                !excludedCategories.includes(t.category);
               const inPeriod = (t: Transaction) => {
                 if (monthOf(t.date) !== selMonth) return false;
                 if (dashDay) return t.date === dashDay && catOk(t);
@@ -2097,7 +2159,7 @@ export default function App() {
 
               // Donut
               const catMap:Record<string,number>={};
-              periodTx.forEach(t=>{if(t.type==='expense')catMap[t.category]=(catMap[t.category]||0)+t.amount;});
+              periodTx.forEach(t=>{if(t.type==='expense'&&!excludedCategories.includes(t.category))catMap[t.category]=(catMap[t.category]||0)+t.amount;});
               const catList=Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
               const top5=catList.slice(0,5);
               const othersVal=catList.slice(5).reduce((s,x)=>s+x[1],0);
@@ -2129,7 +2191,7 @@ export default function App() {
                     {categories.map(cat=>{const on=filterCategories.includes(cat);return(
                       <button key={cat} type="button" onClick={()=>setFilterCategories(prev=>on?prev.filter(x=>x!==cat):[...prev,cat])}
                         className={`px-2.5 py-1 rounded-full text-[9px] font-mono border whitespace-nowrap shrink-0 transition-all ${on?'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37] font-bold':'bg-[#0a0a0a] border-[#222] text-gray-500'}`}>
-                        {categoryIcons[cat]||'⭐'} {cat}
+                        {cat}
                       </button>);
                     })}
                   </div>
@@ -2309,6 +2371,122 @@ export default function App() {
                   }
                 </div>
 
+                {/* ── TRANSACTION TABLE ── */}
+                {(() => {
+                  const isSent = txTableView === 'sent';
+                  const allRows = periodTx
+                    .filter(t => t.type === (isSent ? 'expense' : 'income'))
+                    .sort((a, b) => b.date.localeCompare(a.date));
+                  const grandTotal = allRows.reduce((s, t) => s + t.amount, 0);
+                  const totalPages = Math.max(1, Math.ceil(allRows.length / TX_PAGE_SIZE));
+                  const safePage = Math.min(txTablePage, totalPages);
+                  const pageRows = allRows.slice((safePage - 1) * TX_PAGE_SIZE, safePage * TX_PAGE_SIZE);
+                  const pageTotal = pageRows.reduce((s, t) => s + t.amount, 0);
+                  const sign = isSent ? '−' : '+';
+                  const amtCls = isSent ? 'text-rose-400' : 'text-emerald-400';
+                  const catLabel = filterCategories.length === 1 ? filterCategories[0]
+                    : filterCategories.length > 1 ? 'selected categories' : periodLabel;
+                  return (
+                    <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl overflow-hidden">
+                      {/* Header */}
+                      <div className="p-3 border-b border-[#222]">
+                        <div className="flex justify-between items-center mb-2">
+                          <h3 className="font-serif text-[12px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5">
+                            <BrandIcon size={11} className="text-[#d4af37]"/> Transactions
+                            <span className="text-[9px] font-mono text-[#d4af37] bg-[#d4af37]/10 border border-[#d4af37]/20 px-1.5 py-0.5 rounded-md not-italic">{periodLabel}</span>
+                          </h3>
+                          <div className="flex bg-[#141414] border border-[#222] rounded-lg overflow-hidden">
+                            <button onClick={() => setTxTableView('sent')}
+                              className={`px-3 py-1.5 text-[9px] font-mono transition-all ${!isSent ? 'text-gray-500' : 'bg-rose-950/30 text-rose-400 font-bold'}`}>
+                              Sent
+                            </button>
+                            <button onClick={() => setTxTableView('received')}
+                              className={`px-3 py-1.5 text-[9px] font-mono transition-all border-l border-[#222] ${isSent ? 'text-gray-500' : 'bg-emerald-950/30 text-emerald-400 font-bold'}`}>
+                              Received
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex items-baseline gap-2">
+                          <span className={`text-lg font-mono font-bold ${amtCls}`}>
+                            {sign}₹{grandTotal.toLocaleString('en-IN')}
+                          </span>
+                          <span className="text-[9px] font-mono text-gray-500">
+                            {allRows.length} transaction{allRows.length !== 1 ? 's' : ''} · all pages
+                          </span>
+                        </div>
+                      </div>
+                      {allRows.length === 0 ? (
+                        <div className="py-8 text-center space-y-1">
+                          <p className="text-[10px] font-mono text-gray-500 italic">
+                            {isSent ? `No expenses in ${catLabel}` : `No income in ${catLabel} for this period`}
+                          </p>
+                          {!isSent && filterCategories.length > 0 && (
+                            <p className="text-[9px] font-mono text-gray-600">
+                              Tip: received includes reimbursements in any category
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          <table className="w-full border-collapse">
+                            <thead>
+                              <tr className="border-b border-[#1a1a1a]">
+                                <th className="text-left py-2 px-3 text-[8px] font-mono text-gray-600 uppercase tracking-wider w-[68px]">Date</th>
+                                <th className="text-left py-2 px-2 text-[8px] font-mono text-gray-600 uppercase tracking-wider">Category</th>
+                                <th className="text-left py-2 px-2 text-[8px] font-mono text-gray-600 uppercase tracking-wider">Description</th>
+                                <th className="text-right py-2 px-3 text-[8px] font-mono text-gray-600 uppercase tracking-wider">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {pageRows.map((t, i) => (
+                                <tr key={t.id} className={`border-b border-[#0d0d0d] ${i % 2 !== 0 ? 'bg-[#0a0a0a]' : ''}`}>
+                                  <td className="py-2 px-3 text-[9px] font-mono text-gray-500 whitespace-nowrap">
+                                    {t.date.split('-').slice(1).reverse().join(' ')}
+                                  </td>
+                                  <td className="py-2 px-2 max-w-[90px]">
+                                    <span className="text-[8px] font-mono bg-[#1a1a1a] border border-[#222] rounded-full px-1.5 py-0.5 text-gray-500 whitespace-nowrap block overflow-hidden text-ellipsis">
+                                      {categoryIcons[t.category] || '⭐'} {t.category}
+                                    </span>
+                                  </td>
+                                  <td className="py-2 px-2 text-[10px] text-gray-300 max-w-[110px] overflow-hidden text-ellipsis whitespace-nowrap">
+                                    {t.description || '—'}
+                                  </td>
+                                  <td className={`py-2 px-3 text-[11px] font-mono font-bold text-right whitespace-nowrap ${amtCls}`}>
+                                    {sign}₹{t.amount.toLocaleString('en-IN')}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr className="border-t border-[#222] bg-[#0a0a0a]">
+                                <td colSpan={3} className="py-2 px-3 text-[8px] font-mono text-gray-500 uppercase tracking-wider">Page {safePage} Total</td>
+                                <td className={`py-2 px-3 text-[11px] font-mono font-bold text-right ${amtCls}`}>{sign}₹{pageTotal.toLocaleString('en-IN')}</td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                          {totalPages > 1 && (
+                            <div className="flex justify-between items-center px-3 py-2 border-t border-[#1a1a1a]">
+                              <span className="text-[8px] font-mono text-gray-500">
+                                {(safePage-1)*TX_PAGE_SIZE+1}–{Math.min(safePage*TX_PAGE_SIZE, allRows.length)} of {allRows.length}
+                              </span>
+                              <div className="flex gap-1">
+                                <button onClick={() => setTxTablePage(p => Math.max(1, p-1))} disabled={safePage===1}
+                                  className="px-2.5 py-1 text-[9px] font-mono border border-[#222] bg-[#141414] text-gray-500 rounded-lg disabled:opacity-30 hover:border-[#d4af37] hover:text-[#d4af37] transition-all">←</button>
+                                {Array.from({length: totalPages}, (_, i) => i+1).map(p => (
+                                  <button key={p} onClick={() => setTxTablePage(p)}
+                                    className={`px-2.5 py-1 text-[9px] font-mono border rounded-lg transition-all ${p===safePage ? 'bg-[#d4af37]/15 border-[#d4af37] text-[#d4af37] font-bold' : 'border-[#222] bg-[#141414] text-gray-500 hover:border-gray-500'}`}>{p}</button>
+                                ))}
+                                <button onClick={() => setTxTablePage(p => Math.min(totalPages, p+1))} disabled={safePage===totalPages}
+                                  className="px-2.5 py-1 text-[9px] font-mono border border-[#222] bg-[#141414] text-gray-500 rounded-lg disabled:opacity-30 hover:border-[#d4af37] hover:text-[#d4af37] transition-all">→</button>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+
               </div>
               );
             })() : (
@@ -2410,15 +2588,9 @@ export default function App() {
               const curYear = now.getFullYear();
               let months: string[] = [];
 
-              if (ledgerPeriod === '6m') {
-                // Last 6 months, latest first
-                for (let i = 0; i <= 5; i++) {
-                  const d = new Date(curYear, now.getMonth() - i, 1);
-                  months.push(`${MN12[d.getMonth()]}-${d.getFullYear()}`);
-                }
-              } else if (ledgerPeriod === '12m') {
-                // Last 12 months, latest first
-                for (let i = 0; i <= 11; i++) {
+              const nMonths = ledgerPeriod === '3m' ? 3 : ledgerPeriod === '6m' ? 6 : ledgerPeriod === '9m' ? 9 : ledgerPeriod === '12m' ? 12 : 0;
+              if (nMonths > 0) {
+                for (let i = 0; i < nMonths; i++) {
                   const d = new Date(curYear, now.getMonth() - i, 1);
                   months.push(`${MN12[d.getMonth()]}-${d.getFullYear()}`);
                 }
@@ -2430,12 +2602,9 @@ export default function App() {
                 }
               }
 
-              // Available years from data + current year, descending
-              const txYrs = Array.from(new Set(
+              // Always show current year + previous year (dynamic, not from data)
+              const yearOptions = [curYear, curYear - 1];
                 transactions.map(t => t.date?.split('-')[0]).filter(Boolean)
-              )).map(Number);
-              if (!txYrs.includes(curYear)) txYrs.push(curYear);
-              const availYears = Array.from(new Set(txYrs)).sort((a, b) => b - a);
 
               // ── Build expense/income maps ──
               const exp: Record<string, Record<string, number>> = {};
@@ -2525,20 +2694,26 @@ export default function App() {
                       <BrandIcon size={13} className="text-[#d4af37]" /> Ledger
                     </h3>
                     <div className="flex items-center gap-2">
-                      {/* Period filter — 6M | 12M | years from data */}
-                      <div className="flex bg-[#141414] border border-[#222] rounded-lg overflow-hidden text-[9px] font-mono overflow-x-auto max-w-[240px]">
-                        {(['6m','12m'] as const).map(p => (
-                          <button key={p} onClick={() => setLedgerPeriod(p)}
-                            className={`px-2.5 py-1.5 transition-colors shrink-0 ${ledgerPeriod === p ? 'bg-[#d4af37]/20 text-[#d4af37] font-bold' : 'text-gray-500'}`}>
-                            {p === '6m' ? '6M' : '12M'}
-                          </button>
-                        ))}
-                        {availYears.map(yr => (
-                          <button key={yr} onClick={() => setLedgerPeriod(String(yr))}
-                            className={`px-2.5 py-1.5 transition-colors shrink-0 ${ledgerPeriod === String(yr) ? 'bg-[#d4af37]/20 text-[#d4af37] font-bold' : 'text-gray-500'}`}>
-                            {yr}
-                          </button>
-                        ))}
+                      {/* Period filter — 2 rows: years on top, duration on bottom */}
+                      <div className="flex flex-col gap-1">
+                        {/* Row 1: years */}
+                        <div className="flex bg-[#141414] border border-[#222] rounded-lg overflow-hidden text-[9px] font-mono">
+                          {yearOptions.map(yr => (
+                            <button key={yr} onClick={() => setLedgerPeriod(String(yr))}
+                              className={`flex-1 px-2.5 py-1.5 transition-colors ${ledgerPeriod === String(yr) ? 'bg-[#d4af37]/20 text-[#d4af37] font-bold' : 'text-gray-500'}`}>
+                              {yr}
+                            </button>
+                          ))}
+                        </div>
+                        {/* Row 2: duration */}
+                        <div className="flex bg-[#141414] border border-[#222] rounded-lg overflow-hidden text-[9px] font-mono">
+                          {(['3m','6m','9m','12m'] as const).map(p => (
+                            <button key={p} onClick={() => setLedgerPeriod(p)}
+                              className={`flex-1 py-1.5 transition-colors ${ledgerPeriod === p ? 'bg-[#d4af37]/20 text-[#d4af37] font-bold' : 'text-gray-500'}`}>
+                              {p.toUpperCase()}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                       <button onClick={() => setTableExpanded(e => !e)}
                         className="text-[9px] font-mono text-[#d4af37] border border-[#d4af37]/30 px-2 py-1 rounded-lg hover:bg-[#d4af37]/10 transition-all shrink-0">
@@ -3889,6 +4064,33 @@ export default function App() {
             </div>
             <p className="text-[#888] text-[10px] font-mono">Finance Tracker v1.0.0</p>
             <p className="text-[#555] text-[9px] font-mono leading-relaxed">All data stays on your device. No login required.</p>
+          </div>
+
+          {/* ── Excluded from Analysis ──────────────────────────────── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
+            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
+              <BrandIcon size={14} className="text-[#d4af37]" />
+              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Excluded from Analysis</span>
+            </div>
+            <p className="text-gray-500 text-[9px] font-mono leading-relaxed">
+              Excluded categories hidden from: Expenditure, Month vs Spending, Week on Week, Spend Share. Still visible in Ledger, History and Budget.
+            </p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {categories.map(cat => {
+                const excluded = excludedCategories.includes(cat);
+                return (
+                  <button key={cat} onClick={() => toggleExcluded(cat)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[#141414] border-[#222] text-gray-400 hover:border-gray-500'}`}>
+                    {cat}
+                    {excluded && <span className="text-red-500 ml-1">×</span>}
+                  </button>
+                );
+              })}
+            </div>
+            {excludedCategories.length > 0
+              ? <button onClick={() => setExcludedCategories([])} className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">Clear all exclusions</button>
+              : <p className="text-[8px] text-gray-600 font-mono italic">Tap any category to exclude from charts</p>
+            }
           </div>
 
           {/* ── Danger Zone ─────────────────────────────────────── */}
