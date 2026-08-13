@@ -507,6 +507,125 @@ export default function App() {
   // Dashboard drill-down: week (1-5) and single day within the selected month
   const [dashWeek, setDashWeek] = useState<number | null>(null);
   const [dashDay, setDashDay] = useState<string | null>(null);
+
+  // ── Calendar picker state (shared component) ──────────────────────────
+  const [calOpen, setCalOpen] = useState(false);
+  const [calTarget, setCalTarget] = useState<'home' | 'history'>('home');
+  const [calMode, setCalMode] = useState<'single' | 'range'>('single');
+  const [calSel1, setCalSel1] = useState<string | null>(null);
+  const [calSel2, setCalSel2] = useState<string | null>(null);
+  const [calViewYear, setCalViewYear] = useState(() => new Date().getFullYear());
+  const [calViewMonth, setCalViewMonth] = useState(() => new Date().getMonth());
+  // History date range
+  const [historyDateFrom, setHistoryDateFrom] = useState<string | null>(null);
+  const [historyDateTo, setHistoryDateTo] = useState<string | null>(null);
+
+  const openCal = (target: 'home' | 'history') => {
+    setCalTarget(target);
+    setCalMode('single');
+    setCalSel1(null);
+    setCalSel2(null);
+    setCalViewYear(new Date().getFullYear());
+    setCalViewMonth(new Date().getMonth());
+    setCalOpen(true);
+  };
+
+  const confirmCal = () => {
+    if (!calSel1) return;
+    const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    if (calTarget === 'home') {
+      if (calMode === 'single') {
+        setDashDay(calSel1);
+        setDashWeek(null);
+        setFilterMonth(monthOf(calSel1));
+      } else if (calSel2) {
+        const [lo, hi] = calSel1 <= calSel2 ? [calSel1, calSel2] : [calSel2, calSel1];
+        setDashDay(lo + '|' + hi); // store range as pipe-separated
+        setDashWeek(null);
+        setFilterMonth(monthOf(lo));
+      }
+    } else {
+      if (calMode === 'single') {
+        setHistoryDateFrom(calSel1);
+        setHistoryDateTo(calSel1);
+      } else if (calSel2) {
+        const [lo, hi] = calSel1 <= calSel2 ? [calSel1, calSel2] : [calSel2, calSel1];
+        setHistoryDateFrom(lo);
+        setHistoryDateTo(hi);
+      }
+    }
+    setCalOpen(false);
+  };
+
+  const pickCalDay = (ds: string) => {
+    if (calMode === 'single') {
+      setCalSel1(ds); setCalSel2(null);
+    } else {
+      if (!calSel1 || calSel2) { setCalSel1(ds); setCalSel2(null); }
+      else if (ds === calSel1) { setCalSel1(null); }
+      else { setCalSel2(ds); }
+    }
+  };
+
+  // ── Manage Category state ─────────────────────────────────────────────
+  const [mcPanel, setMcPanel] = useState<'none' | 'add' | 'edit'>('none');
+  const [mcAddIcon, setMcAddIcon] = useState('');
+  const [mcAddName, setMcAddName] = useState('');
+  const [mcEditSel, setMcEditSel] = useState('');
+  const [mcAction, setMcAction] = useState<'none' | 'rename' | 'merge' | 'delete'>('none');
+  const [mcRenameIcon, setMcRenameIcon] = useState('');
+  const [mcRenameName, setMcRenameName] = useState('');
+  const [mcMergeTarget, setMcMergeTarget] = useState('');
+  const [mcModal, setMcModal] = useState<'none' | 'merge1' | 'merge2' | 'delete1'>('none');
+
+  const mcReset = () => { setMcPanel('none'); setMcEditSel(''); setMcAction('none'); setMcAddIcon(''); setMcAddName(''); setMcMergeTarget(''); setMcModal('none'); };
+
+  const mcDoAdd = () => {
+    const icon = mcAddIcon.trim() || '⭐'; const name = mcAddName.trim();
+    if (!name) { alert('Enter a category name'); return; }
+    if (categories.find(c => c.toLowerCase() === name.toLowerCase())) { alert('Already exists'); return; }
+    const nc = [...categories, name]; const ni = { ...categoryIcons, [name]: icon };
+    setCategories(nc); setCategoryIcons(ni);
+    localStorage.setItem('aurelius_categories', JSON.stringify(nc));
+    localStorage.setItem('aurelius_category_icons', JSON.stringify(ni));
+    mcReset();
+  };
+
+  const mcDoRename = () => {
+    const icon = mcRenameIcon.trim() || '⭐'; const name = mcRenameName.trim(); const old = mcEditSel;
+    if (!name) { alert('Enter a new name'); return; }
+    const nc = categories.map(c => c === old ? name : c);
+    const ni = { ...categoryIcons, [name]: icon }; delete ni[old];
+    setCategories(nc); setCategoryIcons(ni);
+    localStorage.setItem('aurelius_categories', JSON.stringify(nc));
+    localStorage.setItem('aurelius_category_icons', JSON.stringify(ni));
+    setTransactions(prev => prev.map(t => t.category === old ? { ...t, category: name } : t));
+    mcReset();
+  };
+
+  const mcDoMerge = () => {
+    const src = mcEditSel; const dst = mcMergeTarget;
+    const nc = categories.filter(c => c !== src); const ni = { ...categoryIcons }; delete ni[src];
+    setCategories(nc); setCategoryIcons(ni);
+    localStorage.setItem('aurelius_categories', JSON.stringify(nc));
+    localStorage.setItem('aurelius_category_icons', JSON.stringify(ni));
+    setTransactions(prev => prev.map(t => t.category === src ? { ...t, category: dst } : t));
+    mcReset();
+  };
+
+  const mcDoDelete = () => {
+    const src = mcEditSel;
+    const nc = categories.filter(c => c !== src); const ni = { ...categoryIcons }; delete ni[src];
+    if (transactions.some(t => t.category === src) && !nc.includes('Uncategorized')) {
+      nc.push('Uncategorized'); ni['Uncategorized'] = '📂';
+    }
+    setCategories(nc); setCategoryIcons(ni);
+    localStorage.setItem('aurelius_categories', JSON.stringify(nc));
+    localStorage.setItem('aurelius_category_icons', JSON.stringify(ni));
+    setTransactions(prev => prev.map(t => t.category === src ? { ...t, category: 'Uncategorized' } : t));
+    mcReset();
+  };
+
   const [isFiltersExpanded, setIsFiltersExpanded] = useState(false);
   const [geminiKey, setGeminiKeyState] = useState<string>(() => localStorage.getItem(GEMINI_API_KEY_STORAGE) || '');
   const [geminiKeySaved, setGeminiKeySaved] = useState(false);
@@ -548,14 +667,7 @@ export default function App() {
   const [recentDateFilter, setRecentDateFilter] = useState('All');
 
   // ── Theme (light / dark) ──────────────────────────────────────────────────
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const s = localStorage.getItem('ft_theme');
-    return (s === 'light' || s === 'dark') ? s : 'dark';
-  });
-  useEffect(() => {
-    localStorage.setItem('ft_theme', theme);
-    document.documentElement.setAttribute('data-theme', theme);
-  }, [theme]);
+  // Theme: dark only
 
   // ── Settings state ────────────────────────────────────────────────────────
   const [settingSmsReader, setSettingSmsReader] = useState<boolean>(() => {
@@ -615,6 +727,7 @@ export default function App() {
   // ── Transaction table state ───────────────────────────────────────────
   const [txTableView, setTxTableView] = useState<'sent' | 'received'>('sent');
   const [txTablePage, setTxTablePage] = useState(1);
+  const [txTableOpen, setTxTableOpen] = useState(false);
   const TX_PAGE_SIZE = 20;
 
   // Reset page when filters change
@@ -629,6 +742,26 @@ export default function App() {
   }, [excludedCategories]);
   const toggleExcluded = (cat: string) => {
     setExcludedCategories(prev =>
+      prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
+    );
+  };
+
+  // ── Settings sections collapsible state ──────────────────────────────
+  const [settingsOpen, setSettingsOpen] = useState<Record<string, boolean>>({});
+  const toggleSettings = (key: string) => setSettingsOpen(prev => ({ ...prev, [key]: !prev[key] }));
+  const isSettingsOpen = (key: string) => !!settingsOpen[key];
+
+  // ── Excluded categories from Ledger table ─────────────────────────────
+  const [excludedLedgerCategories, setExcludedLedgerCategories] = useState<string[]>(() => {
+    const s = localStorage.getItem('ft_excluded_ledger_categories');
+    if (s) { try { return JSON.parse(s); } catch { return []; } }
+    return [];
+  });
+  useEffect(() => {
+    localStorage.setItem('ft_excluded_ledger_categories', JSON.stringify(excludedLedgerCategories));
+  }, [excludedLedgerCategories]);
+  const toggleExcludedLedger = (cat: string) => {
+    setExcludedLedgerCategories(prev =>
       prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
     );
   };
@@ -652,6 +785,7 @@ export default function App() {
   const [editCategory, setEditCategory] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editAmount, setEditAmount] = useState('');
+  const [editDate, setEditDate] = useState('');
 
   // ── History: default to current month ────────────────────────────────────
   const currentMonthDefault = (() => {
@@ -1483,6 +1617,7 @@ export default function App() {
     months.forEach(m => { exp[m] = {}; inc[m] = {}; });
     transactions.forEach(t => {
       if (!t.date) return;
+      if (excludedLedgerCategories.includes(t.category)) return; // excluded from ledger
       const p = t.date.split('-');
       const key = `${MN[parseInt(p[1],10)-1]}-${p[0]}`;
       if (!months.includes(key)) return;
@@ -1754,12 +1889,11 @@ export default function App() {
 
   // Start editing a transaction
   const startEditTransaction = (tx: Transaction) => {
-    if (window.confirm('Do you want to edit this transaction?')) {
-      setEditingTransaction(tx);
-      setEditCategory(tx.category);
-      setEditDescription(tx.description);
-      setEditAmount(String(tx.amount));
-    }
+    setEditingTransaction(tx);
+    setEditCategory(tx.category);
+    setEditDescription(tx.description);
+    setEditAmount(String(tx.amount));
+    setEditDate(tx.date);
   };
 
   // Save edited transaction
@@ -1767,9 +1901,10 @@ export default function App() {
     if (!editingTransaction) return;
     const val = parseFloat(editAmount);
     if (!val || isNaN(val) || val <= 0) { alert('Please enter a valid amount.'); return; }
+    if (!editDate || !/^\d{4}-\d{2}-\d{2}$/.test(editDate)) { alert('Please enter a valid date.'); return; }
     setTransactions(prev => prev.map(t =>
       t.id === editingTransaction.id
-        ? { ...t, category: editCategory, description: editDescription.trim() || t.description, amount: val }
+        ? { ...t, date: editDate, category: editCategory, description: editDescription.trim() || t.description, amount: val }
         : t
     ));
     setEditingTransaction(null);
@@ -1785,45 +1920,13 @@ export default function App() {
 
       {/* ── THEME OVERRIDES (Light) ───────────────────────────────────── */}
       <style>{`
-        html[data-theme="light"], html[data-theme="light"] body {
-          background: #f5f1e8 !important;
-        }
         /* Root wrapper */
-        html[data-theme="light"] .h-screen.w-screen {
-          background: #f5f1e8 !important;
-          color: #1a1a1a !important;
-        }
-        /* Most card/panel backgrounds → white */
-        html[data-theme="light"] [class*="bg-[#0f0f0f]"] { background-color: #ffffff !important; }
-        html[data-theme="light"] [class*="bg-[#121212]"] { background-color: #faf6ec !important; }
-        html[data-theme="light"] [class*="bg-[#141414]"] { background-color: #faf6ec !important; }
-        html[data-theme="light"] [class*="bg-[#1a1a1a]"] { background-color: #ebe5d4 !important; }
-        html[data-theme="light"] [class*="bg-[#111]"] { background-color: #f0ead8 !important; }
         /* KEEP Inflow/Outflow cards & Smart Alerts dark - these have bg-[#0a0a0a] and bg-[#050505] */
-        html[data-theme="light"] [class*="bg-[#0a0a0a]"] { background-color: #0a0a0a !important; }
-        html[data-theme="light"] [class*="bg-[#050505]"] { background-color: #050505 !important; }
         /* Section toggle row (Recent / Smart Alerts) — preserve its dark/light contrast */
         /* Borders */
-        html[data-theme="light"] [class*="border-[#1a1a1a]"] { border-color: #e0d9c4 !important; }
-        html[data-theme="light"] [class*="border-[#1c1c1c]"] { border-color: #d4ccba !important; }
-        html[data-theme="light"] [class*="border-[#222]"] { border-color: #d4ccba !important; }
-        html[data-theme="light"] [class*="border-[#333]"] { border-color: #b8b09a !important; }
         /* Text colors — only target inside light-bg containers */
-        html[data-theme="light"] [class*="text-white"]:not([class*="bg-[#050505]"]):not([class*="bg-[#0a0a0a]"]) {
-          color: #1a1a1a !important;
-        }
-        html[data-theme="light"] [class*="text-[#e5e5e5]"] { color: #1a1a1a !important; }
-        html[data-theme="light"] [class*="text-gray-300"] { color: #2a2a2a !important; }
-        html[data-theme="light"] [class*="text-gray-400"] { color: #5a5a5a !important; }
-        html[data-theme="light"] [class*="text-gray-500"] { color: #6b6b6b !important; }
-        html[data-theme="light"] [class*="text-gray-600"] { color: #888 !important; }
-        html[data-theme="light"] [class*="text-gray-700"] { color: #a8a8a8 !important; }
-        html[data-theme="light"] [class*="text-[#888]"] { color: #555 !important; }
         /* Keep gold/emerald/rose accents */
         /* Inputs */
-        html[data-theme="light"] input, html[data-theme="light"] select, html[data-theme="light"] textarea {
-          color: #1a1a1a !important;
-        }
         html[data-theme="light"] input::placeholder { color: #999 !important; }
       `}</style>
 
@@ -1917,6 +2020,136 @@ export default function App() {
           </p>
         </div>
       )}
+
+          {/* ── Calendar Date Picker Modal ── */}
+    {calOpen && (() => {
+      const MN_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+      const MN_S = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const daysInMonth = new Date(calViewYear, calViewMonth + 1, 0).getDate();
+      const firstDay = new Date(calViewYear, calViewMonth, 1).getDay();
+      const prevDays = new Date(calViewYear, calViewMonth, 0).getDate();
+      const todayStr = todayLocal();
+
+      const fmtDisp = (ds: string) => {
+        const [y, m, d] = ds.split('-');
+        return `${parseInt(d)} ${MN_S[parseInt(m)-1]} ${y}`;
+      };
+
+      const inRange = (ds: string) => {
+        if (calMode !== 'range' || !calSel1 || !calSel2) return false;
+        const [lo, hi] = calSel1 <= calSel2 ? [calSel1, calSel2] : [calSel2, calSel1];
+        return ds > lo && ds < hi;
+      };
+
+      const selInfo = () => {
+        if (!calSel1) return { label: 'No date selected', value: '—', ready: false };
+        if (calMode === 'single') return { label: 'Selected day', value: fmtDisp(calSel1), ready: true };
+        if (!calSel2) return { label: 'Now select end date', value: fmtDisp(calSel1) + ' → ?', ready: false };
+        const [lo, hi] = calSel1 <= calSel2 ? [calSel1, calSel2] : [calSel2, calSel1];
+        const days = Math.round((new Date(hi).getTime() - new Date(lo).getTime()) / 86400000) + 1;
+        return { label: `${days} day${days !== 1 ? 's' : ''} selected`, value: fmtDisp(lo) + ' → ' + fmtDisp(hi), ready: true };
+      };
+      const info = selInfo();
+
+      const cells: JSX.Element[] = [];
+      for (let i = firstDay - 1; i >= 0; i--) {
+        cells.push(<div key={`p${i}`} className="aspect-square flex items-center justify-center text-[11px] text-gray-700">{prevDays - i}</div>);
+      }
+      for (let d = 1; d <= daysInMonth; d++) {
+        const ds = `${calViewYear}-${String(calViewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const isStart = calSel1 === ds;
+        const isEnd = calSel2 === ds;
+        const isToday = ds === todayStr;
+        const isRange = inRange(ds);
+        cells.push(
+          <button key={ds} onClick={() => pickCalDay(ds)}
+            className={`aspect-square flex items-center justify-center text-[12px] font-mono rounded-lg transition-all
+              ${isStart || isEnd ? 'bg-[#d4af37] text-black font-bold' :
+                isRange ? 'bg-[#d4af37]/15 text-[#d4af37]' :
+                isToday ? 'text-[#d4af37] font-bold border border-[#d4af37]/30' :
+                'text-gray-400 hover:bg-[#1a1a1a] hover:text-white'}`}>
+            {d}
+          </button>
+        );
+      }
+
+      return (
+        <div className="fixed inset-0 z-[150] bg-black/80 flex items-end justify-center" onClick={() => setCalOpen(false)}>
+          <div className="bg-[#0f0f0f] border border-[#2a2a2a] rounded-t-2xl p-4 w-full max-w-[420px] pb-8" onClick={e => e.stopPropagation()}>
+
+            {/* Mode toggle */}
+            <div className="flex bg-[#141414] border border-[#222] rounded-xl overflow-hidden mb-4">
+              <button onClick={() => { setCalMode('single'); setCalSel2(null); }}
+                className={`flex-1 py-2 text-[10px] font-mono uppercase tracking-wider transition-all ${calMode === 'single' ? 'bg-[#d4af37]/12 text-[#d4af37] font-bold' : 'text-gray-500'}`}>
+                Single Day
+              </button>
+              <button onClick={() => setCalMode('range')}
+                className={`flex-1 py-2 text-[10px] font-mono uppercase tracking-wider transition-all ${calMode === 'range' ? 'bg-[#d4af37]/12 text-[#d4af37] font-bold' : 'text-gray-500'}`}>
+                Date Range
+              </button>
+            </div>
+
+            {/* Month nav */}
+            <div className="flex justify-between items-center mb-3">
+              <button onClick={() => { if (calViewMonth === 0) { setCalViewMonth(11); setCalViewYear(y => y - 1); } else setCalViewMonth(m => m - 1); }}
+                className="w-8 h-8 flex items-center justify-center bg-[#141414] border border-[#222] rounded-lg text-[#d4af37] text-lg">‹</button>
+              <span className="font-serif text-[14px] text-white">{MN_FULL[calViewMonth]} {calViewYear}</span>
+              <button onClick={() => { if (calViewMonth === 11) { setCalViewMonth(0); setCalViewYear(y => y + 1); } else setCalViewMonth(m => m + 1); }}
+                className="w-8 h-8 flex items-center justify-center bg-[#141414] border border-[#222] rounded-lg text-[#d4af37] text-lg">›</button>
+            </div>
+
+            {/* Weekday labels */}
+            <div className="grid grid-cols-7 mb-1">
+              {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
+                <div key={d} className="text-center text-[9px] text-gray-600 py-1">{d}</div>
+              ))}
+            </div>
+
+            {/* Days grid */}
+            <div className="grid grid-cols-7 gap-0.5 mb-3">{cells}</div>
+
+            {/* Selection info */}
+            <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl px-3 py-2 flex justify-between items-center mb-3">
+              <div>
+                <div className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">{info.label}</div>
+                <div className="text-[11px] text-[#d4af37] font-mono mt-0.5">{info.value}</div>
+              </div>
+              {(calSel1 || calSel2) && (
+                <button onClick={() => { setCalSel1(null); setCalSel2(null); }}
+                  className="text-[9px] font-mono text-gray-500 uppercase tracking-wider hover:text-[#d4af37]">Clear</button>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="grid grid-cols-3 gap-2">
+              <button onClick={() => setCalOpen(false)}
+                className="py-2.5 border border-[#333] text-gray-500 font-mono text-[10px] uppercase rounded-xl hover:border-[#d4af37] hover:text-[#d4af37] transition-all">Cancel</button>
+              <button onClick={confirmCal} disabled={!info.ready}
+                className="col-span-2 py-2.5 bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase rounded-xl disabled:opacity-30 hover:opacity-90 transition-all">
+                Apply Filter
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    })()}
+
+          {/* ── Manage Category Merge Modal ── */}
+    {mcModal === 'merge1' && (
+      <div className="fixed inset-0 z-[200] bg-black/85 flex items-center justify-center p-5">
+        <div className="bg-[#0f0f0f] border border-[#d4af37] rounded-2xl p-5 w-full max-w-[360px] space-y-4">
+          <div className="text-center text-3xl">⇄</div>
+          <h3 className="font-serif text-[16px] text-white text-center">Merge Categories?</h3>
+          <p className="text-[11px] text-gray-400 text-center leading-relaxed">
+            All transactions in <span className="text-[#d4af37] font-bold">{mcEditSel}</span> will move to <span className="text-[#d4af37] font-bold">{mcMergeTarget}</span>.<br/><br/>
+            <span className="text-[#d4af37]">{mcEditSel}</span> will be permanently removed.<br/>
+            <span className="text-[#D96A55] text-[10px]">This cannot be undone.</span>
+          </p>
+          <button onClick={mcDoMerge} className="w-full border border-[#4a7090] bg-[#9ab7d8]/10 text-[#9ab7d8] font-mono font-bold text-[11px] uppercase py-3 rounded-xl">Merge Permanently</button>
+          <button onClick={() => setMcModal('none')} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2.5 rounded-xl">Cancel</button>
+        </div>
+      </div>
+    )}
 
           {/* Export Overdue Modal — shown on app open when backup is overdue */}
     {showExportModal && (
@@ -2104,20 +2337,16 @@ export default function App() {
 
       <div className="flex-1 flex flex-col overflow-hidden bg-[#050505]">
 
-      {/* Top bar with settings button — safe-area padding for status bar */}
-      <div className="flex justify-between items-center px-4 pb-1 shrink-0" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}>
-        <div className="flex items-center gap-2">
-          <img src="/icons/icon-72x72.png" className="w-6 h-6 rounded-lg" alt="logo" />
-          <span className="text-[11px] font-mono text-[#d4af37] font-semibold tracking-wide">Finance Tracker</span>
-        </div>
+      {/* Top bar — safe-area padding for status bar, settings icon only */}
+      <div className="flex justify-end items-center px-4 pb-1 shrink-0" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}>
         <button
           onClick={() => setNavTab('settings')}
-          className={`p-1.5 rounded-xl transition-all mt-1 ${navTab === 'settings' ? 'bg-[#d4af37]/20 text-[#d4af37]' : 'text-gray-500 hover:text-white'}`}
+          className={`p-1.5 rounded-xl transition-all ${navTab === 'settings' ? 'bg-[#d4af37]/20 text-[#d4af37]' : 'text-gray-500 hover:text-white'}`}
         >
           <Info size={18} />
         </button>
       </div>
-    
+
 
 
     {/* Simulated Screen Content - Dynamic Tab View Rendering */}
@@ -2165,15 +2394,7 @@ export default function App() {
         return (
           <div className="space-y-4 animate-fade-in pt-4">
             
-            {/* Header bar within app */}
-            <div className="flex justify-between items-end border-b border-[#1c1c1c] pb-3">
-              <div className="flex flex-col">
-                <span className="text-[8px] text-[#d4af37] font-mono tracking-widest uppercase font-bold">Ledger Overview</span>
-                <h2 className="font-serif text-base text-white tracking-wide">Dashboard</h2>
-              </div>
-            </div>
-
-            {/* Sub-tab navigation selector: Transactions vs Budgets view */}
+            {/* Sub-tab navigation selector */}
             <div className="grid grid-cols-2 gap-1.5 bg-[#0a0a0a] p-1 rounded-xl border border-[#181818]">
               <button
                 onClick={() => setDashboardView('transactions')}
@@ -2183,7 +2404,7 @@ export default function App() {
                     : 'text-gray-500 border-transparent hover:text-gray-300'
                 }`}
               >
-                Recent Activity
+                Overview
               </button>
               <button
                 onClick={() => setDashboardView('budgets')}
@@ -2193,7 +2414,7 @@ export default function App() {
                     : 'text-gray-500 border-transparent hover:text-gray-300'
                 }`}
               >
-                Smart Alerts
+                Budgets
               </button>
             </div>
 
@@ -2210,7 +2431,13 @@ export default function App() {
                 !excludedCategories.includes(t.category);
               const inPeriod = (t: Transaction) => {
                 if (monthOf(t.date) !== selMonth) return false;
-                if (dashDay) return t.date === dashDay && catOk(t);
+                if (dashDay) {
+                  if (dashDay.includes('|')) {
+                    const [lo, hi] = dashDay.split('|');
+                    return t.date >= lo && t.date <= hi && catOk(t);
+                  }
+                  return t.date === dashDay && catOk(t);
+                }
                 if (dashWeek) { const d = parseInt(t.date.split('-')[2], 10); if (weekOfDay(d) !== dashWeek) return false; }
                 return catOk(t);
               };
@@ -2300,9 +2527,11 @@ export default function App() {
                       </select>
                       <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#d4af37] pointer-events-none"/>
                     </div>
-                    <input type="date" value={dashDay||''}
-                      onChange={e=>{const v=e.target.value;if(v){setDashDay(v);setDashWeek(null);setFilterMonth(monthOf(v));}else setDashDay(null);}}
-                      className={`flex-1 bg-[#141414] border rounded-lg py-2 px-2.5 text-[11px] font-mono outline-none focus:border-[#d4af37] ${dashDay?'border-[#d4af37] text-[#d4af37]':'border-[#222] text-gray-400'}`}/>
+                    <button onClick={() => openCal('home')}
+                      className={`flex-1 flex items-center gap-1.5 bg-[#141414] border rounded-lg py-2 px-2.5 text-[11px] font-mono outline-none transition-all ${dashDay ? 'border-[#d4af37] text-[#d4af37]' : 'border-[#222] text-gray-400'}`}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                      <span className="truncate">{dashDay ? (dashDay.includes('|') ? dashDay.split('|')[0].split('-').slice(1).reverse().join(' ') + ' – ' + dashDay.split('|')[1].split('-').slice(1).reverse().join(' ') : dashDay.split('-').slice(1).reverse().join(' ')) : 'Pick date'}</span>
+                    </button>
                   </div>
                   <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{scrollbarWidth:'none'}}>
                     {categories.map(cat=>{const on=filterCategories.includes(cat);return(
@@ -2488,7 +2717,7 @@ export default function App() {
                   }
                 </div>
 
-                {/* ── TRANSACTION TABLE ── */}
+                {/* ── TRANSACTION TABLE (collapsible) ── */}
                 {(() => {
                   const isSent = txTableView === 'sent';
                   const allRows = periodTx
@@ -2505,104 +2734,85 @@ export default function App() {
                     : filterCategories.length > 1 ? 'selected categories' : periodLabel;
                   return (
                     <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl overflow-hidden">
-                      {/* Header */}
-                      <div className="p-3 border-b border-[#222]">
-                        <div className="flex justify-between items-center mb-2">
-                          <h3 className="font-serif text-[12px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5">
-                            <BrandIcon size={11} className="text-[#d4af37]"/> Transactions
-                            <span className="text-[9px] font-mono text-[#d4af37] bg-[#d4af37]/10 border border-[#d4af37]/20 px-1.5 py-0.5 rounded-md not-italic">{periodLabel}</span>
-                          </h3>
-                          <div className="flex bg-[#141414] border border-[#222] rounded-lg overflow-hidden">
-                            <button onClick={() => setTxTableView('sent')}
-                              className={`px-3 py-1.5 text-[9px] font-mono transition-all ${!isSent ? 'text-gray-500' : 'bg-rose-950/30 text-rose-400 font-bold'}`}>
-                              Sent
-                            </button>
-                            <button onClick={() => setTxTableView('received')}
-                              className={`px-3 py-1.5 text-[9px] font-mono transition-all border-l border-[#222] ${isSent ? 'text-gray-500' : 'bg-emerald-950/30 text-emerald-400 font-bold'}`}>
-                              Received
-                            </button>
-                          </div>
+                      {/* Collapsed header — always visible */}
+                      <div className="flex justify-between items-center px-3 py-2.5 cursor-pointer select-none active:bg-[#141414]"
+                        onClick={() => setTxTableOpen(o => !o)}>
+                        <div className="flex items-center gap-1.5">
+                          <BrandIcon size={11} className="text-[#d4af37]"/>
+                          <span className="font-serif text-[12px] text-[#e5e5e5] italic">Transactions</span>
+                          <span className="text-[9px] font-mono text-[#d4af37] bg-[#d4af37]/10 border border-[#d4af37]/20 px-1.5 py-0.5 rounded-md">{periodLabel}</span>
                         </div>
-                        <div className="flex items-baseline gap-2">
-                          <span className={`text-lg font-mono font-bold ${amtCls}`}>
-                            {sign}₹{grandTotal.toLocaleString('en-IN')}
-                          </span>
-                          <span className="text-[9px] font-mono text-gray-500">
-                            {allRows.length} transaction{allRows.length !== 1 ? 's' : ''} · all pages
-                          </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] font-mono text-gray-500">{allRows.length} {allRows.length===1?'entry':'entries'} · {sign}₹{grandTotal.toLocaleString('en-IN')}</span>
+                          <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:txTableOpen?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
                         </div>
                       </div>
-                      {allRows.length === 0 ? (
-                        <div className="py-8 text-center space-y-1">
-                          <p className="text-[10px] font-mono text-gray-500 italic">
-                            {isSent ? `No expenses in ${catLabel}` : `No income in ${catLabel} for this period`}
-                          </p>
-                          {!isSent && filterCategories.length > 0 && (
-                            <p className="text-[9px] font-mono text-gray-600">
-                              Tip: received includes reimbursements in any category
-                            </p>
-                          )}
+                      {/* Expanded body */}
+                      {txTableOpen && (<>
+                        <div className="px-3 py-2 border-t border-[#222] flex justify-between items-center">
+                          <div className="flex items-baseline gap-2">
+                            <span className={`text-base font-mono font-bold ${amtCls}`}>{sign}₹{grandTotal.toLocaleString('en-IN')}</span>
+                            <span className="text-[9px] font-mono text-gray-500">{allRows.length} {allRows.length===1?'entry':'entries'} · all pages</span>
+                          </div>
+                          <div className="flex bg-[#141414] border border-[#222] rounded-lg overflow-hidden">
+                            <button onClick={e=>{e.stopPropagation();setTxTableView('sent');}}
+                              className={`px-3 py-1.5 text-[9px] font-mono transition-all ${!isSent?'text-gray-500':'bg-rose-950/30 text-rose-400 font-bold'}`}>Sent</button>
+                            <button onClick={e=>{e.stopPropagation();setTxTableView('received');}}
+                              className={`px-3 py-1.5 text-[9px] font-mono transition-all border-l border-[#222] ${isSent?'text-gray-500':'bg-emerald-950/30 text-emerald-400 font-bold'}`}>Received</button>
+                          </div>
                         </div>
-                      ) : (
-                        <>
-                          <table className="w-full border-collapse">
-                            <thead>
-                              <tr className="border-b border-[#1a1a1a]">
-                                <th className="text-left py-2 px-3 text-[8px] font-mono text-gray-600 uppercase tracking-wider w-[68px]">Date</th>
-                                <th className="text-left py-2 px-2 text-[8px] font-mono text-gray-600 uppercase tracking-wider">Category</th>
-                                <th className="text-left py-2 px-2 text-[8px] font-mono text-gray-600 uppercase tracking-wider">Description</th>
-                                <th className="text-right py-2 px-3 text-[8px] font-mono text-gray-600 uppercase tracking-wider">Amount</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {pageRows.map((t, i) => (
-                                <tr key={t.id} className={`border-b border-[#0d0d0d] ${i % 2 !== 0 ? 'bg-[#0a0a0a]' : ''}`}>
-                                  <td className="py-2 px-3 text-[9px] font-mono text-gray-500 whitespace-nowrap">
-                                    {t.date.split('-').slice(1).reverse().join(' ')}
-                                  </td>
-                                  <td className="py-2 px-2 max-w-[90px]">
-                                    <span className="text-[8px] font-mono bg-[#1a1a1a] border border-[#222] rounded-full px-1.5 py-0.5 text-gray-500 whitespace-nowrap block overflow-hidden text-ellipsis">
-                                      {categoryIcons[t.category] || '⭐'} {t.category}
-                                    </span>
-                                  </td>
-                                  <td className="py-2 px-2 text-[10px] text-gray-300 max-w-[110px] overflow-hidden text-ellipsis whitespace-nowrap">
-                                    {t.description || '—'}
-                                  </td>
-                                  <td className={`py-2 px-3 text-[11px] font-mono font-bold text-right whitespace-nowrap ${amtCls}`}>
-                                    {sign}₹{t.amount.toLocaleString('en-IN')}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                            <tfoot>
-                              <tr className="border-t border-[#222] bg-[#0a0a0a]">
-                                <td colSpan={3} className="py-2 px-3 text-[8px] font-mono text-gray-500 uppercase tracking-wider">Page {safePage} Total</td>
-                                <td className={`py-2 px-3 text-[11px] font-mono font-bold text-right ${amtCls}`}>{sign}₹{pageTotal.toLocaleString('en-IN')}</td>
-                              </tr>
-                            </tfoot>
-                          </table>
-                          {totalPages > 1 && (
-                            <div className="flex justify-between items-center px-3 py-2 border-t border-[#1a1a1a]">
-                              <span className="text-[8px] font-mono text-gray-500">
-                                {(safePage-1)*TX_PAGE_SIZE+1}–{Math.min(safePage*TX_PAGE_SIZE, allRows.length)} of {allRows.length}
-                              </span>
-                              <div className="flex gap-1">
-                                <button onClick={() => setTxTablePage(p => Math.max(1, p-1))} disabled={safePage===1}
-                                  className="px-2.5 py-1 text-[9px] font-mono border border-[#222] bg-[#141414] text-gray-500 rounded-lg disabled:opacity-30 hover:border-[#d4af37] hover:text-[#d4af37] transition-all">←</button>
-                                {Array.from({length: totalPages}, (_, i) => i+1).map(p => (
-                                  <button key={p} onClick={() => setTxTablePage(p)}
-                                    className={`px-2.5 py-1 text-[9px] font-mono border rounded-lg transition-all ${p===safePage ? 'bg-[#d4af37]/15 border-[#d4af37] text-[#d4af37] font-bold' : 'border-[#222] bg-[#141414] text-gray-500 hover:border-gray-500'}`}>{p}</button>
-                                ))}
-                                <button onClick={() => setTxTablePage(p => Math.min(totalPages, p+1))} disabled={safePage===totalPages}
-                                  className="px-2.5 py-1 text-[9px] font-mono border border-[#222] bg-[#141414] text-gray-500 rounded-lg disabled:opacity-30 hover:border-[#d4af37] hover:text-[#d4af37] transition-all">→</button>
-                              </div>
+                        {allRows.length === 0
+                          ? <div className="py-8 text-center border-t border-[#1a1a1a]">
+                              <p className="text-[10px] font-mono text-gray-500 italic">{isSent?`No expenses in ${catLabel}`:`No income in ${catLabel} for this period`}</p>
+                              {!isSent&&filterCategories.length>0&&<p className="text-[9px] font-mono text-gray-600 mt-1">Received includes reimbursements in any category</p>}
                             </div>
-                          )}
-                        </>
-                      )}
+                          : <>
+                              <table className="w-full border-collapse border-t border-[#1a1a1a]" style={{tableLayout:'fixed'}}>
+                                <colgroup><col style={{width:'52px'}}/><col style={{width:'100px'}}/><col/><col style={{width:'82px'}}/></colgroup>
+                                <thead>
+                                  <tr className="border-b border-[#1a1a1a]">
+                                    <th className="text-left py-2 px-2 text-[8px] font-mono text-gray-600 uppercase tracking-wider">Date</th>
+                                    <th className="text-left py-2 px-1 text-[8px] font-mono text-gray-600 uppercase tracking-wider">Category</th>
+                                    <th className="text-left py-2 px-1 text-[8px] font-mono text-gray-600 uppercase tracking-wider">Description</th>
+                                    <th className="text-right py-2 px-2 text-[8px] font-mono text-gray-600 uppercase tracking-wider">Amount</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {pageRows.map((t, i) => (
+                                    <tr key={t.id} className={`border-b border-[#0d0d0d] ${i%2!==0?'bg-[#0a0a0a]':''}`}>
+                                      <td className="py-2 px-2 text-[9px] font-mono text-gray-500 whitespace-nowrap overflow-hidden">{t.date.split('-').slice(1).reverse().join(' ')}</td>
+                                      <td className="py-2 px-1 overflow-hidden"><span className="text-[8px] font-mono bg-[#1a1a1a] border border-[#222] rounded-full px-1.5 py-0.5 text-gray-500 block overflow-hidden text-ellipsis whitespace-nowrap">{categoryIcons[t.category]||'⭐'} {t.category}</span></td>
+                                      <td className="py-2 px-1 text-[10px] text-gray-300 overflow-hidden text-ellipsis whitespace-nowrap">{t.description||'—'}</td>
+                                      <td className={`py-2 px-2 text-[11px] font-mono font-bold text-right whitespace-nowrap ${amtCls}`}>{sign}₹{t.amount.toLocaleString('en-IN')}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot>
+                                  <tr className="border-t border-[#222] bg-[#0a0a0a]">
+                                    <td colSpan={3} className="py-2 px-2 text-[8px] font-mono text-gray-500 uppercase tracking-wider">Page {safePage} Total</td>
+                                    <td className={`py-2 px-2 text-[11px] font-mono font-bold text-right whitespace-nowrap ${amtCls}`}>{sign}₹{pageTotal.toLocaleString('en-IN')}</td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                              {totalPages > 1 && (
+                                <div className="flex justify-between items-center px-3 py-2 border-t border-[#1a1a1a]">
+                                  <span className="text-[8px] font-mono text-gray-500">{(safePage-1)*TX_PAGE_SIZE+1}–{Math.min(safePage*TX_PAGE_SIZE,allRows.length)} of {allRows.length}</span>
+                                  <div className="flex gap-1">
+                                    <button onClick={()=>setTxTablePage(p=>Math.max(1,p-1))} disabled={safePage===1} className="px-2.5 py-1 text-[9px] font-mono border border-[#222] bg-[#141414] text-gray-500 rounded-lg disabled:opacity-30 hover:border-[#d4af37] hover:text-[#d4af37] transition-all">←</button>
+                                    {Array.from({length:totalPages},(_,i)=>i+1).map(p=>(
+                                      <button key={p} onClick={()=>setTxTablePage(p)} className={`px-2.5 py-1 text-[9px] font-mono border rounded-lg transition-all ${p===safePage?'bg-[#d4af37]/15 border-[#d4af37] text-[#d4af37] font-bold':'border-[#222] bg-[#141414] text-gray-500'}`}>{p}</button>
+                                    ))}
+                                    <button onClick={()=>setTxTablePage(p=>Math.min(totalPages,p+1))} disabled={safePage===totalPages} className="px-2.5 py-1 text-[9px] font-mono border border-[#222] bg-[#141414] text-gray-500 rounded-lg disabled:opacity-30 hover:border-[#d4af37] hover:text-[#d4af37] transition-all">→</button>
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                        }
+                      </>)}
                     </div>
                   );
                 })()}
+
 
               </div>
               );
@@ -3677,43 +3887,51 @@ export default function App() {
           </div>
 
           {/* Edit modal */}
+          {/* ── Edit Transaction Modal ── */}
           {editingTransaction && (
-            <div className="bg-[#0a0a0a] border border-[#d4af37]/30 rounded-2xl p-4 space-y-3 animate-fade-in">
-              <div className="flex justify-between items-center border-b border-[#222] pb-2">
-                <span className="text-[10px] font-mono text-[#d4af37] uppercase tracking-wider font-semibold">Edit Transaction</span>
-                <button onClick={() => setEditingTransaction(null)} className="text-gray-500 hover:text-white text-xs">✕ Cancel</button>
-              </div>
-              <div className="space-y-2.5">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Category</label>
-                  <div className="relative">
-                    <select value={editCategory} onChange={e => setEditCategory(e.target.value)}
-                      className="w-full bg-[#141414] border border-[#222] rounded-xl p-2.5 pr-8 text-xs text-white appearance-none outline-none focus:border-[#d4af37]">
-                      {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
-                    </select>
-                    <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4" onClick={() => setEditingTransaction(null)}>
+              <div className="bg-[#0f0f0f] border border-[#d4af37]/30 rounded-2xl p-4 w-full max-w-[380px] space-y-3 shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center border-b border-[#222] pb-2">
+                  <span className="text-[10px] font-mono text-[#d4af37] uppercase tracking-wider font-semibold">Edit Transaction</span>
+                  <button onClick={() => setEditingTransaction(null)} className="text-gray-500 hover:text-white text-xs">✕</button>
+                </div>
+                <div className="space-y-2.5">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Date</label>
+                    <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
+                      className="bg-[#141414] border border-[#222] rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#d4af37] font-mono" />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Category</label>
+                    <div className="relative">
+                      <select value={editCategory} onChange={e => setEditCategory(e.target.value)}
+                        className="w-full bg-[#141414] border border-[#222] rounded-xl p-2.5 pr-8 text-xs text-white appearance-none outline-none focus:border-[#d4af37]">
+                        {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
+                      </select>
+                      <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Description</label>
+                    <input type="text" value={editDescription} onChange={e => setEditDescription(e.target.value)}
+                      className="bg-[#141414] border border-[#222] rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#d4af37]" />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Amount (₹)</label>
+                    <input type="number" value={editAmount} onChange={e => setEditAmount(e.target.value)}
+                      className="bg-[#141414] border border-[#222] rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#d4af37] font-mono" />
                   </div>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Description</label>
-                  <input type="text" value={editDescription} onChange={e => setEditDescription(e.target.value)}
-                    className="bg-[#141414] border border-[#222] rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#d4af37]" />
+                <div className="flex gap-2 pt-1">
+                  <button onClick={saveEditTransaction}
+                    className="flex-1 bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:opacity-90 transition-all">
+                    Save Changes
+                  </button>
+                  <button onClick={() => { handleDeleteTransaction(editingTransaction.id); setEditingTransaction(null); }}
+                    className="px-4 border border-red-900/50 text-red-400 hover:bg-red-950/30 font-mono text-[10px] rounded-xl transition-all">
+                    Delete
+                  </button>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Amount (₹)</label>
-                  <input type="number" value={editAmount} onChange={e => setEditAmount(e.target.value)}
-                    className="bg-[#141414] border border-[#222] rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#d4af37] font-mono" />
-                </div>
-              </div>
-              <div className="flex gap-2 pt-1">
-                <button onClick={saveEditTransaction}
-                  className="flex-1 bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:opacity-90 transition-all">
-                  Save Changes
-                </button>
-                <button onClick={() => { handleDeleteTransaction(editingTransaction.id); setEditingTransaction(null); }}
-                  className="px-4 border border-red-900/50 text-red-400 hover:bg-red-950/30 font-mono text-[10px] rounded-xl transition-all">
-                  Delete
-                </button>
               </div>
             </div>
           )}
@@ -3752,46 +3970,31 @@ export default function App() {
               </div>
             </div>
             {(() => {
-              const histDateError = historyStartDate && historyEndDate && historyStartDate > historyEndDate;
-              const errCls = 'border-red-500 text-red-400';
-              const normCls = 'border-[#222] text-white';
+              const hasDateFilter = historyDateFrom || historyDateTo;
+              const dateLabel = hasDateFilter
+                ? (historyDateFrom === historyDateTo
+                    ? historyDateFrom!.split('-').slice(1).reverse().join(' ')
+                    : (historyDateFrom || '') + ' – ' + (historyDateTo || ''))
+                : 'Pick date';
               return (
                 <div className="flex flex-col gap-1.5">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="flex flex-col gap-1">
-                      <label className={`text-[9px] font-mono uppercase tracking-wider ${histDateError ? 'text-red-400' : 'text-gray-500'}`}>Start</label>
-                      <input type="date" value={historyStartDate}
-                        onChange={e => {
-                          setHistoryStartDate(e.target.value);
-                          if (e.target.value) setHistoryMonthFilter('All');
-                        }}
-                        className={`bg-[#141414] border rounded-lg py-1.5 px-2 text-[10px] outline-none focus:border-[#d4af37] transition-colors ${histDateError ? errCls : normCls}`} />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className={`text-[9px] font-mono uppercase tracking-wider ${histDateError ? 'text-red-400' : 'text-gray-500'}`}>End</label>
-                      <input type="date" value={historyEndDate}
-                        onChange={e => {
-                          setHistoryEndDate(e.target.value);
-                          if (e.target.value) setHistoryMonthFilter('All');
-                        }}
-                        className={`bg-[#141414] border rounded-lg py-1.5 px-2 text-[10px] outline-none focus:border-[#d4af37] transition-colors ${histDateError ? errCls : normCls}`} />
-                    </div>
-                  </div>
-                  {histDateError && (
-                    <p className="text-red-400 text-[9px] font-mono flex items-center gap-1">
-                      <span>⚠</span> End date must be after start date
-                    </p>
-                  )}
+                  <button onClick={() => openCal('history')}
+                    className={`flex items-center gap-2 bg-[#141414] border rounded-lg py-2 px-3 text-[11px] font-mono outline-none transition-all w-full ${hasDateFilter ? 'border-[#d4af37] text-[#d4af37]' : 'border-[#222] text-gray-400'}`}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span className="truncate">{dateLabel}</span>
+                    {hasDateFilter && <button onClick={e => { e.stopPropagation(); setHistoryDateFrom(null); setHistoryDateTo(null); }} className="ml-auto text-gray-500 hover:text-white text-[10px]">×</button>}
+                  </button>
                 </div>
               );
             })()}
-            {(historyMonthFilter !== currentMonthDefault || historyFilterCategory !== 'All' || historyFilterType !== 'All' || historyStartDate || historyEndDate) && (
+            {(historyMonthFilter !== currentMonthDefault || historyFilterCategory !== 'All' || historyFilterType !== 'All' || historyDateFrom || historyDateTo) && (
               <button onClick={() => {
                 setHistoryMonthFilter(currentMonthDefault);
                 setHistoryFilterCategory('All');
                 setHistoryFilterType('All');
-                setHistoryStartDate('');
-                setHistoryEndDate('');
+                setHistoryDateFrom(null);
+                setHistoryDateTo(null);
+                setHistoryDateTo(null);
               }}
                 className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">
                 Reset to Current Month
@@ -3815,8 +4018,8 @@ export default function App() {
               }
               if (historyFilterCategory !== 'All') list = list.filter(t => t.category === historyFilterCategory);
               if (historyFilterType !== 'All') list = list.filter(t => t.type === historyFilterType);
-              if (historyStartDate) list = list.filter(t => t.date >= historyStartDate);
-              if (historyEndDate) list = list.filter(t => t.date <= historyEndDate);
+              if (historyDateFrom) list = list.filter(t => t.date >= historyDateFrom!);
+              if (historyDateTo) list = list.filter(t => t.date <= historyDateTo!);
 
               if (list.length === 0) return (
                 <div className="text-center py-10 text-gray-600 font-mono text-[10px]">
@@ -3827,7 +4030,7 @@ export default function App() {
               return list.map(item => (
                 <div
                   key={item.id}
-                  onClick={() => !editingTransaction && startEditTransaction(item)}
+                  onClick={() => startEditTransaction(item)}
                   className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-3 flex justify-between items-center cursor-pointer hover:border-[#d4af37]/30 hover:bg-[#111] transition-all active:scale-[0.99]"
                 >
                   <div className="min-w-0 flex-1 pr-2">
@@ -3862,40 +4065,12 @@ export default function App() {
             <h2 className="font-serif text-lg text-white">Settings</h2>
           </div>
 
-          {/* ── Appearance / Theme ──────────────────────────────── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
-            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
-              <BrandIcon size={14} className="text-[#d4af37]" />
-              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Appearance</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-white text-[11px] font-mono font-semibold">Theme</p>
-                <p className="text-gray-500 text-[9px] font-mono mt-0.5">Choose your visual mode</p>
-              </div>
-              <div className="flex bg-[#141414] border border-[#222] rounded-xl p-0.5">
-                <button
-                  onClick={() => setTheme('dark')}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-mono uppercase tracking-wider transition-all ${
-                    theme === 'dark' ? 'bg-[#d4af37]/20 text-[#d4af37] font-bold' : 'text-gray-500'
-                  }`}
-                >Dark</button>
-                <button
-                  onClick={() => setTheme('light')}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-mono uppercase tracking-wider transition-all ${
-                    theme === 'light' ? 'bg-[#d4af37]/20 text-[#d4af37] font-bold' : 'text-gray-500'
-                  }`}
-                >Light</button>
-              </div>
-            </div>
-          </div>
-
           {/* ── Data Management ─────────────────────────────────── */}
           <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
-            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
+            <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('data-mgmt')}>  <div className="flex items-center gap-2 border-b-0 pb-0">
               <Download size={14} className="text-[#d4af37]" />
               <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Data Management</span>
-            </div>
+            </div><span style={{display:"inline-block",transition:"transform 0.2s",transform:isSettingsOpen('data-mgmt')?'rotate(90deg)':' rotate(0deg)',color:"#d4af37",fontSize:"12px"}}>▸</span></div><div className="border-b border-[#1a1a1a] mb-1"></div>{isSettingsOpen('data-mgmt') && <div className="space-y-3 pt-1">
             <p className="text-gray-500 text-[9px] font-mono leading-relaxed">
               Backup or restore your transactions. CSV files work with Excel, Google Sheets, or other finance apps.
             </p>
@@ -3938,7 +4113,7 @@ export default function App() {
               <p>Date (YYYY-MM-DD), Type (Income/Expense), Amount, Category, Description, Bank, Entry Mode</p>
               <p className="text-gray-600 mt-1">Date, Amount, Category, Type must not be empty.</p>
             </div>
-          </div>
+          </div>}</div>
 
           {/* ── CSV Import Preview Modal ─────────────────────────── */}
           {csvImportPreview && (
@@ -4002,10 +4177,10 @@ export default function App() {
 
           {/* ── SMS & Notifications ─────────────────────────────── */}
           <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
-            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
+            <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('sms-notif')}>  <div className="flex items-center gap-2 border-b-0 pb-0">
               <Smartphone size={14} className="text-[#d4af37]" />
               <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">SMS & Notifications</span>
-            </div>
+            </div><span style={{display:"inline-block",transition:"transform 0.2s",transform:isSettingsOpen('sms-notif')?'rotate(90deg)':' rotate(0deg)',color:"#d4af37",fontSize:"12px"}}>▸</span></div><div className="border-b border-[#1a1a1a] mb-1"></div>{isSettingsOpen('sms-notif') && <div className="space-y-3 pt-1">
 
             {/* SMS Reader toggle */}
             <div className="flex items-center justify-between py-1">
@@ -4060,14 +4235,14 @@ export default function App() {
                 }`} />
               </button>
             </div>
-          </div>
+          </div>}</div>
 
           {/* ── Retention Period ────────────────────────────────── */}
           <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
-            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
+            <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('retention')}>  <div className="flex items-center gap-2 border-b-0 pb-0">
               <Calendar size={14} className="text-[#d4af37]" />
               <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Retention Period</span>
-            </div>
+            </div><span style={{display:"inline-block",transition:"transform 0.2s",transform:isSettingsOpen('retention')?'rotate(90deg)':' rotate(0deg)',color:"#d4af37",fontSize:"12px"}}>▸</span></div><div className="border-b border-[#1a1a1a] mb-1"></div>{isSettingsOpen('retention') && <div className="space-y-3 pt-1">
             <p className="text-gray-500 text-[9px] font-mono leading-relaxed">
               Confirmed &amp; Skipped SMS records are auto-removed after this many days.
             </p>
@@ -4097,14 +4272,14 @@ export default function App() {
                 >{d}d</button>
               ))}
             </div>
-          </div>
+          </div>}</div>
 
           {/* ── Export Reminder ─────────────────────────────────── */}
           <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
-            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
+            <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('export-reminder')}>  <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('about')}>  <div className="flex items-center gap-2 border-b-0 pb-0">
               <Download size={14} className="text-[#d4af37]" />
               <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Export Reminder</span>
-            </div>
+            </div><span style={{display:"inline-block",transition:"transform 0.2s",transform:isSettingsOpen('export-reminder')?'rotate(90deg)':' rotate(0deg)',color:"#d4af37",fontSize:"12px"}}>▸</span></div><div className="border-b border-[#1a1a1a] mb-1"></div>{isSettingsOpen('export-reminder') && <div className="space-y-3 pt-1">
             <p className="text-gray-500 text-[9px] font-mono leading-relaxed">
               A warning banner + Android notification fires if you haven't exported in this many days.
             </p>
@@ -4145,41 +4320,14 @@ export default function App() {
                 >{d}d</button>
               ))}
             </div>
-          </div>
+          </div>}</div>
 
-          {/* ── Notification Permission ─────────────────────────── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
+          {/* ── About ──────────────────────────────────────────── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-2">
             <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
-              <Bell size={14} className="text-[#d4af37]" />
-              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Notification Permission</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-gray-400 text-[10px] font-mono">Status:</span>
-              <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                notifPermission === 'granted' ? 'text-emerald-400 border-emerald-800 bg-emerald-950/20' :
-                notifPermission === 'denied' ? 'text-red-400 border-red-900 bg-red-950/20' :
-                'text-yellow-400 border-yellow-900 bg-yellow-950/20'
-              }`}>
-                {notifPermission === 'granted' ? 'Enabled' : notifPermission === 'denied' ? 'Blocked' : 'Not set'}
-              </span>
-            </div>
-            {notifPermission !== 'granted' && (
-              <button
-                onClick={async () => {
-                  if ('Notification' in window) {
-                    const perm = await Notification.requestPermission();
-                    setNotifPermission(perm);
-                  }
-                }}
-                className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase py-2 rounded-xl hover:bg-[#d4af37]/10 transition-all"
-              >
-                {notifPermission === 'denied' ? 'Open Device Settings to Enable' : 'Enable Notifications'}
-              </button>
-            )}
-            <p className="text-[#444] text-[9px] font-mono leading-relaxed">
-              For automatic SMS detection on Android: install the APK, then go to Settings → Apps → Finance Tracker → Permissions → enable SMS and Notifications.
-            </p>
-          </div>
+              <Info size={14} className="text-[#d4af37]" />
+              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">About</span>
+            </div><span style={{display:"inline-block",transition:"transform 0.2s",transform:isSettingsOpen('about')?'rotate(90deg)':' rotate(0deg)',color:"#d4af37",fontSize:"12px"}}>▸</span></div><div className="border-b border-[#1a1a1a] mb-1"></div>{isSettingsOpen('about') && <div className="space-y-3 pt-1"></div>}</div>
 
           {/* ── About ──────────────────────────────────────────── */}
           <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-2">
@@ -4191,12 +4339,121 @@ export default function App() {
             <p className="text-[#555] text-[9px] font-mono leading-relaxed">All data stays on your device. No login required.</p>
           </div>
 
+          {/* ── Manage Category ──────────────────────────────────── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('manage-cat')}>
+              <div className="flex items-center gap-2">
+                <BrandIcon size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Manage Category</span>
+              </div>
+              <span style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('manage-cat')?'rotate(90deg)':'rotate(0deg)',color:'#d4af37',fontSize:'12px'}}>▸</span>
+            </div>
+            <div className="border-b border-[#1a1a1a] mb-1"></div>
+            {isSettingsOpen('manage-cat') && <div className="space-y-3 pt-1">
+              {/* Add / Edit buttons */}
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => { setMcPanel(mcPanel === 'add' ? 'none' : 'add'); setMcEditSel(''); setMcAction('none'); }}
+                  className={`py-2 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'add' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#222] bg-[#141414] text-gray-400'}`}>
+                  <span className="text-[14px] leading-none">+</span> Add
+                </button>
+                <button onClick={() => { setMcPanel(mcPanel === 'edit' ? 'none' : 'edit'); setMcEditSel(''); setMcAction('none'); }}
+                  className={`py-2 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'edit' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#222] bg-[#141414] text-gray-400'}`}>
+                  ✏ Edit
+                </button>
+              </div>
+
+              {/* ADD panel */}
+              {mcPanel === 'add' && (
+                <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3 space-y-2">
+                  <p className="text-[9px] font-mono text-gray-500 uppercase tracking-wider">New category</p>
+                  <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider block mt-2">Icon</label>
+                  <input type="text" value={mcAddIcon} onChange={e => setMcAddIcon(e.target.value)} maxLength={4} placeholder="⭐"
+                    className="w-16 text-center text-[18px] bg-[#141414] border border-[#222] rounded-lg p-2 outline-none focus:border-[#d4af37] text-white"/>
+                  <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider block mt-2">Category Name</label>
+                  <input type="text" value={mcAddName} onChange={e => setMcAddName(e.target.value)} placeholder="e.g. Cooking"
+                    className="w-full bg-[#141414] border border-[#222] rounded-xl p-2.5 text-[12px] text-white outline-none focus:border-[#d4af37] font-mono"/>
+                  <button onClick={mcDoAdd} className="w-full bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl mt-1">Save Category</button>
+                  <button onClick={mcReset} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                </div>
+              )}
+
+              {/* EDIT panel */}
+              {mcPanel === 'edit' && (
+                <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3 space-y-2">
+                  <p className="text-[9px] font-mono text-gray-500 uppercase tracking-wider">Select category</p>
+                  <select value={mcEditSel} onChange={e => { setMcEditSel(e.target.value); setMcAction('none'); setMcMergeTarget(''); }}
+                    className="w-full bg-[#141414] border border-[#222] rounded-xl p-2.5 text-[12px] text-white outline-none focus:border-[#d4af37] font-mono appearance-none">
+                    <option value="">— choose a category —</option>
+                    {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
+                  </select>
+
+                  {/* Action buttons */}
+                  {mcEditSel && (
+                    <div className="grid grid-cols-3 gap-1.5 pt-1">
+                      <button onClick={() => { setMcAction('rename'); setMcRenameIcon(categoryIcons[mcEditSel] || '⭐'); setMcRenameName(mcEditSel); }}
+                        className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'rename' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#d4af37]/40 text-[#d4af37]'}`}>✏ Rename</button>
+                      <button onClick={() => { setMcAction('merge'); setMcMergeTarget(''); }}
+                        className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'merge' ? 'border-[#9ab7d8] bg-[#9ab7d8]/10 text-[#9ab7d8]' : 'border-[#4a7090] text-[#9ab7d8]'}`}>⇄ Merge</button>
+                      <button onClick={() => setMcAction('delete')}
+                        className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'delete' ? 'border-[#D96A55] bg-[#D96A55]/10 text-[#D96A55]' : 'border-[#7a3020] text-[#D96A55]'}`}>🗑 Delete</button>
+                    </div>
+                  )}
+
+                  {/* RENAME */}
+                  {mcAction === 'rename' && (
+                    <div className="bg-[#141414] border border-[#222] rounded-xl p-3 space-y-2 mt-1">
+                      <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider block">Icon</label>
+                      <input type="text" value={mcRenameIcon} onChange={e => setMcRenameIcon(e.target.value)} maxLength={4}
+                        className="w-16 text-center text-[18px] bg-[#0a0a0a] border border-[#222] rounded-lg p-2 outline-none focus:border-[#d4af37] text-white"/>
+                      <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider block mt-2">New Name</label>
+                      <input type="text" value={mcRenameName} onChange={e => setMcRenameName(e.target.value)}
+                        className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl p-2.5 text-[12px] text-white outline-none focus:border-[#d4af37] font-mono"/>
+                      <p className="text-[8px] text-gray-600 font-mono">All transactions will update to the new name automatically.</p>
+                      <button onClick={mcDoRename} className="w-full bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Save Rename</button>
+                      <button onClick={() => setMcAction('none')} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                    </div>
+                  )}
+
+                  {/* MERGE */}
+                  {mcAction === 'merge' && (
+                    <div className="bg-[#141414] border border-[#222] rounded-xl p-3 space-y-2 mt-1">
+                      <p className="text-[9px] font-mono text-gray-500 uppercase tracking-wider">Move all transactions into</p>
+                      <select value={mcMergeTarget} onChange={e => setMcMergeTarget(e.target.value)}
+                        className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl p-2.5 text-[12px] text-white outline-none focus:border-[#9ab7d8] font-mono appearance-none">
+                        <option value="">— choose target —</option>
+                        {categories.filter(c => c !== mcEditSel).map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
+                      </select>
+                      <p className="text-[8px] text-gray-600 font-mono">"{mcEditSel}" will be removed. Target category name survives.</p>
+                      <button onClick={() => { if (!mcMergeTarget) { alert('Select a target'); return; } setMcModal('merge1'); }}
+                        className="w-full border border-[#4a7090] text-[#9ab7d8] font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Done</button>
+                      <button onClick={() => setMcAction('none')} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                    </div>
+                  )}
+
+                  {/* DELETE */}
+                  {mcAction === 'delete' && (
+                    <div className="bg-[#141414] border border-[#7a3020]/50 rounded-xl p-3 space-y-2 mt-1">
+                      <p className="text-[10px] font-mono text-gray-400 leading-relaxed">
+                        Every transaction in <span className="text-[#d4af37]">{mcEditSel}</span> will move to <span className="text-[#d4af37]">Uncategorized 📂</span>. You can re-categorize them later.
+                      </p>
+                      <button onClick={mcDoDelete}
+                        className="w-full border border-[#D96A55] text-[#D96A55] font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Delete Category</button>
+                      <button onClick={() => setMcAction('none')} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                    </div>
+                  )}
+
+                  <button onClick={mcReset} className="w-full border border-[#222] text-gray-600 font-mono text-[9px] uppercase py-2 rounded-xl mt-1">Close</button>
+                </div>
+              )}
+            </div>}
+          </div>
+
           {/* ── Excluded from Analysis ──────────────────────────────── */}
           <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
-            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
+            <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('excl-analysis')}>  <div className="flex items-center gap-2 border-b-0 pb-0">
               <BrandIcon size={14} className="text-[#d4af37]" />
               <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Excluded from Analysis</span>
-            </div>
+            </div><span style={{display:"inline-block",transition:"transform 0.2s",transform:isSettingsOpen('excl-analysis')?'rotate(90deg)':' rotate(0deg)',color:"#d4af37",fontSize:"12px"}}>▸</span></div><div className="border-b border-[#1a1a1a] mb-1"></div>{isSettingsOpen('excl-analysis') && <div className="space-y-3 pt-1">
             <p className="text-gray-500 text-[9px] font-mono leading-relaxed">
               Excluded categories hidden from: Expenditure, Month vs Spending, Week on Week, Spend Share. Still visible in Ledger, History and Budget.
             </p>
@@ -4216,7 +4473,45 @@ export default function App() {
               ? <button onClick={() => setExcludedCategories([])} className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">Clear all exclusions</button>
               : <p className="text-[8px] text-gray-600 font-mono italic">Tap any category to exclude from charts</p>
             }
-          </div>
+          </div>}</div>
+
+          {/* ── Excluded from Ledger ─────────────────────────────── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('excl-ledger')}>  <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('danger')}>  <div className="flex items-center gap-2 border-b-0 pb-0">
+              <BrandIcon size={14} className="text-[#d4af37]" />
+              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Excluded from Ledger</span>
+            </div><span style={{display:"inline-block",transition:"transform 0.2s",transform:isSettingsOpen('excl-ledger')?'rotate(90deg)':' rotate(0deg)',color:"#d4af37",fontSize:"12px"}}>▸</span></div><div className="border-b border-[#1a1a1a] mb-1"></div>{isSettingsOpen('excl-ledger') && <div className="space-y-3 pt-1">
+            <p className="text-gray-500 text-[9px] font-mono leading-relaxed">
+              Categories excluded here are completely hidden from the Ledger table — no rows, no totals, no effect on Opening/Closing balance. Still visible in History, Add Entry and Budget.
+            </p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {categories.map(cat => {
+                const excluded = excludedLedgerCategories.includes(cat);
+                return (
+                  <button key={cat} onClick={() => toggleExcludedLedger(cat)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${
+                      excluded
+                        ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through'
+                        : 'bg-[#141414] border-[#222] text-gray-400 hover:border-gray-500'
+                    }`}>
+                    {categoryIcons[cat] || '⭐'} {cat}
+                    {excluded && <span className="text-red-500 ml-1">×</span>}
+                  </button>
+                );
+              })}
+            </div>
+            {excludedLedgerCategories.length > 0
+              ? <button onClick={() => setExcludedLedgerCategories([])} className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">Clear all exclusions</button>
+              : <p className="text-[8px] text-gray-600 font-mono italic">Tap any category to exclude from Ledger</p>
+            }
+          </div>}</div>
+
+          {/* ── Danger Zone ─────────────────────────────────────── */}
+          <div className="bg-[#0f0f0f] border border-red-900/50 rounded-2xl p-4 space-y-3">
+            <div className="flex items-center gap-2 border-b border-red-900/30 pb-2">
+              <span className="text-red-500 text-[14px]">⚠</span>
+              <span className="font-mono text-[10px] uppercase tracking-widest text-red-500 font-semibold">Danger Zone</span>
+            </div><span style={{display:"inline-block",transition:"transform 0.2s",transform:isSettingsOpen('danger')?'rotate(90deg)':' rotate(0deg)',color:"#d4af37",fontSize:"12px"}}>▸</span></div><div className="border-b border-[#1a1a1a] mb-1"></div>{isSettingsOpen('danger') && <div className="space-y-3 pt-1"></div>}</div>
 
           {/* ── Danger Zone ─────────────────────────────────────── */}
           <div className="bg-[#0f0f0f] border border-red-900/50 rounded-2xl p-4 space-y-3">
