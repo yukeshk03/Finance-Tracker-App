@@ -748,7 +748,12 @@ export default function App() {
 
   // ── Settings sections collapsible state ──────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState<Record<string, boolean>>({});
-  const toggleSettings = (key: string) => setSettingsOpen(prev => ({ ...prev, [key]: !prev[key] }));
+  const toggleSettings = (key: string) => setSettingsOpen(prev => {
+    const isCurrentlyOpen = !!prev[key];
+    // Close all, then open the clicked one (unless it was already open)
+    const allClosed: Record<string, boolean> = {};
+    return isCurrentlyOpen ? allClosed : { [key]: true };
+  });
   const isSettingsOpen = (key: string) => !!settingsOpen[key];
   const [dangerConfirm, setDangerConfirm] = useState(false);
 
@@ -2134,6 +2139,72 @@ export default function App() {
         </div>
       );
     })()}
+
+          {/* ── CSV Import Preview Modal ── */}
+    {csvImportPreview && (
+      <div className="fixed inset-0 z-[180] bg-black/85 flex items-end justify-center">
+        <div className="bg-[#0f0f0f] border border-[#2a2a2a] rounded-t-2xl p-4 w-full max-w-[420px] pb-8 space-y-3 max-h-[80vh] overflow-y-auto">
+          <div className="flex justify-between items-center">
+            <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Import Preview</span>
+            <button onClick={() => setCsvImportPreview(null)} className="text-gray-500 hover:text-white text-sm">✕</button>
+          </div>
+
+          {csvImportPreview.errors.length > 0 && (
+            <div className="bg-red-950/30 border border-red-800/50 rounded-xl p-3">
+              <p className="text-[9px] font-mono text-red-400 font-semibold mb-1">{csvImportPreview.errors.length} error{csvImportPreview.errors.length !== 1 ? 's' : ''}:</p>
+              {csvImportPreview.errors.slice(0, 5).map((e, i) => (
+                <p key={i} className="text-[9px] font-mono text-red-300">• {e}</p>
+              ))}
+              {csvImportPreview.errors.length > 5 && (
+                <p className="text-[9px] font-mono text-red-400">...and {csvImportPreview.errors.length - 5} more</p>
+              )}
+            </div>
+          )}
+
+          {csvImportPreview.rows.length > 0 ? (
+            <>
+              <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3">
+                <p className="text-[10px] font-mono text-emerald-400 font-semibold">{csvImportPreview.rows.length} valid transaction{csvImportPreview.rows.length !== 1 ? 's' : ''} ready to import</p>
+                <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                  {csvImportPreview.rows.slice(0, 5).map((t, i) => (
+                    <div key={i} className="flex justify-between text-[9px] font-mono text-gray-400">
+                      <span>{t.date} · {t.category}</span>
+                      <span className={t.type === 'expense' ? 'text-rose-400' : 'text-emerald-400'}>
+                        {t.type === 'expense' ? '−' : '+'}₹{t.amount.toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                  ))}
+                  {csvImportPreview.rows.length > 5 && (
+                    <p className="text-[9px] font-mono text-gray-600">...and {csvImportPreview.rows.length - 5} more</p>
+                  )}
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button onClick={() => applyCsvImport('add')}
+                  className="py-2.5 border border-[#d4af37]/40 text-[#d4af37] font-mono text-[9px] uppercase rounded-xl hover:bg-[#d4af37]/10 transition-all">
+                  Add
+                </button>
+                <button onClick={() => applyCsvImport('merge')}
+                  className="py-2.5 border border-[#9ab7d8]/40 text-[#9ab7d8] font-mono text-[9px] uppercase rounded-xl hover:bg-[#9ab7d8]/10 transition-all">
+                  Merge
+                </button>
+                <button onClick={() => applyCsvImport('replace')}
+                  className="py-2.5 border border-red-800/50 text-red-400 font-mono text-[9px] uppercase rounded-xl hover:bg-red-950/30 transition-all">
+                  Replace
+                </button>
+              </div>
+              <div className="text-[8px] font-mono text-gray-600 space-y-0.5">
+                <p><span className="text-[#d4af37]">Add</span> — keeps existing + adds imported</p>
+                <p><span className="text-[#9ab7d8]">Merge</span> — adds imported, skips duplicates</p>
+                <p><span className="text-red-400">Replace</span> — deletes all existing, imports fresh</p>
+              </div>
+            </>
+          ) : (
+            <p className="text-[10px] font-mono text-gray-500 text-center py-4">No valid transactions found in file.</p>
+          )}
+        </div>
+      </div>
+    )}
 
           {/* ── Manage Category Merge Modal ── */}
     {mcModal === 'merge1' && (
@@ -4350,23 +4421,6 @@ export default function App() {
             )}
           </div>
 
-          {/* ── About ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
-            <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('about')}>
-              <div className="flex items-center gap-2">
-                <Info size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">About</span>
-              </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('about')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
-            </button>
-            {isSettingsOpen('about') && (
-              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-1.5">
-                <p className="text-[#888] text-[10px] font-mono">Finance Tracker v1.0.0</p>
-                <p className="text-[#555] text-[9px] font-mono leading-relaxed">Built with React + Capacitor. Your data stays on your device — never sent to any server.</p>
-              </div>
-            )}
-          </div>
-
           {/* ── Danger Zone ── */}
           <div className="bg-[#0f0f0f] border border-red-900/50 rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('danger')}>
@@ -4398,6 +4452,23 @@ export default function App() {
 
         </div>
       )}
+          {/* ── About ── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+            <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('about')}>
+              <div className="flex items-center gap-2">
+                <Info size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">About</span>
+              </div>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('about')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+            </button>
+            {isSettingsOpen('about') && (
+              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-1.5">
+                <p className="text-[#888] text-[10px] font-mono">Finance Tracker v1.0.0</p>
+                <p className="text-[#555] text-[9px] font-mono leading-relaxed">Built with React + Capacitor. Your data stays on your device — never sent to any server.</p>
+              </div>
+            )}
+          </div>
+
 
 
     </div>
