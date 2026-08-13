@@ -2409,20 +2409,8 @@ export default function App() {
 
       <div className="flex-1 flex flex-col overflow-hidden bg-[#050505]">
 
-      {/* Top bar — settings icon only */}
-      <div className="flex justify-end items-center px-4 shrink-0" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.25rem)', paddingBottom: '0.25rem' }}>
-        <button
-          onClick={() => setNavTab('settings')}
-          className={`p-1.5 rounded-xl transition-all ${navTab === 'settings' ? 'bg-[#d4af37]/20 text-[#d4af37]' : 'text-gray-500 hover:text-white'}`}
-        >
-          <Info size={18} />
-        </button>
-      </div>
-
-
-
     {/* Simulated Screen Content - Dynamic Tab View Rendering */}
-    <div className="flex-1 overflow-y-auto px-4.5 py-4 custom-inner-screen">
+    <div className="flex-1 overflow-y-auto px-4.5 py-4 custom-inner-screen" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1rem)' }}>
       
       {/* --- TAB 1: DASHBOARD --- */}
       {navTab === 'dashboard' && (() => {
@@ -3954,6 +3942,12 @@ export default function App() {
                 className="bg-[#141414] border border-[#222] hover:border-[#d4af37] text-[#d4af37] py-1.5 px-3 rounded-xl flex items-center gap-1.5 transition-all font-mono text-[9px] uppercase tracking-wider"
               >
                 <Download size={12} /> Export
+              </button>
+              <button
+                onClick={() => setNavTab('settings')}
+                className="bg-[#141414] border border-[#222] hover:border-[#d4af37] text-gray-400 hover:text-[#d4af37] p-1.5 rounded-xl transition-all"
+              >
+                <Info size={15} />
               </button>
             </div>
           </div>
