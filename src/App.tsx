@@ -750,6 +750,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState<Record<string, boolean>>({});
   const toggleSettings = (key: string) => setSettingsOpen(prev => ({ ...prev, [key]: !prev[key] }));
   const isSettingsOpen = (key: string) => !!settingsOpen[key];
+  const [dangerConfirm, setDangerConfirm] = useState(false);
 
   // ── Excluded categories from Ledger table ─────────────────────────────
   const [excludedLedgerCategories, setExcludedLedgerCategories] = useState<string[]>(() => {
@@ -2337,8 +2338,8 @@ export default function App() {
 
       <div className="flex-1 flex flex-col overflow-hidden bg-[#050505]">
 
-      {/* Top bar — safe-area padding for status bar, settings icon only */}
-      <div className="flex justify-end items-center px-4 pb-1 shrink-0" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}>
+      {/* Top bar — settings icon only */}
+      <div className="flex justify-end items-center px-4 shrink-0" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.25rem)', paddingBottom: '0.25rem' }}>
         <button
           onClick={() => setNavTab('settings')}
           className={`p-1.5 rounded-xl transition-all ${navTab === 'settings' ? 'bg-[#d4af37]/20 text-[#d4af37]' : 'text-gray-500 hover:text-white'}`}
@@ -4059,500 +4060,345 @@ export default function App() {
 
       {/* --- TAB 6: SETTINGS --- */}
       {navTab === 'settings' && (
-        <div className="space-y-4 animate-fade-in text-xs p-1">
-          <div className="flex flex-col">
-            <span className="text-[9px] text-[#888] font-mono tracking-widest uppercase">Configuration</span>
-            <h2 className="font-serif text-lg text-white">Settings</h2>
+        <div className="space-y-3 animate-fade-in text-xs p-1">
+
+          {/* ── Data Management ── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+            <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('data-mgmt')}>
+              <div className="flex items-center gap-2">
+                <Download size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Data Management</span>
+              </div>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('data-mgmt')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+            </button>
+            {isSettingsOpen('data-mgmt') && (
+              <div className="px-4 pb-4 space-y-3 border-t border-[#1a1a1a]">
+                <p className="text-gray-500 text-[9px] font-mono leading-relaxed pt-3">Backup or restore your transactions. CSV files work with Excel, Google Sheets, or other finance apps.</p>
+                <button onClick={handleCsvExport} className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#d4af37]/10 transition-all flex items-center justify-center gap-2">
+                  <Download size={12}/> Export All Transactions (CSV)
+                </button>
+                <button onClick={handleLedgerExport} className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#d4af37]/10 transition-all flex items-center justify-center gap-2">
+                  <Download size={12}/> Export Ledger (CSV)
+                </button>
+                <label className="block">
+                  <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleCsvImportFile(f); e.target.value = ''; }}/>
+                  <span className="w-full border border-[#555] text-gray-300 font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#1a1a1a] transition-all flex items-center justify-center gap-2 cursor-pointer">
+                    <Upload size={12}/> Import CSV
+                  </span>
+                </label>
+                <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3 text-[9px] font-mono text-gray-500 leading-relaxed">
+                  <p className="font-semibold text-gray-400 mb-1">Import accepts two formats:</p>
+                  <p>• Export format: Date, Category, Description, Amount In, Amount Out</p>
+                  <p>• Template format: Date, Type, Amount, Category, Description</p>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* ── Data Management ─────────────────────────────────── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('data-mgmt')}>  <div className="flex items-center gap-2 border-b-0 pb-0">
-              <Download size={14} className="text-[#d4af37]" />
-              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Data Management</span>
-            </div><span style={{display:"inline-block",transition:"transform 0.2s",transform:isSettingsOpen('data-mgmt')?'rotate(90deg)':' rotate(0deg)',color:"#d4af37",fontSize:"12px"}}>▸</span></div><div className="border-b border-[#1a1a1a] mb-1"></div>{isSettingsOpen('data-mgmt') && <div className="space-y-3 pt-1">
-            <p className="text-gray-500 text-[9px] font-mono leading-relaxed">
-              Backup or restore your transactions. CSV files work with Excel, Google Sheets, or other finance apps.
-            </p>
-
-            {/* Export Transactions */}
-            <button
-              onClick={handleCsvExport}
-              className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#d4af37]/10 transition-all flex items-center justify-center gap-2"
-            >
-              <Download size={12} /> Export All Transactions (CSV)
+          {/* ── SMS & Notifications ── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+            <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('sms-notif')}>
+              <div className="flex items-center gap-2">
+                <MessageSquare size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">SMS & Notifications</span>
+              </div>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('sms-notif')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
-
-            {/* Export Ledger */}
-            <button
-              onClick={handleLedgerExport}
-              className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#d4af37]/10 transition-all flex items-center justify-center gap-2"
-            >
-              <Download size={12} /> Export Ledger (CSV)
-            </button>
-
-            {/* Import */}
-            <label className="block">
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleCsvImportFile(f);
-                  e.target.value = ''; // allow re-importing same file
-                }}
-              />
-              <div className="w-full border border-[#222] text-gray-300 font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#141414] transition-all flex items-center justify-center gap-2 cursor-pointer">
-                <span className="text-[#d4af37]">⬆</span> Import CSV
-              </div>
-            </label>
-
-            <div className="text-[8px] text-gray-600 font-mono leading-relaxed bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg p-2">
-              <p className="text-gray-500 font-bold mb-1">Required columns (case-insensitive):</p>
-              <p>Date (YYYY-MM-DD), Type (Income/Expense), Amount, Category, Description, Bank, Entry Mode</p>
-              <p className="text-gray-600 mt-1">Date, Amount, Category, Type must not be empty.</p>
-            </div>
-          </div>}</div>
-
-          {/* ── CSV Import Preview Modal ─────────────────────────── */}
-          {csvImportPreview && (
-            <div className="bg-[#0a0a0a] border border-[#d4af37]/40 rounded-2xl p-4 space-y-3">
-              <div className="flex justify-between items-center border-b border-[#222] pb-2">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-[#d4af37] font-bold">Import Preview</span>
-                <button onClick={() => setCsvImportPreview(null)} className="text-gray-500 hover:text-white text-xs">✕</button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="bg-emerald-950/30 border border-emerald-900/40 rounded-lg p-2 text-center">
-                  <p className="text-emerald-400 font-mono text-base font-bold">{csvImportPreview.rows.length}</p>
-                  <p className="text-emerald-300 text-[8px] font-mono uppercase">Valid Rows</p>
-                </div>
-                <div className={`border rounded-lg p-2 text-center ${csvImportPreview.errors.length > 0 ? 'bg-red-950/30 border-red-900/40' : 'bg-[#141414] border-[#222]'}`}>
-                  <p className={`font-mono text-base font-bold ${csvImportPreview.errors.length > 0 ? 'text-red-400' : 'text-gray-500'}`}>{csvImportPreview.errors.length}</p>
-                  <p className={`text-[8px] font-mono uppercase ${csvImportPreview.errors.length > 0 ? 'text-red-300' : 'text-gray-500'}`}>Errors</p>
-                </div>
-              </div>
-
-              {/* Errors */}
-              {csvImportPreview.errors.length > 0 && (
-                <div className="max-h-32 overflow-y-auto bg-red-950/10 border border-red-900/30 rounded-lg p-2 space-y-1">
-                  {csvImportPreview.errors.map((err, i) => (
-                    <p key={i} className="text-red-300 text-[9px] font-mono leading-relaxed">• {err}</p>
-                  ))}
-                </div>
-              )}
-
-              {/* Action buttons */}
-              {csvImportPreview.rows.length > 0 ? (
-                <div className="space-y-2 pt-2 border-t border-[#222]">
-                  <p className="text-gray-400 text-[9px] font-mono">Choose how to apply {csvImportPreview.rows.length} valid transactions:</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button onClick={() => applyCsvImport('add')}
-                      className="border border-[#d4af37]/40 text-[#d4af37] font-mono text-[9px] uppercase tracking-wider py-2 rounded-lg hover:bg-[#d4af37]/10 transition-all">
-                      Add (keep existing)
-                    </button>
-                    <button onClick={() => applyCsvImport('merge')}
-                      className="border border-emerald-700/40 text-emerald-400 font-mono text-[9px] uppercase tracking-wider py-2 rounded-lg hover:bg-emerald-950/20 transition-all">
-                      Merge (skip dups)
-                    </button>
-                    <button onClick={() => applyCsvImport('replace')}
-                      className="border border-red-800/50 text-red-400 font-mono text-[9px] uppercase tracking-wider py-2 rounded-lg hover:bg-red-950/30 transition-all">
-                      Replace All
-                    </button>
-                    <button onClick={() => setCsvImportPreview(null)}
-                      className="border border-[#333] text-gray-400 font-mono text-[9px] uppercase tracking-wider py-2 rounded-lg hover:bg-[#141414] transition-all">
-                      Cancel
+            {isSettingsOpen('sms-notif') && (
+              <div className="px-4 pb-4 space-y-3 border-t border-[#1a1a1a] pt-3">
+                {[
+                  { key: 'ft_setting_sms_reader', label: 'SMS Reader', desc: 'Auto-detect bank SMS messages', state: settingSmsReader, set: setSettingSmsReader },
+                  { key: 'ft_setting_tx_notif', label: 'Transaction Notifications', desc: 'Notify when new SMS is detected', state: settingTxNotif, set: setSettingTxNotif },
+                  { key: 'ft_setting_pending_notif', label: 'Pending SMS Reminders', desc: 'Remind if pending SMS stays unreviewed', state: settingPendingNotif, set: setSettingPendingNotif },
+                ].map(item => (
+                  <div key={item.key} className="flex items-center justify-between">
+                    <div>
+                      <p className="text-white text-[11px] font-mono font-semibold">{item.label}</p>
+                      <p className="text-gray-500 text-[9px] font-mono mt-0.5">{item.desc}</p>
+                    </div>
+                    <button onClick={() => item.set(!item.state)}
+                      className={`relative w-10 h-5 rounded-full transition-all ${item.state ? 'bg-[#d4af37]' : 'bg-[#333]'}`}>
+                      <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${item.state ? 'left-5' : 'left-0.5'}`}/>
                     </button>
                   </div>
-                </div>
-              ) : (
-                <button onClick={() => setCsvImportPreview(null)}
-                  className="w-full bg-[#141414] border border-[#333] text-gray-400 font-mono text-[10px] uppercase py-2 rounded-lg">
-                  Close
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* ── SMS & Notifications ─────────────────────────────── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('sms-notif')}>  <div className="flex items-center gap-2 border-b-0 pb-0">
-              <Smartphone size={14} className="text-[#d4af37]" />
-              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">SMS & Notifications</span>
-            </div><span style={{display:"inline-block",transition:"transform 0.2s",transform:isSettingsOpen('sms-notif')?'rotate(90deg)':' rotate(0deg)',color:"#d4af37",fontSize:"12px"}}>▸</span></div><div className="border-b border-[#1a1a1a] mb-1"></div>{isSettingsOpen('sms-notif') && <div className="space-y-3 pt-1">
-
-            {/* SMS Reader toggle */}
-            <div className="flex items-center justify-between py-1">
-              <div>
-                <p className="text-white text-[11px] font-mono font-semibold">SMS Reader</p>
-                <p className="text-gray-500 text-[9px] font-mono mt-0.5">Auto-detect bank SMS messages</p>
+                ))}
               </div>
-              <button
-                onClick={() => setSettingSmsReader(v => !v)}
-                className={`w-11 h-6 rounded-full border transition-all relative ${
-                  settingSmsReader ? 'bg-[#d4af37]/30 border-[#d4af37]' : 'bg-[#1a1a1a] border-[#333]'
-                }`}
-              >
-                <span className={`absolute top-0.5 w-5 h-5 rounded-full transition-all shadow ${
-                  settingSmsReader ? 'left-5 bg-[#d4af37]' : 'left-0.5 bg-gray-600'
-                }`} />
-              </button>
-            </div>
-
-            {/* Transaction Notifications toggle */}
-            <div className="flex items-center justify-between py-1 border-t border-[#1a1a1a]">
-              <div>
-                <p className="text-white text-[11px] font-mono font-semibold">Transaction Notifications</p>
-                <p className="text-gray-500 text-[9px] font-mono mt-0.5">Notify when new SMS is detected</p>
-              </div>
-              <button
-                onClick={() => setSettingTxNotif(v => !v)}
-                className={`w-11 h-6 rounded-full border transition-all relative ${
-                  settingTxNotif ? 'bg-[#d4af37]/30 border-[#d4af37]' : 'bg-[#1a1a1a] border-[#333]'
-                }`}
-              >
-                <span className={`absolute top-0.5 w-5 h-5 rounded-full transition-all shadow ${
-                  settingTxNotif ? 'left-5 bg-[#d4af37]' : 'left-0.5 bg-gray-600'
-                }`} />
-              </button>
-            </div>
-
-            {/* Pending SMS Reminders toggle */}
-            <div className="flex items-center justify-between py-1 border-t border-[#1a1a1a]">
-              <div>
-                <p className="text-white text-[11px] font-mono font-semibold">Pending SMS Reminders</p>
-                <p className="text-gray-500 text-[9px] font-mono mt-0.5">Remind if pending SMS stays unreviewed</p>
-              </div>
-              <button
-                onClick={() => setSettingPendingNotif(v => !v)}
-                className={`w-11 h-6 rounded-full border transition-all relative ${
-                  settingPendingNotif ? 'bg-[#d4af37]/30 border-[#d4af37]' : 'bg-[#1a1a1a] border-[#333]'
-                }`}
-              >
-                <span className={`absolute top-0.5 w-5 h-5 rounded-full transition-all shadow ${
-                  settingPendingNotif ? 'left-5 bg-[#d4af37]' : 'left-0.5 bg-gray-600'
-                }`} />
-              </button>
-            </div>
-          </div>}</div>
-
-          {/* ── Retention Period ────────────────────────────────── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('retention')}>  <div className="flex items-center gap-2 border-b-0 pb-0">
-              <Calendar size={14} className="text-[#d4af37]" />
-              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Retention Period</span>
-            </div><span style={{display:"inline-block",transition:"transform 0.2s",transform:isSettingsOpen('retention')?'rotate(90deg)':' rotate(0deg)',color:"#d4af37",fontSize:"12px"}}>▸</span></div><div className="border-b border-[#1a1a1a] mb-1"></div>{isSettingsOpen('retention') && <div className="space-y-3 pt-1">
-            <p className="text-gray-500 text-[9px] font-mono leading-relaxed">
-              Confirmed &amp; Skipped SMS records are auto-removed after this many days.
-            </p>
-            {/* +/- control */}
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setSettingRetentionDays(d => Math.max(1, d - 1))}
-                className="w-9 h-9 rounded-xl bg-[#141414] border border-[#222] text-[#d4af37] font-mono font-bold text-base flex items-center justify-center hover:border-[#d4af37]/50 active:scale-95 transition-all"
-              >−</button>
-              <span className="flex-1 text-center font-mono text-white text-base font-bold">{settingRetentionDays} <span className="text-[9px] text-gray-500">days</span></span>
-              <button
-                onClick={() => setSettingRetentionDays(d => Math.min(90, d + 1))}
-                className="w-9 h-9 rounded-xl bg-[#141414] border border-[#222] text-[#d4af37] font-mono font-bold text-base flex items-center justify-center hover:border-[#d4af37]/50 active:scale-95 transition-all"
-              >+</button>
-            </div>
-            {/* Preset buttons */}
-            <div className="grid grid-cols-4 gap-1.5">
-              {[3, 7, 14, 30].map(d => (
-                <button
-                  key={d}
-                  onClick={() => setSettingRetentionDays(d)}
-                  className={`py-1.5 rounded-lg text-[9px] font-mono border transition-all ${
-                    settingRetentionDays === d
-                      ? 'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37] font-bold'
-                      : 'bg-[#141414] border-[#222] text-gray-400 hover:border-gray-500'
-                  }`}
-                >{d}d</button>
-              ))}
-            </div>
-          </div>}</div>
-
-          {/* ── Export Reminder ─────────────────────────────────── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('export-reminder')}>  <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('about')}>  <div className="flex items-center gap-2 border-b-0 pb-0">
-              <Download size={14} className="text-[#d4af37]" />
-              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Export Reminder</span>
-            </div><span style={{display:"inline-block",transition:"transform 0.2s",transform:isSettingsOpen('export-reminder')?'rotate(90deg)':' rotate(0deg)',color:"#d4af37",fontSize:"12px"}}>▸</span></div><div className="border-b border-[#1a1a1a] mb-1"></div>{isSettingsOpen('export-reminder') && <div className="space-y-3 pt-1">
-            <p className="text-gray-500 text-[9px] font-mono leading-relaxed">
-              A warning banner + Android notification fires if you haven't exported in this many days.
-            </p>
-            {lastExportDate ? (
-              <p className="text-[9px] font-mono text-emerald-400">Last exported: {lastExportDate}
-                {exportOverdueDays !== null && exportOverdueDays > 0
-                  ? <span className="text-yellow-500"> · {exportOverdueDays}d ago</span>
-                  : <span className="text-emerald-500"> · today ✓</span>}
-              </p>
-            ) : (
-              <p className="text-[9px] font-mono text-yellow-500">⚠ Never exported — your data has no backup</p>
             )}
-            {/* +/- control */}
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setSettingExportReminderDays(d => Math.max(1, d - 1))}
-                className="w-9 h-9 rounded-xl bg-[#141414] border border-[#222] text-[#d4af37] font-mono font-bold text-base flex items-center justify-center hover:border-[#d4af37]/50 active:scale-95 transition-all"
-              >−</button>
-              <span className="flex-1 text-center font-mono text-white text-base font-bold">
-                {settingExportReminderDays} <span className="text-[9px] text-gray-500">days</span>
-              </span>
-              <button
-                onClick={() => setSettingExportReminderDays(d => Math.min(90, d + 1))}
-                className="w-9 h-9 rounded-xl bg-[#141414] border border-[#222] text-[#d4af37] font-mono font-bold text-base flex items-center justify-center hover:border-[#d4af37]/50 active:scale-95 transition-all"
-              >+</button>
-            </div>
-            {/* Preset buttons */}
-            <div className="grid grid-cols-4 gap-1.5">
-              {[3, 7, 14, 30].map(d => (
-                <button
-                  key={d}
-                  onClick={() => setSettingExportReminderDays(d)}
-                  className={`py-1.5 rounded-lg text-[9px] font-mono border transition-all ${
-                    settingExportReminderDays === d
-                      ? 'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37] font-bold'
-                      : 'bg-[#141414] border-[#222] text-gray-400 hover:border-gray-500'
-                  }`}
-                >{d}d</button>
-              ))}
-            </div>
-          </div>}</div>
-
-          {/* ── About ──────────────────────────────────────────── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-2">
-            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
-              <Info size={14} className="text-[#d4af37]" />
-              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">About</span>
-            </div><span style={{display:"inline-block",transition:"transform 0.2s",transform:isSettingsOpen('about')?'rotate(90deg)':' rotate(0deg)',color:"#d4af37",fontSize:"12px"}}>▸</span></div><div className="border-b border-[#1a1a1a] mb-1"></div>{isSettingsOpen('about') && <div className="space-y-3 pt-1"></div>}</div>
-
-          {/* ── About ──────────────────────────────────────────── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-2">
-            <div className="flex items-center gap-2 border-b border-[#1a1a1a] pb-2">
-              <Info size={14} className="text-[#d4af37]" />
-              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">About</span>
-            </div>
-            <p className="text-[#888] text-[10px] font-mono">Finance Tracker v1.0.0</p>
-            <p className="text-[#555] text-[9px] font-mono leading-relaxed">All data stays on your device. No login required.</p>
           </div>
 
-          {/* ── Manage Category ──────────────────────────────────── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('manage-cat')}>
+          {/* ── Retention Period ── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+            <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('retention')}>
+              <div className="flex items-center gap-2">
+                <Calendar size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Retention Period</span>
+              </div>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('retention')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+            </button>
+            {isSettingsOpen('retention') && (
+              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3">
+                <p className="text-gray-500 text-[9px] font-mono mb-3">Keep SMS messages for this many days before auto-deleting confirmed/skipped ones.</p>
+                <div className="flex items-center justify-between bg-[#141414] border border-[#222] rounded-xl p-3">
+                  <button onClick={() => setSettingRetentionDays(d => Math.max(7, d - 7))} className="text-[#d4af37] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#d4af37]/10">−</button>
+                  <div className="text-center">
+                    <span className="text-white font-mono font-bold text-base">{settingRetentionDays}</span>
+                    <span className="text-gray-500 font-mono text-[9px] ml-1">days</span>
+                  </div>
+                  <button onClick={() => setSettingRetentionDays(d => Math.min(365, d + 7))} className="text-[#d4af37] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#d4af37]/10">+</button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Export Reminder ── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+            <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('export-reminder')}>
+              <div className="flex items-center gap-2">
+                <Download size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Export Reminder</span>
+              </div>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('export-reminder')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+            </button>
+            {isSettingsOpen('export-reminder') && (
+              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
+                <p className="text-gray-500 text-[9px] font-mono">Remind you to export if you haven't backed up in this many days.</p>
+                <div className="flex items-center justify-between bg-[#141414] border border-[#222] rounded-xl p-3">
+                  <button onClick={() => setSettingExportReminderDays(d => Math.max(1, d - 1))} className="text-[#d4af37] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#d4af37]/10">−</button>
+                  <div className="text-center">
+                    <span className="text-white font-mono font-bold text-base">{settingExportReminderDays}</span>
+                    <span className="text-gray-500 font-mono text-[9px] ml-1">days</span>
+                  </div>
+                  <button onClick={() => setSettingExportReminderDays(d => Math.min(90, d + 1))} className="text-[#d4af37] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#d4af37]/10">+</button>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {[3,7,14,30].map(d => (
+                    <button key={d} onClick={() => setSettingExportReminderDays(d)}
+                      className={`px-3 py-1.5 rounded-lg border text-[9px] font-mono transition-all ${settingExportReminderDays === d ? 'border-[#d4af37] text-[#d4af37] bg-[#d4af37]/10' : 'border-[#222] text-gray-500'}`}>
+                      {d}d
+                    </button>
+                  ))}
+                </div>
+                {lastExportDate && (
+                  <p className="text-[9px] font-mono text-gray-500">Last export: <span className="text-[#d4af37]">{lastExportDate}</span></p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Manage Category ── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+            <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('manage-cat')}>
               <div className="flex items-center gap-2">
                 <BrandIcon size={14} className="text-[#d4af37]"/>
                 <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Manage Category</span>
               </div>
-              <span style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('manage-cat')?'rotate(90deg)':'rotate(0deg)',color:'#d4af37',fontSize:'12px'}}>▸</span>
-            </div>
-            <div className="border-b border-[#1a1a1a] mb-1"></div>
-            {isSettingsOpen('manage-cat') && <div className="space-y-3 pt-1">
-              {/* Add / Edit buttons */}
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => { setMcPanel(mcPanel === 'add' ? 'none' : 'add'); setMcEditSel(''); setMcAction('none'); }}
-                  className={`py-2 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'add' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#222] bg-[#141414] text-gray-400'}`}>
-                  <span className="text-[14px] leading-none">+</span> Add
-                </button>
-                <button onClick={() => { setMcPanel(mcPanel === 'edit' ? 'none' : 'edit'); setMcEditSel(''); setMcAction('none'); }}
-                  className={`py-2 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'edit' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#222] bg-[#141414] text-gray-400'}`}>
-                  ✏ Edit
-                </button>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('manage-cat')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+            </button>
+            {isSettingsOpen('manage-cat') && (
+              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => { setMcPanel(mcPanel === 'add' ? 'none' : 'add'); setMcEditSel(''); setMcAction('none'); }}
+                    className={`py-2.5 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'add' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#222] bg-[#141414] text-gray-400'}`}>
+                    + Add
+                  </button>
+                  <button onClick={() => { setMcPanel(mcPanel === 'edit' ? 'none' : 'edit'); setMcEditSel(''); setMcAction('none'); }}
+                    className={`py-2.5 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'edit' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#222] bg-[#141414] text-gray-400'}`}>
+                    ✏ Edit
+                  </button>
+                </div>
+
+                {mcPanel === 'add' && (
+                  <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3 space-y-2">
+                    <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider block">Icon</label>
+                    <input type="text" value={mcAddIcon} onChange={e => setMcAddIcon(e.target.value)} maxLength={4} placeholder="⭐"
+                      className="w-16 text-center text-[18px] bg-[#141414] border border-[#222] rounded-lg p-2 outline-none focus:border-[#d4af37] text-white"/>
+                    <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider block mt-2">Category Name</label>
+                    <input type="text" value={mcAddName} onChange={e => setMcAddName(e.target.value)} placeholder="e.g. Cooking"
+                      className="w-full bg-[#141414] border border-[#222] rounded-xl p-2.5 text-[12px] text-white outline-none focus:border-[#d4af37] font-mono"/>
+                    <button onClick={mcDoAdd} className="w-full bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl mt-1">Save Category</button>
+                    <button onClick={mcReset} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                  </div>
+                )}
+
+                {mcPanel === 'edit' && (
+                  <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3 space-y-2">
+                    <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider block">Select Category</label>
+                    <select value={mcEditSel} onChange={e => { setMcEditSel(e.target.value); setMcAction('none'); setMcMergeTarget(''); }}
+                      className="w-full bg-[#141414] border border-[#222] rounded-xl p-2.5 text-[12px] text-white outline-none focus:border-[#d4af37] font-mono appearance-none">
+                      <option value="">— choose a category —</option>
+                      {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
+                    </select>
+
+                    {mcEditSel && (
+                      <div className="grid grid-cols-3 gap-1.5 pt-1">
+                        <button onClick={() => { setMcAction('rename'); setMcRenameIcon(categoryIcons[mcEditSel] || '⭐'); setMcRenameName(mcEditSel); }}
+                          className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'rename' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#d4af37]/40 text-[#d4af37]'}`}>✏ Rename</button>
+                        <button onClick={() => { setMcAction('merge'); setMcMergeTarget(''); }}
+                          className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'merge' ? 'border-[#9ab7d8] bg-[#9ab7d8]/10 text-[#9ab7d8]' : 'border-[#4a7090] text-[#9ab7d8]'}`}>⇄ Merge</button>
+                        <button onClick={() => setMcAction('delete')}
+                          className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'delete' ? 'border-[#D96A55] bg-[#D96A55]/10 text-[#D96A55]' : 'border-[#7a3020] text-[#D96A55]'}`}>🗑 Delete</button>
+                      </div>
+                    )}
+
+                    {mcAction === 'rename' && (
+                      <div className="bg-[#141414] border border-[#222] rounded-xl p-3 space-y-2 mt-1">
+                        <label className="text-[9px] text-gray-500 font-mono uppercase block">Icon</label>
+                        <input type="text" value={mcRenameIcon} onChange={e => setMcRenameIcon(e.target.value)} maxLength={4}
+                          className="w-16 text-center text-[18px] bg-[#0a0a0a] border border-[#222] rounded-lg p-2 outline-none focus:border-[#d4af37] text-white"/>
+                        <label className="text-[9px] text-gray-500 font-mono uppercase block mt-2">New Name</label>
+                        <input type="text" value={mcRenameName} onChange={e => setMcRenameName(e.target.value)}
+                          className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl p-2.5 text-[12px] text-white outline-none focus:border-[#d4af37] font-mono"/>
+                        <p className="text-[8px] text-gray-600 font-mono">All transactions update to the new name automatically.</p>
+                        <button onClick={mcDoRename} className="w-full bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Save Rename</button>
+                        <button onClick={() => setMcAction('none')} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                      </div>
+                    )}
+
+                    {mcAction === 'merge' && (
+                      <div className="bg-[#141414] border border-[#222] rounded-xl p-3 space-y-2 mt-1">
+                        <label className="text-[9px] text-gray-500 font-mono uppercase block">Move all transactions into</label>
+                        <select value={mcMergeTarget} onChange={e => setMcMergeTarget(e.target.value)}
+                          className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl p-2.5 text-[12px] text-white outline-none focus:border-[#9ab7d8] font-mono appearance-none">
+                          <option value="">— choose target —</option>
+                          {categories.filter(c => c !== mcEditSel).map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
+                        </select>
+                        <p className="text-[8px] text-gray-600 font-mono">"{mcEditSel}" will be removed. Target name survives.</p>
+                        <button onClick={() => { if (!mcMergeTarget) { alert('Select a target'); return; } setMcModal('merge1'); }}
+                          className="w-full border border-[#4a7090] text-[#9ab7d8] font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Done</button>
+                        <button onClick={() => setMcAction('none')} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                      </div>
+                    )}
+
+                    {mcAction === 'delete' && (
+                      <div className="bg-[#141414] border border-[#7a3020]/50 rounded-xl p-3 space-y-2 mt-1">
+                        <p className="text-[10px] font-mono text-gray-400 leading-relaxed">
+                          Every transaction in <span className="text-[#d4af37]">{mcEditSel}</span> will move to <span className="text-[#d4af37]">Uncategorized 📂</span>. You can re-categorize them later.
+                        </p>
+                        <button onClick={mcDoDelete} className="w-full border border-[#D96A55] text-[#D96A55] font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Delete Category</button>
+                        <button onClick={() => setMcAction('none')} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                      </div>
+                    )}
+
+                    <button onClick={mcReset} className="w-full border border-[#222] text-gray-600 font-mono text-[9px] uppercase py-2 rounded-xl mt-1">Close</button>
+                  </div>
+                )}
               </div>
-
-              {/* ADD panel */}
-              {mcPanel === 'add' && (
-                <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3 space-y-2">
-                  <p className="text-[9px] font-mono text-gray-500 uppercase tracking-wider">New category</p>
-                  <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider block mt-2">Icon</label>
-                  <input type="text" value={mcAddIcon} onChange={e => setMcAddIcon(e.target.value)} maxLength={4} placeholder="⭐"
-                    className="w-16 text-center text-[18px] bg-[#141414] border border-[#222] rounded-lg p-2 outline-none focus:border-[#d4af37] text-white"/>
-                  <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider block mt-2">Category Name</label>
-                  <input type="text" value={mcAddName} onChange={e => setMcAddName(e.target.value)} placeholder="e.g. Cooking"
-                    className="w-full bg-[#141414] border border-[#222] rounded-xl p-2.5 text-[12px] text-white outline-none focus:border-[#d4af37] font-mono"/>
-                  <button onClick={mcDoAdd} className="w-full bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl mt-1">Save Category</button>
-                  <button onClick={mcReset} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
-                </div>
-              )}
-
-              {/* EDIT panel */}
-              {mcPanel === 'edit' && (
-                <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3 space-y-2">
-                  <p className="text-[9px] font-mono text-gray-500 uppercase tracking-wider">Select category</p>
-                  <select value={mcEditSel} onChange={e => { setMcEditSel(e.target.value); setMcAction('none'); setMcMergeTarget(''); }}
-                    className="w-full bg-[#141414] border border-[#222] rounded-xl p-2.5 text-[12px] text-white outline-none focus:border-[#d4af37] font-mono appearance-none">
-                    <option value="">— choose a category —</option>
-                    {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
-                  </select>
-
-                  {/* Action buttons */}
-                  {mcEditSel && (
-                    <div className="grid grid-cols-3 gap-1.5 pt-1">
-                      <button onClick={() => { setMcAction('rename'); setMcRenameIcon(categoryIcons[mcEditSel] || '⭐'); setMcRenameName(mcEditSel); }}
-                        className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'rename' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#d4af37]/40 text-[#d4af37]'}`}>✏ Rename</button>
-                      <button onClick={() => { setMcAction('merge'); setMcMergeTarget(''); }}
-                        className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'merge' ? 'border-[#9ab7d8] bg-[#9ab7d8]/10 text-[#9ab7d8]' : 'border-[#4a7090] text-[#9ab7d8]'}`}>⇄ Merge</button>
-                      <button onClick={() => setMcAction('delete')}
-                        className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'delete' ? 'border-[#D96A55] bg-[#D96A55]/10 text-[#D96A55]' : 'border-[#7a3020] text-[#D96A55]'}`}>🗑 Delete</button>
-                    </div>
-                  )}
-
-                  {/* RENAME */}
-                  {mcAction === 'rename' && (
-                    <div className="bg-[#141414] border border-[#222] rounded-xl p-3 space-y-2 mt-1">
-                      <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider block">Icon</label>
-                      <input type="text" value={mcRenameIcon} onChange={e => setMcRenameIcon(e.target.value)} maxLength={4}
-                        className="w-16 text-center text-[18px] bg-[#0a0a0a] border border-[#222] rounded-lg p-2 outline-none focus:border-[#d4af37] text-white"/>
-                      <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider block mt-2">New Name</label>
-                      <input type="text" value={mcRenameName} onChange={e => setMcRenameName(e.target.value)}
-                        className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl p-2.5 text-[12px] text-white outline-none focus:border-[#d4af37] font-mono"/>
-                      <p className="text-[8px] text-gray-600 font-mono">All transactions will update to the new name automatically.</p>
-                      <button onClick={mcDoRename} className="w-full bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Save Rename</button>
-                      <button onClick={() => setMcAction('none')} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
-                    </div>
-                  )}
-
-                  {/* MERGE */}
-                  {mcAction === 'merge' && (
-                    <div className="bg-[#141414] border border-[#222] rounded-xl p-3 space-y-2 mt-1">
-                      <p className="text-[9px] font-mono text-gray-500 uppercase tracking-wider">Move all transactions into</p>
-                      <select value={mcMergeTarget} onChange={e => setMcMergeTarget(e.target.value)}
-                        className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl p-2.5 text-[12px] text-white outline-none focus:border-[#9ab7d8] font-mono appearance-none">
-                        <option value="">— choose target —</option>
-                        {categories.filter(c => c !== mcEditSel).map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
-                      </select>
-                      <p className="text-[8px] text-gray-600 font-mono">"{mcEditSel}" will be removed. Target category name survives.</p>
-                      <button onClick={() => { if (!mcMergeTarget) { alert('Select a target'); return; } setMcModal('merge1'); }}
-                        className="w-full border border-[#4a7090] text-[#9ab7d8] font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Done</button>
-                      <button onClick={() => setMcAction('none')} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
-                    </div>
-                  )}
-
-                  {/* DELETE */}
-                  {mcAction === 'delete' && (
-                    <div className="bg-[#141414] border border-[#7a3020]/50 rounded-xl p-3 space-y-2 mt-1">
-                      <p className="text-[10px] font-mono text-gray-400 leading-relaxed">
-                        Every transaction in <span className="text-[#d4af37]">{mcEditSel}</span> will move to <span className="text-[#d4af37]">Uncategorized 📂</span>. You can re-categorize them later.
-                      </p>
-                      <button onClick={mcDoDelete}
-                        className="w-full border border-[#D96A55] text-[#D96A55] font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Delete Category</button>
-                      <button onClick={() => setMcAction('none')} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
-                    </div>
-                  )}
-
-                  <button onClick={mcReset} className="w-full border border-[#222] text-gray-600 font-mono text-[9px] uppercase py-2 rounded-xl mt-1">Close</button>
-                </div>
-              )}
-            </div>}
+            )}
           </div>
 
-          {/* ── Excluded from Analysis ──────────────────────────────── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('excl-analysis')}>  <div className="flex items-center gap-2 border-b-0 pb-0">
-              <BrandIcon size={14} className="text-[#d4af37]" />
-              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Excluded from Analysis</span>
-            </div><span style={{display:"inline-block",transition:"transform 0.2s",transform:isSettingsOpen('excl-analysis')?'rotate(90deg)':' rotate(0deg)',color:"#d4af37",fontSize:"12px"}}>▸</span></div><div className="border-b border-[#1a1a1a] mb-1"></div>{isSettingsOpen('excl-analysis') && <div className="space-y-3 pt-1">
-            <p className="text-gray-500 text-[9px] font-mono leading-relaxed">
-              Excluded categories hidden from: Expenditure, Month vs Spending, Week on Week, Spend Share. Still visible in Ledger, History and Budget.
-            </p>
-            <div className="flex flex-wrap gap-2 pt-1">
-              {categories.map(cat => {
-                const excluded = excludedCategories.includes(cat);
-                return (
-                  <button key={cat} onClick={() => toggleExcluded(cat)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[#141414] border-[#222] text-gray-400 hover:border-gray-500'}`}>
-                    {cat}
-                    {excluded && <span className="text-red-500 ml-1">×</span>}
-                  </button>
-                );
-              })}
-            </div>
-            {excludedCategories.length > 0
-              ? <button onClick={() => setExcludedCategories([])} className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">Clear all exclusions</button>
-              : <p className="text-[8px] text-gray-600 font-mono italic">Tap any category to exclude from charts</p>
-            }
-          </div>}</div>
-
-          {/* ── Excluded from Ledger ─────────────────────────────── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 space-y-3">
-            <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('excl-ledger')}>  <div className="flex items-center justify-between cursor-pointer select-none" onClick={() => toggleSettings('danger')}>  <div className="flex items-center gap-2 border-b-0 pb-0">
-              <BrandIcon size={14} className="text-[#d4af37]" />
-              <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Excluded from Ledger</span>
-            </div><span style={{display:"inline-block",transition:"transform 0.2s",transform:isSettingsOpen('excl-ledger')?'rotate(90deg)':' rotate(0deg)',color:"#d4af37",fontSize:"12px"}}>▸</span></div><div className="border-b border-[#1a1a1a] mb-1"></div>{isSettingsOpen('excl-ledger') && <div className="space-y-3 pt-1">
-            <p className="text-gray-500 text-[9px] font-mono leading-relaxed">
-              Categories excluded here are completely hidden from the Ledger table — no rows, no totals, no effect on Opening/Closing balance. Still visible in History, Add Entry and Budget.
-            </p>
-            <div className="flex flex-wrap gap-2 pt-1">
-              {categories.map(cat => {
-                const excluded = excludedLedgerCategories.includes(cat);
-                return (
-                  <button key={cat} onClick={() => toggleExcludedLedger(cat)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${
-                      excluded
-                        ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through'
-                        : 'bg-[#141414] border-[#222] text-gray-400 hover:border-gray-500'
-                    }`}>
-                    {categoryIcons[cat] || '⭐'} {cat}
-                    {excluded && <span className="text-red-500 ml-1">×</span>}
-                  </button>
-                );
-              })}
-            </div>
-            {excludedLedgerCategories.length > 0
-              ? <button onClick={() => setExcludedLedgerCategories([])} className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">Clear all exclusions</button>
-              : <p className="text-[8px] text-gray-600 font-mono italic">Tap any category to exclude from Ledger</p>
-            }
-          </div>}</div>
-
-          {/* ── Danger Zone ─────────────────────────────────────── */}
-          <div className="bg-[#0f0f0f] border border-red-900/50 rounded-2xl p-4 space-y-3">
-            <div className="flex items-center gap-2 border-b border-red-900/30 pb-2">
-              <span className="text-red-500 text-[14px]">⚠</span>
-              <span className="font-mono text-[10px] uppercase tracking-widest text-red-500 font-semibold">Danger Zone</span>
-            </div><span style={{display:"inline-block",transition:"transform 0.2s",transform:isSettingsOpen('danger')?'rotate(90deg)':' rotate(0deg)',color:"#d4af37",fontSize:"12px"}}>▸</span></div><div className="border-b border-[#1a1a1a] mb-1"></div>{isSettingsOpen('danger') && <div className="space-y-3 pt-1"></div>}</div>
-
-          {/* ── Danger Zone ─────────────────────────────────────── */}
-          <div className="bg-[#0f0f0f] border border-red-900/50 rounded-2xl p-4 space-y-3">
-            <div className="flex items-center gap-2 border-b border-red-900/30 pb-2">
-              <span className="text-red-500 text-[14px]">⚠</span>
-              <span className="font-mono text-[10px] uppercase tracking-widest text-red-500 font-semibold">Danger Zone</span>
-            </div>
-            <p className="text-gray-500 text-[9px] font-mono leading-relaxed">
-              Permanent actions. These cannot be undone. Export your data first if you want to keep it.
-            </p>
-
-            {/* Delete All Data */}
-            <div className="flex items-center justify-between py-1 border-t border-red-900/20">
-              <div>
-                <p className="text-white text-[11px] font-mono font-semibold">Delete All Data</p>
-                <p className="text-gray-500 text-[9px] font-mono mt-0.5">Wipes transactions, SMS records &amp; budgets</p>
+          {/* ── Excluded from Analysis ── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+            <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('excl-analysis')}>
+              <div className="flex items-center gap-2">
+                <BrandIcon size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Excluded from Analysis</span>
               </div>
-              <button
-                onClick={() => {
-                  if (window.confirm('⚠ DELETE ALL DATA?\n\nThis will permanently erase:\n• All transactions\n• All SMS records\n• All budget limits\n\nThis cannot be undone.\n\nAre you sure?')) {
-                    if (window.confirm('Last warning — are you absolutely sure you want to delete everything?')) {
-                      localStorage.removeItem('aurelius_transactions');
-                      localStorage.removeItem('aurelius_sms');
-                      localStorage.removeItem('aurelius_budgets');
-                      setTransactions([]);
-                      setSmsMessages([]);
-                      setBudgets([]);
-                      setNavTab('dashboard');
-                      alert('All data deleted.');
-                    }
-                  }
-                }}
-                className="bg-red-950/40 border border-red-800/60 text-red-400 font-mono text-[10px] uppercase tracking-wider px-3 py-2 rounded-xl hover:bg-red-900/40 active:scale-95 transition-all"
-              >
-                Delete All
-              </button>
-            </div>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('excl-analysis')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+            </button>
+            {isSettingsOpen('excl-analysis') && (
+              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
+                <p className="text-gray-500 text-[9px] font-mono leading-relaxed">Excluded categories are hidden from: Expenditure by Category, Month vs Spending, Week on Week, and Spend Share. Still appear in Ledger, History and Budget.</p>
+                <div className="flex flex-wrap gap-2">
+                  {categories.map(cat => {
+                    const excluded = excludedCategories.includes(cat);
+                    return (
+                      <button key={cat} onClick={() => toggleExcluded(cat)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[#141414] border-[#222] text-gray-400 hover:border-gray-500'}`}>
+                        {categoryIcons[cat] || '⭐'} {cat}
+                        {excluded && <span className="text-red-500 ml-0.5">×</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                {excludedCategories.length > 0
+                  ? <button onClick={() => setExcludedCategories([])} className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">Clear all</button>
+                  : <p className="text-[8px] text-gray-600 font-mono italic">Tap any category to exclude from charts</p>
+                }
+              </div>
+            )}
+          </div>
+
+          {/* ── Excluded from Ledger ── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+            <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('excl-ledger')}>
+              <div className="flex items-center gap-2">
+                <BrandIcon size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Excluded from Ledger</span>
+              </div>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('excl-ledger')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+            </button>
+            {isSettingsOpen('excl-ledger') && (
+              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
+                <p className="text-gray-500 text-[9px] font-mono leading-relaxed">Categories excluded here are completely hidden from the Ledger table — no rows, no totals, no effect on Opening/Closing balance.</p>
+                <div className="flex flex-wrap gap-2">
+                  {categories.map(cat => {
+                    const excluded = excludedLedgerCategories.includes(cat);
+                    return (
+                      <button key={cat} onClick={() => toggleExcludedLedger(cat)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[#141414] border-[#222] text-gray-400 hover:border-gray-500'}`}>
+                        {categoryIcons[cat] || '⭐'} {cat}
+                        {excluded && <span className="text-red-500 ml-0.5">×</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+                {excludedLedgerCategories.length > 0
+                  ? <button onClick={() => setExcludedLedgerCategories([])} className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">Clear all</button>
+                  : <p className="text-[8px] text-gray-600 font-mono italic">Tap any category to exclude from Ledger</p>
+                }
+              </div>
+            )}
+          </div>
+
+          {/* ── About ── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+            <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('about')}>
+              <div className="flex items-center gap-2">
+                <Info size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">About</span>
+              </div>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('about')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+            </button>
+            {isSettingsOpen('about') && (
+              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-1.5">
+                <p className="text-[#888] text-[10px] font-mono">Finance Tracker v1.0.0</p>
+                <p className="text-[#555] text-[9px] font-mono leading-relaxed">Built with React + Capacitor. Your data stays on your device — never sent to any server.</p>
+              </div>
+            )}
+          </div>
+
+          {/* ── Danger Zone ── */}
+          <div className="bg-[#0f0f0f] border border-red-900/50 rounded-2xl overflow-hidden">
+            <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('danger')}>
+              <div className="flex items-center gap-2">
+                <span className="text-red-500 text-[14px]">⚠</span>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-red-500 font-semibold">Danger Zone</span>
+              </div>
+              <span className="text-red-500 text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('danger')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+            </button>
+            {isSettingsOpen('danger') && (
+              <div className="px-4 pb-4 border-t border-red-900/30 pt-3 space-y-3">
+                <p className="text-gray-500 text-[9px] font-mono leading-relaxed">Permanently delete all transactions, SMS messages, and budgets. This cannot be undone.</p>
+                {!dangerConfirm ? (
+                  <button onClick={() => setDangerConfirm(true)} className="w-full border border-red-900/50 text-red-400 font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-red-950/30 transition-all">
+                    Delete All Data
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-red-400 text-[10px] font-mono text-center font-bold">Are you absolutely sure?</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={() => setDangerConfirm(false)} className="border border-[#333] text-gray-400 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                      <button onClick={() => { setTransactions([]); setSmsMessages([]); setBudgets([]); setDangerConfirm(false); }} className="border border-red-700 bg-red-950/40 text-red-400 font-mono text-[10px] uppercase py-2 rounded-xl font-bold">Delete Forever</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
         </div>
       )}
+
 
     </div>
 
