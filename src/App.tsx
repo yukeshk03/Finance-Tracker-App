@@ -593,23 +593,50 @@ export default function App() {
   };
 
   const mcDoRename = () => {
-    const icon = mcRenameIcon.trim() || '⭐'; const name = mcRenameName.trim(); const old = mcEditSel;
+    const icon = mcRenameIcon.trim() || '⭐';
+    const name = mcRenameName.trim();
+    const old = mcEditSel;
     if (!name) { alert('Enter a new name'); return; }
+    if (name !== old && categories.find(c => c.toLowerCase() === name.toLowerCase())) {
+      alert('A category with this name already exists'); return;
+    }
+    // Update categories list
     const nc = categories.map(c => c === old ? name : c);
-    const ni = { ...categoryIcons, [name]: icon }; delete ni[old];
-    setCategories(nc); setCategoryIcons(ni);
+    // Update icons — set new name icon, remove old name
+    const ni = { ...categoryIcons, [name]: icon };
+    delete ni[old];
+    // Update excluded lists if old name was excluded
+    const newExclAnalysis = excludedCategories.map(c => c === old ? name : c);
+    const newExclLedger = excludedLedgerCategories.map(c => c === old ? name : c);
+    // Apply all updates
+    setCategories(nc);
+    setCategoryIcons(ni);
+    setExcludedCategories(newExclAnalysis);
+    setExcludedLedgerCategories(newExclLedger);
     localStorage.setItem('aurelius_categories', JSON.stringify(nc));
     localStorage.setItem('aurelius_category_icons', JSON.stringify(ni));
+    localStorage.setItem('ft_excluded_categories', JSON.stringify(newExclAnalysis));
+    localStorage.setItem('ft_excluded_ledger_categories', JSON.stringify(newExclLedger));
+    // Update all transactions with old category name
     setTransactions(prev => prev.map(t => t.category === old ? { ...t, category: name } : t));
+    // Update SMS messages category if any
+    setSmsMessages(prev => prev.map(s => s.suggestedCategory === old ? { ...s, suggestedCategory: name } : s));
     mcReset();
   };
 
   const mcDoMerge = () => {
     const src = mcEditSel; const dst = mcMergeTarget;
-    const nc = categories.filter(c => c !== src); const ni = { ...categoryIcons }; delete ni[src];
+    const nc = categories.filter(c => c !== src);
+    const ni = { ...categoryIcons }; delete ni[src];
+    const newExclAnalysis = excludedCategories.filter(c => c !== src);
+    const newExclLedger = excludedLedgerCategories.filter(c => c !== src);
     setCategories(nc); setCategoryIcons(ni);
+    setExcludedCategories(newExclAnalysis);
+    setExcludedLedgerCategories(newExclLedger);
     localStorage.setItem('aurelius_categories', JSON.stringify(nc));
     localStorage.setItem('aurelius_category_icons', JSON.stringify(ni));
+    localStorage.setItem('ft_excluded_categories', JSON.stringify(newExclAnalysis));
+    localStorage.setItem('ft_excluded_ledger_categories', JSON.stringify(newExclLedger));
     setTransactions(prev => prev.map(t => t.category === src ? { ...t, category: dst } : t));
     mcReset();
   };
@@ -757,6 +784,11 @@ export default function App() {
   });
   const isSettingsOpen = (key: string) => !!settingsOpen[key];
   const [dangerConfirm, setDangerConfirm] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(''), 3000);
+  };
 
   // ── Excluded categories from Ledger table ─────────────────────────────
   const [excludedLedgerCategories, setExcludedLedgerCategories] = useState<string[]>(() => {
@@ -2224,6 +2256,13 @@ export default function App() {
       </div>
     )}
 
+          {/* ── Global Toast ── */}
+    {toastMsg && (
+      <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[300] bg-[#0f0f0f] border border-[#d4af37]/40 rounded-xl px-4 py-2.5 shadow-xl animate-fade-in">
+        <p className="text-[11px] font-mono text-[#d4af37] whitespace-nowrap">{toastMsg}</p>
+      </div>
+    )}
+
           {/* Export Overdue Modal — shown on app open when backup is overdue */}
     {showExportModal && (
       <div className="fixed inset-0 z-[200] bg-black/85 flex items-center justify-center p-5 animate-fade-in">
@@ -2992,7 +3031,6 @@ export default function App() {
 
               // Always show current year + previous year (dynamic, not from data)
               const yearOptions = [curYear, curYear - 1];
-                transactions.map(t => t.date?.split('-')[0]).filter(Boolean)
 
               // ── Build expense/income maps ──
               const exp: Record<string, Record<string, number>> = {};
@@ -3000,6 +3038,7 @@ export default function App() {
               months.forEach(m => { exp[m] = {}; inc[m] = {}; });
               transactions.forEach(t => {
                 if (!t.date) return;
+                if (excludedLedgerCategories.includes(t.category)) return;
                 const k = monthOf(t.date);
                 if (!months.includes(k)) return;
                 if (t.type === 'expense') exp[k][t.category] = (exp[k][t.category] || 0) + t.amount;
@@ -3073,9 +3112,15 @@ export default function App() {
               const th = 'text-right py-2 px-1.5 text-[10px] font-mono font-semibold whitespace-nowrap';
               const td = 'text-right py-1.5 px-1.5 text-[10px] font-mono whitespace-nowrap';
 
-              return (
-                <div className={`bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl mt-2 ${tableExpanded ? 'fixed inset-2 z-40 overflow-auto p-4 bg-[#0f0f0f]' : 'p-0'}`}>
+              // ── Empty state ──
+              if (transactions.length === 0) return (
+                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-6 text-center">
+                  <p className="text-gray-500 text-[11px] font-mono italic">No transactions yet. Add entries or import a CSV to see the Ledger.</p>
+                </div>
+              );
 
+              return (
+                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl overflow-hidden">
                   {/* ── Header + controls ── */}
                   <div className="flex justify-between items-center p-4 border-b border-[#222]">
                     <h3 className="font-serif text-[13px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5">
@@ -3353,30 +3398,16 @@ export default function App() {
             <div className="flex flex-col gap-1.5">
               <div className="flex justify-between items-center">
                 <label className="text-[9px] text-gray-500 uppercase font-mono tracking-wider font-semibold">Category</label>
-                <button 
-                  type="button" 
-                  onClick={() => setShowManageCategoriesModal(true)}
-                  className="text-[9px] text-[#d4af37] opacity-80 hover:opacity-100 transition-all font-mono uppercase tracking-wider font-semibold"
-                >
-                  Manage
-                </button>
               </div>
               <div className="relative">
                 <select
                   value={formCategory}
-                  onChange={(e) => {
-                    if (e.target.value === 'ADD_NEW') {
-                      setShowNewCategoryModal(true);
-                    } else {
-                      setFormCategory(e.target.value);
-                    }
-                  }}
+                  onChange={(e) => { setFormCategory(e.target.value); }}
                   className="w-full bg-[#141414] border border-[#222] rounded-xl p-3 pr-10 text-xs text-[#e5e5e5] focus:outline-none focus:border-[#d4af37] appearance-none cursor-pointer"
                 >
                   {categories.map(category => (
                     <option key={category} value={category}>{categoryIcons[category] || '⭐'} {category}</option>
                   ))}
-                  <option value="ADD_NEW">+ Add New Category</option>
                 </select>
                 <ChevronDown size={14} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
               </div>
@@ -3405,148 +3436,8 @@ export default function App() {
 
           </form>
 
-          {showNewCategoryModal && (
-            <div className="p-4 bg-[#141414] border border-[#222] rounded-xl flex flex-col gap-3 font-mono animate-fade-in shadow-lg">
-              <label className="text-[10px] text-[#d4af37] uppercase tracking-wider font-semibold block">Create Custom Category</label>
-              <div className="flex gap-2">
-                <input 
-                  type="text" 
-                  placeholder="Icon (e.g. [!])" 
-                  value={newCategoryIcon}
-                  onChange={(e) => setNewCategoryIcon(e.target.value)}
-                  className="bg-[#050505] border border-[#222] rounded-lg p-2 text-xs w-16 text-center text-white focus:outline-none focus:border-[#d4af37]"
-                />
-                <input 
-                  type="text" 
-                  placeholder="Category Name" 
-                  value={newCategoryName}
-                  onChange={(e) => setNewCategoryName(e.target.value)}
-                  className="bg-[#050505] border border-[#222] rounded-lg p-2 text-xs flex-1 text-white focus:outline-none focus:border-[#d4af37]"
-                />
-              </div>
-              <div className="flex gap-2">
-                <button 
-                  type="button"
-                  onClick={() => {
-                    setShowNewCategoryModal(false);
-                    setNewCategoryName('');
-                  }}
-                  className="flex-1 bg-transparent border border-[#333] text-gray-400 py-2 rounded-lg text-[10px] uppercase tracking-wider hover:bg-[#1a1a1a] transition-all"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => {
-                    if (newCategoryName.trim()) {
-                      saveNewCategory(newCategoryName.trim(), newCategoryIcon);
-                      setFormCategory(newCategoryName.trim());
-                      setShowNewCategoryModal(false);
-                      setNewCategoryName('');
-                    }
-                  }}
-                  className="flex-1 bg-[#d4af37] text-black py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider hover:opacity-90 transition-all"
-                >
-                  Save Category
-                </button>
-              </div>
-            </div>
-          )}
-
-          {showManageCategoriesModal && (
-            <div className="p-4 bg-[#141414] border border-[#222] rounded-xl flex flex-col gap-3 animate-fade-in shadow-lg">
-              <div className="flex justify-between items-center pb-2 border-b border-[#222]">
-                <label className="text-[10px] text-[#d4af37] uppercase font-mono tracking-wider font-semibold">Manage Categories</label>
-                <button 
-                  type="button"
-                  onClick={() => { setShowManageCategoriesModal(false); setShowNewCategoryModal(false); }}
-                  className="text-gray-400 hover:text-white"
-                >
-                  ×
-                </button>
-              </div>
-
-              {/* + Add Category button at the top */}
-              {!showNewCategoryModal && (
-                <button
-                  type="button"
-                  onClick={() => setShowNewCategoryModal(true)}
-                  className="w-full bg-[#d4af37]/10 border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-lg hover:bg-[#d4af37]/20 transition-all flex items-center justify-center gap-2"
-                >
-                  <Plus size={12} /> Add Category
-                </button>
-              )}
-
-              {/* Create Custom Category — appears INSIDE Manage when + Add clicked */}
-              {showNewCategoryModal && (
-                <div className="p-3 bg-[#0a0a0a] border border-[#d4af37]/30 rounded-lg flex flex-col gap-2.5 animate-fade-in">
-                  <label className="text-[10px] text-[#d4af37] uppercase tracking-wider font-semibold block">Create Custom Category</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="Icon"
-                      value={newCategoryIcon}
-                      onChange={(e) => setNewCategoryIcon(e.target.value)}
-                      className="bg-[#050505] border border-[#222] rounded-lg p-2 text-xs w-16 text-center text-white focus:outline-none focus:border-[#d4af37]"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Category Name"
-                      value={newCategoryName}
-                      onChange={(e) => setNewCategoryName(e.target.value)}
-                      className="bg-[#050505] border border-[#222] rounded-lg p-2 text-xs flex-1 text-white focus:outline-none focus:border-[#d4af37]"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => { setShowNewCategoryModal(false); setNewCategoryName(''); }}
-                      className="flex-1 bg-transparent border border-[#333] text-gray-400 py-2 rounded-lg text-[10px] uppercase tracking-wider hover:bg-[#1a1a1a] transition-all"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (newCategoryName.trim()) {
-                          saveNewCategory(newCategoryName.trim(), newCategoryIcon);
-                          setShowNewCategoryModal(false);
-                          setNewCategoryName('');
-                        }
-                      }}
-                      className="flex-1 bg-[#d4af37] text-black py-2 rounded-lg text-[10px] font-semibold uppercase tracking-wider hover:opacity-90 transition-all"
-                    >
-                      Save
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* List of categories with delete */}
-              <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1 no-scrollbar">
-                {categories.map((cat) => (
-                  <div key={cat} className="flex justify-between items-center bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg p-2 text-xs">
-                    <div className="flex items-center gap-2 text-[#e5e5e5]">
-                      <span>{categoryIcons[cat] || '⭐'}</span>
-                      <span>{cat}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteCategory(cat)}
-                      className="text-gray-500 hover:text-red-400 transition-colors p-1"
-                      title="Delete Category"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
         </div>
       )}
-
 
       {/* --- TAB 3: SMS INBOX --- */}
       {navTab === 'sms' && (() => {
@@ -4437,7 +4328,7 @@ export default function App() {
                     <p className="text-red-400 text-[10px] font-mono text-center font-bold">Are you absolutely sure?</p>
                     <div className="grid grid-cols-2 gap-2">
                       <button onClick={() => setDangerConfirm(false)} className="border border-[#333] text-gray-400 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
-                      <button onClick={() => { setTransactions([]); setSmsMessages([]); setBudgets([]); setDangerConfirm(false); }} className="border border-red-700 bg-red-950/40 text-red-400 font-mono text-[10px] uppercase py-2 rounded-xl font-bold">Delete Forever</button>
+                      <button onClick={() => { setTransactions([]); setSmsMessages([]); setBudgets([]); setDangerConfirm(false); showToast('All data deleted permanently.'); }} className="border border-red-700 bg-red-950/40 text-red-400 font-mono text-[10px] uppercase py-2 rounded-xl font-bold">Delete Forever</button>
                     </div>
                   </div>
                 )}
