@@ -602,9 +602,9 @@ export default function App() {
     }
     // Update categories list
     const nc = categories.map(c => c === old ? name : c);
-    // Update icons — set new name icon, remove old name
+    // Update icons — set new name icon, remove old name only if name changed
     const ni = { ...categoryIcons, [name]: icon };
-    delete ni[old];
+    if (name !== old) delete ni[old];
     // Update excluded lists if old name was excluded
     const newExclAnalysis = excludedCategories.map(c => c === old ? name : c);
     const newExclLedger = excludedLedgerCategories.map(c => c === old ? name : c);
@@ -4194,6 +4194,30 @@ export default function App() {
                           className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'merge' ? 'border-[#9ab7d8] bg-[#9ab7d8]/10 text-[#9ab7d8]' : 'border-[#4a7090] text-[#9ab7d8]'}`}>⇄ Merge</button>
                         <button onClick={() => setMcAction('delete')}
                           className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'delete' ? 'border-[#D96A55] bg-[#D96A55]/10 text-[#D96A55]' : 'border-[#7a3020] text-[#D96A55]'}`}>🗑 Delete</button>
+                      </div>
+                    )}
+
+                    {/* ── Change Icon Only ── */}
+                    {mcEditSel && mcAction === 'none' && (
+                      <div className="bg-[#141414] border border-[#222] rounded-xl p-3 mt-1">
+                        <label className="text-[9px] text-gray-500 font-mono uppercase block mb-2">Change Icon</label>
+                        <div className="flex items-center gap-3">
+                          <input type="text" value={mcRenameIcon || categoryIcons[mcEditSel] || '⭐'}
+                            onChange={e => setMcRenameIcon(e.target.value)}
+                            className="w-16 text-center text-[20px] bg-[#0a0a0a] border border-[#222] rounded-lg p-2 outline-none focus:border-[#d4af37] text-white"
+                            placeholder="⭐"/>
+                          <button onClick={() => {
+                            const icon = (mcRenameIcon || categoryIcons[mcEditSel] || '⭐').trim();
+                            const ni = { ...categoryIcons, [mcEditSel]: icon };
+                            setCategoryIcons(ni);
+                            localStorage.setItem('aurelius_category_icons', JSON.stringify(ni));
+                            showToast(`Icon updated for "${mcEditSel}"`);
+                            setMcRenameIcon('');
+                          }} className="flex-1 bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">
+                            Save Icon
+                          </button>
+                        </div>
+                        <p className="text-[8px] text-gray-600 font-mono mt-1.5">Tap the box, type or paste an emoji, then Save.</p>
                       </div>
                     )}
 
