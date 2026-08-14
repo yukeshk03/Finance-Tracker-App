@@ -28,7 +28,8 @@ import {
   User,
   CheckCircle2,
   Trash2,
-  FileText
+  FileText,
+  Upload
 } from 'lucide-react';
 
 import { Transaction, SmsMessage, BudgetLimit } from './types';
@@ -4444,8 +4445,6 @@ export default function App() {
             )}
           </div>
 
-        </div>
-      )}
           {/* ── About ── */}
           <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('about')}>
@@ -4462,6 +4461,9 @@ export default function App() {
               </div>
             )}
           </div>
+
+        </div>
+      )}
 
 
 
