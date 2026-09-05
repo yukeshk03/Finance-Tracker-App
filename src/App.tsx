@@ -2116,8 +2116,24 @@ export default function App() {
         lastSaved: new Date().toISOString(),
       });
       setSyncStatus('synced');
+      setLastExportDate(new Date().toISOString().split('T')[0]);
     } catch (e) {
       setSyncStatus('error');
+    }
+  };
+
+  const deleteDriveBackup = async () => {
+    if (!accessToken || !googleUser) return;
+    try {
+      const fileId = await driveGetFileId(accessToken);
+      if (!fileId) { showToast('No Drive backup found'); return; }
+      await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      showToast('Drive backup deleted');
+    } catch (e) {
+      showToast('Failed to delete Drive backup');
     }
   };
 
@@ -3901,231 +3917,186 @@ export default function App() {
 
 
       {/* --- TAB 4: BUDGET CONTROL & LIMIT ALERTS (SETTING ONLY) --- */}
-      {navTab === 'budgets' && (
-        <div className="space-y-4 animate-fade-in pt-5 text-xs text-[#6B7280]">
-          
-          <div className="flex flex-col border-b border-[#E5E5F0] pb-3">
-            <span className="text-[9px] text-[#6B7280] font-mono tracking-widest uppercase font-bold">Budget Management</span>
-            <h2 className="font-serif text-base text-[#1A1A2E]">Budget Setup</h2>
-          </div>
+      {navTab === 'budgets' && (() => {
+        // ── Group budgets by month ──────────────────────────────────────
+        const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const now2 = new Date();
+        const curMonthKey = `${MN[now2.getMonth()]}-${now2.getFullYear()}`;
 
-          {/* Highly Polished Adjust Category Limit Module - NO basic selectors or basic prompts */}
-          <div className="bg-[#FFFFFF] border border-[#1B2CC1]/15 rounded-2xl p-4 mt-2 space-y-4">
-            <div className="flex items-center gap-1.5 border-b border-[#D5D5E0] pb-1.5">
-              <p className="font-mono text-[#1B2CC1] text-[10px] uppercase font-bold">⚙️ Budget Settings</p>
+        const grouped: Record<string, BudgetLimit[]> = {};
+        budgets.forEach(b => {
+          const key = b.month || curMonthKey;
+          if (!grouped[key]) grouped[key] = [];
+          grouped[key].push(b);
+        });
+
+        // Sort months descending (latest first)
+        const sortedMonths = Object.keys(grouped).sort((a, b) => {
+          const [am, ay] = a.split('-'); const [bm, by] = b.split('-');
+          return parseInt(by) - parseInt(ay) || MN.indexOf(bm) - MN.indexOf(am);
+        });
+
+        const [openMonths, setOpenMonths] = React.useState<Record<string, boolean>>({ [curMonthKey]: true });
+        const toggleMonth = (key: string) => setOpenMonths(prev => ({ ...prev, [key]: !prev[key] }));
+
+        return (
+          <div className="space-y-4 animate-fade-in pt-2 text-xs">
+            <div className="flex flex-col border-b border-[#1a1a1a] pb-3">
+              <span className="text-[9px] text-[#555] font-mono tracking-widest uppercase font-bold">Budget</span>
+              <h2 className="font-serif text-base text-[#e5e5e5]">My Budgets</h2>
             </div>
 
-            {/* Month Selector — current + future months only, dropdown */}
-            <div className="space-y-1.5">
-              <label className="text-[9px] font-mono text-[#6B7280] uppercase tracking-wider block">Budget Month</label>
-              <div className="relative">
-                <select
-                  value={budgetMonth}
-                  onChange={e => setBudgetMonth(e.target.value)}
-                  className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl py-2.5 px-3 pr-8 text-xs text-[#1A1A2E] appearance-none outline-none focus:border-[#1B2CC1] cursor-pointer font-mono"
-                >
-                  {futureBudgetMonths.map(m => (
-                    <option key={m} value={m}>{m}{m === futureBudgetMonths[0] ? ' (Current)' : ''}</option>
+            {/* ── Add Budget Form ── */}
+            <div className="bg-[#0f0f0f] border border-[#d4af37] rounded-2xl p-4">
+              <p className="text-[10px] font-mono font-bold uppercase tracking-widest text-[#d4af37] text-center mb-4">+ Add Budget</p>
+
+              <div className="mb-3">
+                <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-[#555] block mb-1.5">Month</label>
+                <select value={budgetMonth} onChange={e => setBudgetMonth(e.target.value)}
+                  className="w-full bg-[#050505] border border-[#1a1a1a] rounded-xl p-2.5 text-[12px] text-[#e5e5e5] outline-none focus:border-[#d4af37] font-mono appearance-none">
+                  <option value="Sep-2026">Sep 2026</option>
+                  <option value="Oct-2026">Oct 2026</option>
+                  <option value="Nov-2026">Nov 2026</option>
+                  <option value="Dec-2026">Dec 2026</option>
+                  <option value="Jan-2027">Jan 2027</option>
+                  <option value="Feb-2027">Feb 2027</option>
+                </select>
+              </div>
+
+              <div className="mb-3">
+                <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-[#555] block mb-1.5">Category</label>
+                <select value={budgetCategory} onChange={e => setBudgetCategory(e.target.value)}
+                  className="w-full bg-[#050505] border border-[#1a1a1a] rounded-xl p-2.5 text-[12px] text-[#e5e5e5] outline-none focus:border-[#d4af37] font-mono appearance-none">
+                  {categories.map(cat => (
+                    <option key={cat} value={cat}>{categoryIcons[cat] || '⭐'} {cat}</option>
                   ))}
                 </select>
-                <ChevronDown size={12} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-[#6B7280] pointer-events-none" />
               </div>
-              <p className="text-[8px] text-[#9CA3AF] font-mono italic">Only current &amp; future months. Past budgets are read-only.</p>
-            </div>
 
-            {/* Premium Custom Category Selector Grid to replace Basic basic dropdown */}
-            <div className="space-y-2">
-              <label className="text-[9px] font-mono text-[#6B7280] uppercase tracking-wider block">Category</label>
-              <div className="grid grid-cols-2 gap-1.5 max-h-44 overflow-y-auto pr-1 no-scrollbar border border-[#E0E0E0] rounded-xl p-2 bg-[#F5F5F5]">
-                {categories.filter(c => c !== 'Income').map(cat => {
-                  const isSelected = budgetCategory === cat;
-                  return (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => setBudgetCategory(cat)}
-                      className={`p-2.5 rounded-lg text-[10px] text-left font-mono transition-all border flex items-center justify-between ${
-                        isSelected
-                          ? 'bg-[#1B2CC1]/10 border-[#1B2CC1] text-[#1B2CC1] font-bold'
-                          : 'bg-[#FFFFFF]/80 border-[#D5D5E0]/80 text-[#6B7280] hover:border-gray-600'
-                      }`}
-                    >
-                      <span className="truncate">{cat}</span>
-
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Limit Input Box Integrated Inline */}
-            <div className="space-y-1.5">
-              <label className="text-[9px] font-mono text-[#6B7280] uppercase tracking-wider block">Limit Amount (₹)</label>
-              <div className="relative">
-                <span className="absolute left-3 top-2.5 text-[#6B7280] font-mono text-xs">₹</span>
-                <input
-                  type="number"
-                  placeholder="Set expectation limit amount, e.g. 15000"
-                  value={budgetAmountInput}
-                  onChange={(e) => setBudgetAmountInput(e.target.value)}
-                  className="bg-[#F5F5F5] border border-[#D5D5E0] p-2.5 pl-7 rounded-xl text-xs text-[#1A1A2E] focus:outline-none focus:border-[#1B2CC1] font-mono w-full"
+              <div className="mb-4">
+                <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-[#555] block mb-1.5">Amount (₹)</label>
+                <input type="number" value={budgetAmountInput} onChange={e => setBudgetAmountInput(e.target.value)}
+                  placeholder="0"
+                  className="w-full bg-[#050505] border border-[#1a1a1a] rounded-xl p-2.5 text-[18px] font-bold text-[#e5e5e5] outline-none focus:border-[#d4af37] font-mono"
                 />
               </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => { setBudgetAmountInput(''); setBudgetCategory(categories[0] || ''); }}
+                  className="border border-[#1a1a1a] text-[#555] font-mono text-[10px] font-bold uppercase tracking-wider py-3 rounded-xl">
+                  Cancel
+                </button>
+                <button onClick={() => {
+                  const amt = parseFloat(budgetAmountInput);
+                  if (!amt || amt <= 0) { alert('Enter a valid amount'); return; }
+                  setBudgets(prev => {
+                    const filtered = prev.filter(b => !(b.category === budgetCategory && (b.month || curMonthKey) === budgetMonth));
+                    return [...filtered, { category: budgetCategory, limit: amt, month: budgetMonth }];
+                  });
+                  setBudgetAmountInput('');
+                  showToast(`Budget added for ${budgetCategory}`);
+                }}
+                  className="bg-[#d4af37] text-black font-mono text-[10px] font-bold uppercase tracking-wider py-3 rounded-xl">
+                  Add
+                </button>
+              </div>
             </div>
 
-            {/* Save Action Trigger */}
-            <button
-              type="button"
-              onClick={() => {
-                const val = parseFloat(budgetAmountInput);
-                if (isNaN(val) || val <= 0) {
-                  alert('Please enter a valid numeric limit.');
-                  return;
-                }
-                setBudgets(prev => {
-                  // Check if budget already exists for that specific month & category
-                  const existsIndex = prev.findIndex(b => b.category === budgetCategory && (b.month || currentMonthLabel) === budgetMonth);
-                  if (existsIndex >= 0) {
-                    const updated = [...prev];
-                    updated[existsIndex] = { category: budgetCategory, limit: val, month: budgetMonth };
-                    return updated;
-                  } else {
-                    return [...prev, { category: budgetCategory, limit: val, month: budgetMonth }];
-                  }
-                });
-                alert(`Budget saved: ${budgetCategory} → ₹${val} for ${budgetMonth}`);
-                setBudgetAmountInput('');
-              }}
-              className="w-full bg-[#1B2CC1] hover:opacity-95 text-black font-semibold uppercase text-[10px] tracking-wider py-3 px-4 rounded-xl shadow-lg transition-all font-mono"
-            >
-              Apply Limit
-            </button>
-          </div>
+            {/* ── Divider ── */}
+            <div className="flex items-center gap-2">
+              <div className="flex-1 border-t border-[#1a1a1a]"></div>
+              <span className="text-[9px] font-mono text-[#555] uppercase tracking-wider whitespace-nowrap">Budgets by Month</span>
+              <div className="flex-1 border-t border-[#1a1a1a]"></div>
+            </div>
 
-          {/* Current Setup Listing — current & future months only, past are locked */}
-          {(() => {
-            const monthsMap: Record<string,string> = {
-              'Jan':'01','Feb':'02','Mar':'03','Apr':'04','May':'05','Jun':'06',
-              'Jul':'07','Aug':'08','Sep':'09','Oct':'10','Nov':'11','Dec':'12'
-            };
-            const now = new Date();
-            const curKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-            // Only show budgets for current or future months
-            const visibleBudgets = budgets.filter(b => {
-              const month = b.month || currentMonthLabel;
-              const [mn, yr] = month.split('-');
-              const mc = monthsMap[mn];
-              if (!mc || !yr) return false;
-              return `${yr}-${mc}` >= curKey;
-            });
-            return (
-              <>{(() => {
-                // ── Budget Table: all budgets grouped by category × month ──
-                if (budgets.length === 0) return (
-                  <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl p-4 mt-4 text-center">
-                    <p className="text-[10px] text-[#6B7280] font-mono italic py-4">No budgets set yet. Create one above.</p>
-                  </div>
-                );
-
-                // Get all unique months and categories from ALL budgets
-                const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-                const allMonths = Array.from(new Set(budgets.map(b => b.month || currentMonthLabel)))
-                  .sort((a, b) => {
-                    const [am, ay] = a.split('-'); const [bm, by] = b.split('-');
-                    return parseInt(ay) - parseInt(by) || MN.indexOf(am) - MN.indexOf(bm);
-                  });
-                const allCats = Array.from(new Set(budgets.map(b => b.category))).sort();
-
-                // Build lookup: cat+month → limit
-                const lookup: Record<string, number> = {};
-                budgets.forEach(b => { lookup[`${b.category}|${b.month || currentMonthLabel}`] = b.limit; });
-
-                // Column totals per month
-                const monthTotals: Record<string, number> = {};
-                allMonths.forEach(m => {
-                  monthTotals[m] = allCats.reduce((s, cat) => s + (lookup[`${cat}|${m}`] || 0), 0);
-                });
-                const grandTotal = Object.values(monthTotals).reduce((s, v) => s + v, 0);
-
-                // Current month for highlighting
-                const now = new Date();
-                const curM = `${MN[now.getMonth()]}-${now.getFullYear()}`;
-
-                const tdBase = 'py-2 px-2 text-[10px] font-mono text-right border-b border-[#E0E0E0] whitespace-nowrap';
-                const thBase = 'py-2 px-2 text-[9px] font-mono font-bold uppercase tracking-wider text-right border-b-2 border-[#1B2CC1] whitespace-nowrap';
+            {/* ── Month accordion ── */}
+            {sortedMonths.length === 0 ? (
+              <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-6 text-center">
+                <p className="text-[11px] font-mono text-[#555] italic">No budgets yet. Add one above.</p>
+              </div>
+            ) : (
+              sortedMonths.map(monthKey => {
+                const entries = grouped[monthKey];
+                const total = entries.reduce((s, b) => s + b.limit, 0);
+                const isCurrent = monthKey === curMonthKey;
+                const isOpen = !!openMonths[monthKey];
 
                 return (
-                  <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl mt-4 overflow-hidden">
-                    <div className="flex justify-between items-center px-4 py-3 border-b border-[#E0E0E0]">
-                      <span className="text-[11px] font-bold text-[#1A1A2E]">Budget Table</span>
-                      <span className="text-[9px] font-mono text-[#6B7280]">{allCats.length} categories · {allMonths.length} months</span>
+                  <div key={monthKey} className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+                    {/* Month header */}
+                    <div className="flex justify-between items-center px-4 py-3 cursor-pointer select-none"
+                      onClick={() => toggleMonth(monthKey)}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[#d4af37] text-[11px]"
+                          style={{display:'inline-block',transition:'transform .2s',transform:isOpen?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+                        <span className="font-mono font-bold text-[12px] text-[#e5e5e5]">{monthKey.replace('-', ' ')}</span>
+                        {isCurrent && <span className="text-[8px] font-mono text-[#d4af37] px-1.5 py-0.5 bg-[#1a1500] rounded">● current</span>}
+                      </div>
+                      <span className="font-mono font-bold text-[11px] text-[#d4af37]">₹{Math.round(total).toLocaleString('en-IN')}</span>
                     </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full border-collapse" style={{minWidth: `${Math.max(280, allMonths.length * 80 + 110)}px`}}>
-                        <thead>
-                          <tr className="bg-[#F8F8FF]">
-                            <th className="py-2 px-3 text-[9px] font-bold uppercase tracking-wider text-left border-b-2 border-[#1B2CC1] text-[#1A1A2E] whitespace-nowrap sticky left-0 bg-[#F8F8FF]">Category</th>
-                            {allMonths.map(m => (
-                              <th key={m} className={`${thBase} ${m === curM ? 'text-[#1B2CC1]' : 'text-[#6B7280]'}`}>
-                                {m}{m === curM ? ' ●' : ''}
-                              </th>
-                            ))}
-                            <th className={`${thBase} text-[#1A1A2E]`}>Total</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {allCats.map(cat => {
-                            const rowTotal = allMonths.reduce((s, m) => s + (lookup[`${cat}|${m}`] || 0), 0);
-                            return (
-                              <tr key={cat} className="hover:bg-[#F8F8FF] transition-colors">
-                                <td className="py-2 px-3 text-[10px] font-mono text-[#1A1A2E] font-semibold border-b border-[#E0E0E0] sticky left-0 bg-white whitespace-nowrap">
-                                  {categoryIcons[cat] || '⭐'} {cat}
+
+                    {/* Month body — table */}
+                    {isOpen && (
+                      <div className="border-t border-[#1a1a1a]">
+                        <table style={{width:'100%',borderCollapse:'collapse'}}>
+                          <thead>
+                            <tr style={{background:'#0a0a0a'}}>
+                              <th style={{padding:'7px 14px',fontSize:'9px',fontWeight:800,textTransform:'uppercase',letterSpacing:'.08em',color:'#555',fontFamily:'monospace',textAlign:'left',borderBottom:'1px solid #1a1a1a'}}>Category</th>
+                              <th style={{padding:'7px 14px',fontSize:'9px',fontWeight:800,textTransform:'uppercase',letterSpacing:'.08em',color:'#555',fontFamily:'monospace',textAlign:'right',borderBottom:'1px solid #1a1a1a'}}>Amount</th>
+                              <th style={{padding:'7px 8px',width:'36px',borderBottom:'1px solid #1a1a1a'}}></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {entries.map((b, idx) => (
+                              <tr key={idx} style={{borderBottom: idx < entries.length - 1 ? '1px solid #1a1a1a' : 'none'}}>
+                                <td style={{padding:'9px 14px',fontSize:'11px',color:'#e5e5e5',fontWeight:600,display:'flex',alignItems:'center',gap:'7px'}}>
+                                  <span>{categoryIcons[b.category] || '⭐'}</span>
+                                  <span>{b.category}</span>
                                 </td>
-                                {allMonths.map(m => {
-                                  const val = lookup[`${cat}|${m}`];
-                                  const isCur = m === curM;
-                                  return (
-                                    <td key={m} className={`${tdBase} ${val ? (isCur ? 'text-[#1B2CC1] font-bold' : 'text-[#1A1A2E]') : 'text-[#D1D5DB]'}`}>
-                                      {val ? `₹${Math.round(val).toLocaleString('en-IN')}` : '—'}
-                                    </td>
-                                  );
-                                })}
-                                <td className="py-2 px-2 text-[10px] font-mono font-bold text-[#1A1A2E] text-right border-b border-[#E0E0E0] whitespace-nowrap border-l border-[#E0E0E0]">
-                                  {rowTotal > 0 ? `₹${Math.round(rowTotal).toLocaleString('en-IN')}` : '—'}
+                                <td style={{padding:'9px 14px',fontSize:'12px',fontFamily:'monospace',fontWeight:700,color:'#d4af37',textAlign:'right'}}>
+                                  ₹{Math.round(b.limit).toLocaleString('en-IN')}
+                                </td>
+                                <td style={{padding:'9px 8px',textAlign:'right'}}>
+                                  <button onClick={() => {
+                                    setBudgets(prev => prev.filter(item =>
+                                      !(item.category === b.category && (item.month || curMonthKey) === monthKey)
+                                    ));
+                                    showToast('Budget entry deleted');
+                                  }}
+                                    style={{background:'none',border:'none',cursor:'pointer',fontSize:'16px',color:'#555',lineHeight:1,padding:'2px 4px',transition:'color .15s'}}
+                                    onMouseOver={e => (e.target as HTMLElement).style.color='#dc2626'}
+                                    onMouseOut={e => (e.target as HTMLElement).style.color='#555'}>×</button>
                                 </td>
                               </tr>
-                            );
-                          })}
-                        </tbody>
-                        <tfoot>
-                          <tr className="bg-[#F0F2FF]">
-                            <td className="py-2 px-3 text-[10px] font-mono font-bold text-[#1B2CC1] uppercase tracking-wider border-t-2 border-[#1B2CC1] sticky left-0 bg-[#F0F2FF]">Total</td>
-                            {allMonths.map(m => (
-                              <td key={m} className="py-2 px-2 text-[10px] font-mono font-bold text-[#1B2CC1] text-right border-t-2 border-[#1B2CC1] whitespace-nowrap">
-                                {monthTotals[m] > 0 ? `₹${Math.round(monthTotals[m]).toLocaleString('en-IN')}` : '—'}
-                              </td>
                             ))}
-                            <td className="py-2 px-2 text-[10px] font-mono font-bold text-[#1B2CC1] text-right border-t-2 border-[#1B2CC1] border-l border-[#1B2CC1] whitespace-nowrap">
-                              ₹{Math.round(grandTotal).toLocaleString('en-IN')}
-                            </td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-                    <div className="px-4 py-2 border-t border-[#E0E0E0] flex justify-between items-center">
-                      <p className="text-[8px] text-[#9CA3AF] font-mono italic">● = current month · scroll right for more months</p>
-                      <button onClick={() => { if(window.confirm('Delete all budgets?')) setBudgets([]); }}
-                        className="text-[8px] font-mono text-red-400 hover:underline">Clear all</button>
-                    </div>
+                          </tbody>
+                          <tfoot>
+                            <tr style={{background:'#0a0a0a',borderTop:'2px solid #1a1a1a'}}>
+                              <td style={{padding:'8px 14px',fontSize:'10px',fontFamily:'monospace',fontWeight:800,color:'#d4af37'}}>Total</td>
+                              <td style={{padding:'8px 14px',fontSize:'10px',fontFamily:'monospace',fontWeight:800,color:'#d4af37',textAlign:'right'}}>₹{Math.round(total).toLocaleString('en-IN')}</td>
+                              <td></td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 );
-              })()}</>
-            );
-          })()}
+              })
+            )}
 
-        </div>
-      )}
-
+            {/* Clear all */}
+            {budgets.length > 0 && (
+              <div className="text-center">
+                <button onClick={() => { if(window.confirm('Delete all budgets?')) setBudgets([]); }}
+                  className="text-[10px] font-mono text-[#dc2626] underline cursor-pointer bg-none border-none">
+                  Clear all budgets
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* --- TAB 5: HISTORY --- */}
       {navTab === 'history' && (
@@ -4327,100 +4298,109 @@ export default function App() {
       {navTab === 'settings' && (
         <div className="space-y-3 animate-fade-in text-xs p-1">
 
-          {/* ── Google Account ── */}
+          {/* ── Google Drive Sync ── */}
           <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
-            <div className="px-4 py-3">
-              <div className="flex items-center gap-3 mb-3">
-                {googleUser?.picture && (
-                  <img src={googleUser.picture} alt="avatar" className="w-10 h-10 rounded-full border border-[#333]"/>
+            <div className="flex items-center gap-3 px-4 py-3">
+              <div className="w-7 h-7 rounded-lg bg-[#1a1500] flex items-center justify-center text-[14px] flex-shrink-0">☁️</div>
+              <div className="flex-1 min-w-0">
+                <p className="font-mono font-bold text-[12px] text-[#e5e5e5]">Google Drive Sync</p>
+                {googleUser && !isCapacitor ? (
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="w-[7px] h-[7px] rounded-full bg-emerald-400 flex-shrink-0 inline-block"
+                      style={{animation: syncStatus === 'syncing' ? 'pulse 1s infinite' : 'none'}}/>
+                    <span className="font-mono text-[9px] text-[#555] truncate">
+                      {syncStatus === 'syncing' ? 'Syncing...' : syncStatus === 'error' ? 'Sync failed' : `Auto-syncing · ${googleUser.email}`}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="font-mono text-[9px] text-[#555] mt-0.5">Not connected</p>
                 )}
-                <div className="flex-1 min-w-0">
-                  <p className="text-white font-semibold text-[12px] truncate">{googleUser?.name}</p>
-                  <p className="text-gray-500 font-mono text-[10px] truncate">{googleUser?.email}</p>
-                </div>
-                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${syncStatus === 'synced' ? 'bg-emerald-400' : syncStatus === 'syncing' ? 'bg-yellow-400 animate-pulse' : syncStatus === 'error' ? 'bg-red-400' : 'bg-gray-600'}`}/>
               </div>
-              <div className="flex items-center justify-between bg-[#141414] border border-[#222] rounded-xl px-3 py-2 mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-[12px]">☁️</span>
-                  <span className="font-mono text-[10px] text-gray-400">
-                    {syncStatus === 'synced' ? 'Synced to Google Drive' :
-                     syncStatus === 'syncing' ? 'Syncing...' :
-                     syncStatus === 'error' ? 'Sync failed' : 'Not synced yet'}
-                  </span>
-                </div>
-                <button onClick={saveToDrive}
-                  className="font-mono text-[9px] uppercase tracking-wider text-[#d4af37] hover:underline">
-                  Sync now
+              {googleUser && !isCapacitor ? (
+                <button onClick={signOut}
+                  className="px-3 py-1.5 rounded-lg border border-[#dc2626] text-[#dc2626] font-mono text-[9px] font-bold uppercase flex-shrink-0">
+                  Sign Out
                 </button>
-              </div>
-              <button onClick={signOut}
-                className="w-full border border-red-900/50 text-red-400 font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-red-950/30 transition-all">
-                Sign Out
-              </button>
+              ) : !isCapacitor ? (
+                <button onClick={signInWithGoogle}
+                  className="px-3 py-1.5 rounded-lg border border-[#d4af37] text-[#d4af37] bg-[#1a1500] font-mono text-[9px] font-bold uppercase flex-shrink-0">
+                  Sign In
+                </button>
+              ) : (
+                <span className="font-mono text-[9px] text-[#555]">APK mode</span>
+              )}
             </div>
           </div>
 
           {/* ── Appearance ── */}
           <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-[#1a1a1a]">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-[14px]">🎨</span>
+            <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('appearance')}>
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-[#1a1500] flex items-center justify-center text-[14px]">🎨</div>
                 <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Appearance</span>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => setTheme('aurelius')}
-                  className={`flex flex-col items-center gap-2 py-3 px-2 rounded-xl border-2 transition-all ${!isRoyal ? 'border-[#d4af37] bg-[#d4af37]/10' : 'border-[#222] bg-[#141414]'}`}>
-                  <div className="w-10 h-10 rounded-xl bg-[#050505] border-2 border-[#d4af37] flex items-center justify-center">
-                    <span className="text-[#d4af37] text-[16px]">★</span>
-                  </div>
-                  <div className="text-center">
-                    <p className={`font-mono text-[10px] font-bold uppercase ${!isRoyal ? 'text-[#d4af37]' : 'text-gray-500'}`}>Aurelius</p>
-                    <p className="font-mono text-[8px] text-gray-600">Dark · Gold</p>
-                  </div>
-                  {!isRoyal && <span className="text-[8px] font-mono text-[#d4af37]">● Active</span>}
-                </button>
-                <button onClick={() => setTheme('royal')}
-                  className={`flex flex-col items-center gap-2 py-3 px-2 rounded-xl border-2 transition-all ${isRoyal ? 'border-[#1B2CC1] bg-[#1B2CC1]/10' : 'border-[#222] bg-[#141414]'}`}>
-                  <div className="w-10 h-10 rounded-xl bg-[#F4F6FB] border-2 border-[#1B2CC1] flex items-center justify-center">
-                    <span className="text-[#1B2CC1] text-[16px]">◆</span>
-                  </div>
-                  <div className="text-center">
-                    <p className={`font-mono text-[10px] font-bold uppercase ${isRoyal ? 'text-[#1B2CC1]' : 'text-gray-500'}`}>Royal</p>
-                    <p className="font-mono text-[8px] text-gray-600">Light · Blue</p>
-                  </div>
-                  {isRoyal && <span className="text-[8px] font-mono text-[#1B2CC1]">● Active</span>}
-                </button>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('appearance')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+            </button>
+            {isSettingsOpen('appearance') && (
+              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3">
+                <div className="flex gap-2">
+                  {/* Aurelius option */}
+                  <button onClick={() => setTheme('aurelius')}
+                    className={`flex-1 flex items-center gap-2 border-2 rounded-xl p-2.5 transition-all ${!isRoyal ? 'border-[#d4af37] bg-[#1a1500]' : 'border-[#1a1a1a] bg-transparent'}`}>
+                    <div className="w-7 h-7 rounded-lg bg-[#050505] border-2 border-[#d4af37] flex items-center justify-center text-[13px] flex-shrink-0">★</div>
+                    <div className="text-left">
+                      <p className={`font-mono text-[11px] font-bold ${!isRoyal ? 'text-[#d4af37]' : 'text-[#555]'}`}>Aurelius</p>
+                      <p className="font-mono text-[9px] text-[#555]">Dark · Gold</p>
+                    </div>
+                    {!isRoyal && <div className="w-[6px] h-[6px] rounded-full bg-[#d4af37] ml-auto flex-shrink-0"/>}
+                  </button>
+                  {/* Royal option */}
+                  <button onClick={() => setTheme('royal')}
+                    className={`flex-1 flex items-center gap-2 border-2 rounded-xl p-2.5 transition-all ${isRoyal ? 'border-[#d4af37] bg-[#1a1500]' : 'border-[#1a1a1a] bg-transparent'}`}>
+                    <div className="w-7 h-7 rounded-lg bg-[#F4F6FB] border-2 border-[#d4af37] flex items-center justify-center text-[13px] flex-shrink-0" style={{color:'#1B2CC1'}}>◆</div>
+                    <div className="text-left">
+                      <p className={`font-mono text-[11px] font-bold ${isRoyal ? 'text-[#d4af37]' : 'text-[#555]'}`}>Royal</p>
+                      <p className="font-mono text-[9px] text-[#555]">Light · Blue</p>
+                    </div>
+                    {isRoyal && <div className="w-[6px] h-[6px] rounded-full bg-[#1B2CC1] ml-auto flex-shrink-0"/>}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* ── Data Management ── */}
-          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl overflow-hidden">
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('data-mgmt')}>
               <div className="flex items-center gap-2">
-                <Download size={14} className="text-[#1B2CC1]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">Data Management</span>
+                <Download size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Data Management</span>
               </div>
-              <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('data-mgmt')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('data-mgmt')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('data-mgmt') && (
-              <div className="px-4 pb-4 space-y-3 border-t border-[#E0E0E0]">
-                <p className="text-[#6B7280] text-[9px] font-mono leading-relaxed pt-3">Backup or restore your transactions. CSV files work with Excel, Google Sheets, or other finance apps.</p>
-                <button onClick={handleCsvExport} className="w-full border border-[#1B2CC1]/40 text-[#1B2CC1] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#1B2CC1]/10 transition-all flex items-center justify-center gap-2">
-                  <Download size={12}/> Export All Transactions (CSV)
+              <div className="px-4 pb-4 space-y-3 border-t border-[#1a1a1a]">
+                {/* Load from Drive — signed in only */}
+                {googleUser && !isCapacitor && (
+                  <button onClick={() => { if(window.confirm('Load from Drive? This will replace all current app data.')) loadFromDrive(accessToken!); }}
+                    className="w-full border border-[#4a90d9] text-[#4a90d9] bg-[#0a1a2a] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#0d2035] transition-all flex items-center justify-center gap-2 mt-3">
+                    <Download size={12}/> Load from Drive
+                  </button>
+                )}
+                <button onClick={handleCsvExport} className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#d4af37]/10 transition-all flex items-center justify-center gap-2 mt-3">
+                  <Download size={12}/> Export Transactions (CSV)
                 </button>
-                <button onClick={handleLedgerExport} className="w-full border border-[#1B2CC1]/40 text-[#1B2CC1] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#1B2CC1]/10 transition-all flex items-center justify-center gap-2">
+                <button onClick={handleLedgerExport} className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#d4af37]/10 transition-all flex items-center justify-center gap-2">
                   <Download size={12}/> Export Ledger (CSV)
                 </button>
                 <label className="block">
                   <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleCsvImportFile(f); e.target.value = ''; }}/>
-                  <span className="w-full border border-[#555] text-[#4B5563] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#EEF0FA] transition-all flex items-center justify-center gap-2 cursor-pointer">
+                  <span className="w-full border border-[#555] text-[#555] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#1a1a1a] transition-all flex items-center justify-center gap-2 cursor-pointer">
                     <Upload size={12}/> Import CSV
                   </span>
                 </label>
-                <div className="bg-[#F5F5FA] border border-[#E0E0E0] rounded-xl p-3 text-[9px] font-mono text-[#6B7280] leading-relaxed">
-                  <p className="font-semibold text-[#6B7280] mb-1">Import accepts two formats:</p>
+                <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3 text-[9px] font-mono text-[#555] leading-relaxed">
+                  <p className="font-semibold text-[#555] mb-1">Import accepts two formats:</p>
                   <p>• Export format: Date, Category, Description, Amount In, Amount Out</p>
                   <p>• Template format: Date, Type, Amount, Category, Description</p>
                 </div>
@@ -4429,16 +4409,16 @@ export default function App() {
           </div>
 
           {/* ── SMS & Notifications ── */}
-          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl overflow-hidden">
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('sms-notif')}>
               <div className="flex items-center gap-2">
-                <MessageSquare size={14} className="text-[#1B2CC1]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">SMS & Notifications</span>
+                <MessageSquare size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">SMS & Notifications</span>
               </div>
-              <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('sms-notif')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('sms-notif')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('sms-notif') && (
-              <div className="px-4 pb-4 space-y-3 border-t border-[#E0E0E0] pt-3">
+              <div className="px-4 pb-4 space-y-3 border-t border-[#1a1a1a] pt-3">
                 {[
                   { key: 'ft_setting_sms_reader', label: 'SMS Reader', desc: 'Auto-detect bank SMS messages', state: settingSmsReader, set: setSettingSmsReader },
                   { key: 'ft_setting_tx_notif', label: 'Transaction Notifications', desc: 'Notify when new SMS is detected', state: settingTxNotif, set: setSettingTxNotif },
@@ -4446,8 +4426,8 @@ export default function App() {
                 ].map(item => (
                   <div key={item.key} className="flex items-center justify-between">
                     <div>
-                      <p className="text-[#1A1A2E] text-[11px] font-mono font-semibold">{item.label}</p>
-                      <p className="text-[#6B7280] text-[9px] font-mono mt-0.5">{item.desc}</p>
+                      <p className="text-[#e5e5e5] text-[11px] font-mono font-semibold">{item.label}</p>
+                      <p className="text-[#555] text-[9px] font-mono mt-0.5">{item.desc}</p>
                     </div>
                     <button onClick={() => item.set(!item.state)}
                       className={`relative w-10 h-5 rounded-full transition-all ${item.state ? 'bg-[#1B2CC1]' : 'bg-[#DDE0F7]'}`}>
@@ -4460,104 +4440,104 @@ export default function App() {
           </div>
 
           {/* ── Retention Period ── */}
-          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl overflow-hidden">
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('retention')}>
               <div className="flex items-center gap-2">
-                <Calendar size={14} className="text-[#1B2CC1]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">Retention Period</span>
+                <Calendar size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Retention Period</span>
               </div>
-              <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('retention')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('retention')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('retention') && (
-              <div className="px-4 pb-4 border-t border-[#E0E0E0] pt-3">
-                <p className="text-[#6B7280] text-[9px] font-mono mb-3">Keep SMS messages for this many days before auto-deleting confirmed/skipped ones.</p>
-                <div className="flex items-center justify-between bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3">
-                  <button onClick={() => setSettingRetentionDays(d => Math.max(7, d - 7))} className="text-[#1B2CC1] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#1B2CC1]/10">−</button>
+              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3">
+                <p className="text-[#555] text-[9px] font-mono mb-3">Keep SMS messages for this many days before auto-deleting confirmed/skipped ones.</p>
+                <div className="flex items-center justify-between bg-[#F5F5F5] border border-[#1a1a1a] rounded-xl p-3">
+                  <button onClick={() => setSettingRetentionDays(d => Math.max(7, d - 7))} className="text-[#d4af37] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#d4af37]/10">−</button>
                   <div className="text-center">
-                    <span className="text-[#1A1A2E] font-mono font-bold text-base">{settingRetentionDays}</span>
-                    <span className="text-[#6B7280] font-mono text-[9px] ml-1">days</span>
+                    <span className="text-[#e5e5e5] font-mono font-bold text-base">{settingRetentionDays}</span>
+                    <span className="text-[#555] font-mono text-[9px] ml-1">days</span>
                   </div>
-                  <button onClick={() => setSettingRetentionDays(d => Math.min(365, d + 7))} className="text-[#1B2CC1] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#1B2CC1]/10">+</button>
+                  <button onClick={() => setSettingRetentionDays(d => Math.min(365, d + 7))} className="text-[#d4af37] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#d4af37]/10">+</button>
                 </div>
               </div>
             )}
           </div>
 
           {/* ── Export Reminder ── */}
-          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl overflow-hidden">
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('export-reminder')}>
               <div className="flex items-center gap-2">
-                <Download size={14} className="text-[#1B2CC1]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">Export Reminder</span>
+                <Download size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Export Reminder</span>
               </div>
-              <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('export-reminder')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('export-reminder')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('export-reminder') && (
-              <div className="px-4 pb-4 border-t border-[#E0E0E0] pt-3 space-y-3">
-                <p className="text-[#6B7280] text-[9px] font-mono">Remind you to export if you haven't backed up in this many days.</p>
-                <div className="flex items-center justify-between bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3">
-                  <button onClick={() => setSettingExportReminderDays(d => Math.max(1, d - 1))} className="text-[#1B2CC1] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#1B2CC1]/10">−</button>
+              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
+                <p className="text-[#555] text-[9px] font-mono">Remind you to export if you haven't backed up in this many days.</p>
+                <div className="flex items-center justify-between bg-[#F5F5F5] border border-[#1a1a1a] rounded-xl p-3">
+                  <button onClick={() => setSettingExportReminderDays(d => Math.max(1, d - 1))} className="text-[#d4af37] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#d4af37]/10">−</button>
                   <div className="text-center">
-                    <span className="text-[#1A1A2E] font-mono font-bold text-base">{settingExportReminderDays}</span>
-                    <span className="text-[#6B7280] font-mono text-[9px] ml-1">days</span>
+                    <span className="text-[#e5e5e5] font-mono font-bold text-base">{settingExportReminderDays}</span>
+                    <span className="text-[#555] font-mono text-[9px] ml-1">days</span>
                   </div>
-                  <button onClick={() => setSettingExportReminderDays(d => Math.min(90, d + 1))} className="text-[#1B2CC1] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#1B2CC1]/10">+</button>
+                  <button onClick={() => setSettingExportReminderDays(d => Math.min(90, d + 1))} className="text-[#d4af37] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#d4af37]/10">+</button>
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   {[3,7,14,30].map(d => (
                     <button key={d} onClick={() => setSettingExportReminderDays(d)}
-                      className={`px-3 py-1.5 rounded-lg border text-[9px] font-mono transition-all ${settingExportReminderDays === d ? 'border-[#1B2CC1] text-[#1B2CC1] bg-[#1B2CC1]/10' : 'border-[#D5D5E0] text-[#6B7280]'}`}>
+                      className={`px-3 py-1.5 rounded-lg border text-[9px] font-mono transition-all ${settingExportReminderDays === d ? 'border-[#d4af37] text-[#d4af37] bg-[#d4af37]/10' : 'border-[#1a1a1a] text-[#555]'}`}>
                       {d}d
                     </button>
                   ))}
                 </div>
                 {lastExportDate && (
-                  <p className="text-[9px] font-mono text-[#6B7280]">Last export: <span className="text-[#1B2CC1]">{lastExportDate}</span></p>
+                  <p className="text-[9px] font-mono text-[#555]">Last export: <span className="text-[#d4af37]">{lastExportDate}</span></p>
                 )}
               </div>
             )}
           </div>
 
           {/* ── Manage Category ── */}
-          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl overflow-hidden">
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('manage-cat')}>
               <div className="flex items-center gap-2">
-                <BrandIcon size={14} className="text-[#1B2CC1]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">Manage Category</span>
+                <BrandIcon size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Manage Category</span>
               </div>
-              <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('manage-cat')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('manage-cat')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('manage-cat') && (
-              <div className="px-4 pb-4 border-t border-[#E0E0E0] pt-3 space-y-3">
+              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={() => { setMcPanel(mcPanel === 'add' ? 'none' : 'add'); setMcEditSel(''); setMcAction('none'); }}
-                    className={`py-2.5 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'add' ? 'border-[#1B2CC1] bg-[#1B2CC1]/10 text-[#1B2CC1]' : 'border-[#D5D5E0] bg-[#F5F5F5] text-[#6B7280]'}`}>
+                    className={`py-2.5 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'add' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#1a1a1a] bg-[#F5F5F5] text-[#555]'}`}>
                     + Add
                   </button>
                   <button onClick={() => { setMcPanel(mcPanel === 'edit' ? 'none' : 'edit'); setMcEditSel(''); setMcAction('none'); }}
-                    className={`py-2.5 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'edit' ? 'border-[#1B2CC1] bg-[#1B2CC1]/10 text-[#1B2CC1]' : 'border-[#D5D5E0] bg-[#F5F5F5] text-[#6B7280]'}`}>
+                    className={`py-2.5 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'edit' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#1a1a1a] bg-[#F5F5F5] text-[#555]'}`}>
                     ✏ Edit
                   </button>
                 </div>
 
                 {mcPanel === 'add' && (
-                  <div className="bg-[#F5F5FA] border border-[#E0E0E0] rounded-xl p-3 space-y-2">
-                    <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider block">Icon</label>
+                  <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3 space-y-2">
+                    <label className="text-[9px] text-[#555] font-mono uppercase tracking-wider block">Icon</label>
                     <input type="text" value={mcAddIcon} onChange={e => setMcAddIcon(e.target.value)} maxLength={4} placeholder="⭐"
-                      className="w-16 text-center text-[18px] bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg p-2 outline-none focus:border-[#1B2CC1] text-[#1A1A2E]"/>
-                    <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider block mt-2">Category Name</label>
+                      className="w-16 text-center text-[18px] bg-[#F5F5F5] border border-[#1a1a1a] rounded-lg p-2 outline-none focus:border-[#d4af37] text-[#e5e5e5]"/>
+                    <label className="text-[9px] text-[#555] font-mono uppercase tracking-wider block mt-2">Category Name</label>
                     <input type="text" value={mcAddName} onChange={e => setMcAddName(e.target.value)} placeholder="e.g. Cooking"
-                      className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-2.5 text-[12px] text-[#1A1A2E] outline-none focus:border-[#1B2CC1] font-mono"/>
+                      className="w-full bg-[#F5F5F5] border border-[#1a1a1a] rounded-xl p-2.5 text-[12px] text-[#e5e5e5] outline-none focus:border-[#d4af37] font-mono"/>
                     <button onClick={mcDoAdd} className="w-full bg-[#1B2CC1] text-white font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl mt-1">Save Category</button>
-                    <button onClick={mcReset} className="w-full border border-[#C8C8D8] text-[#6B7280] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                    <button onClick={mcReset} className="w-full border border-[#C8C8D8] text-[#555] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                   </div>
                 )}
 
                 {mcPanel === 'edit' && (
-                  <div className="bg-[#F5F5FA] border border-[#E0E0E0] rounded-xl p-3 space-y-2">
-                    <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider block">Select Category</label>
+                  <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3 space-y-2">
+                    <label className="text-[9px] text-[#555] font-mono uppercase tracking-wider block">Select Category</label>
                     <select value={mcEditSel} onChange={e => { setMcEditSel(e.target.value); setMcAction('none'); setMcMergeTarget(''); }}
-                      className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-2.5 text-[12px] text-[#1A1A2E] outline-none focus:border-[#1B2CC1] font-mono appearance-none">
+                      className="w-full bg-[#F5F5F5] border border-[#1a1a1a] rounded-xl p-2.5 text-[12px] text-[#e5e5e5] outline-none focus:border-[#d4af37] font-mono appearance-none">
                       <option value="">— choose a category —</option>
                       {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                     </select>
@@ -4565,7 +4545,7 @@ export default function App() {
                     {mcEditSel && (
                       <div className="grid grid-cols-3 gap-1.5 pt-1">
                         <button onClick={() => { setMcAction('rename'); setMcRenameIcon(categoryIcons[mcEditSel] || '⭐'); setMcRenameName(mcEditSel); }}
-                          className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'rename' ? 'border-[#1B2CC1] bg-[#1B2CC1]/10 text-[#1B2CC1]' : 'border-[#1B2CC1]/40 text-[#1B2CC1]'}`}>✏ Rename</button>
+                          className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'rename' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#d4af37]/40 text-[#d4af37]'}`}>✏ Rename</button>
                         <button onClick={() => { setMcAction('merge'); setMcMergeTarget(''); }}
                           className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'merge' ? 'border-[#9ab7d8] bg-[#9ab7d8]/10 text-[#9ab7d8]' : 'border-[#4a7090] text-[#9ab7d8]'}`}>⇄ Merge</button>
                         <button onClick={() => setMcAction('delete')}
@@ -4575,12 +4555,12 @@ export default function App() {
 
                     {/* ── Change Icon Only ── */}
                     {mcEditSel && mcAction === 'none' && (
-                      <div className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3 mt-1">
-                        <label className="text-[9px] text-[#6B7280] font-mono uppercase block mb-2">Change Icon</label>
+                      <div className="bg-[#F5F5F5] border border-[#1a1a1a] rounded-xl p-3 mt-1">
+                        <label className="text-[9px] text-[#555] font-mono uppercase block mb-2">Change Icon</label>
                         <div className="flex items-center gap-3">
                           <input type="text" value={mcRenameIcon || categoryIcons[mcEditSel] || '⭐'}
                             onChange={e => setMcRenameIcon(e.target.value)}
-                            className="w-16 text-center text-[20px] bg-[#F5F5FA] border border-[#D5D5E0] rounded-lg p-2 outline-none focus:border-[#1B2CC1] text-[#1A1A2E]"
+                            className="w-16 text-center text-[20px] bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg p-2 outline-none focus:border-[#d4af37] text-[#e5e5e5]"
                             placeholder="⭐"/>
                           <button onClick={() => {
                             const icon = (mcRenameIcon || categoryIcons[mcEditSel] || '⭐').trim();
@@ -4593,50 +4573,50 @@ export default function App() {
                             Save Icon
                           </button>
                         </div>
-                        <p className="text-[8px] text-[#9CA3AF] font-mono mt-1.5">Tap the box, type or paste an emoji, then Save.</p>
+                        <p className="text-[8px] text-[#555] font-mono mt-1.5">Tap the box, type or paste an emoji, then Save.</p>
                       </div>
                     )}
 
                     {mcAction === 'rename' && (
-                      <div className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3 space-y-2 mt-1">
-                        <label className="text-[9px] text-[#6B7280] font-mono uppercase block">Icon</label>
+                      <div className="bg-[#F5F5F5] border border-[#1a1a1a] rounded-xl p-3 space-y-2 mt-1">
+                        <label className="text-[9px] text-[#555] font-mono uppercase block">Icon</label>
                         <input type="text" value={mcRenameIcon} onChange={e => setMcRenameIcon(e.target.value)} maxLength={4}
-                          className="w-16 text-center text-[18px] bg-[#F5F5FA] border border-[#D5D5E0] rounded-lg p-2 outline-none focus:border-[#1B2CC1] text-[#1A1A2E]"/>
-                        <label className="text-[9px] text-[#6B7280] font-mono uppercase block mt-2">New Name</label>
+                          className="w-16 text-center text-[18px] bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg p-2 outline-none focus:border-[#d4af37] text-[#e5e5e5]"/>
+                        <label className="text-[9px] text-[#555] font-mono uppercase block mt-2">New Name</label>
                         <input type="text" value={mcRenameName} onChange={e => setMcRenameName(e.target.value)}
-                          className="w-full bg-[#F5F5FA] border border-[#D5D5E0] rounded-xl p-2.5 text-[12px] text-[#1A1A2E] outline-none focus:border-[#1B2CC1] font-mono"/>
-                        <p className="text-[8px] text-[#9CA3AF] font-mono">All transactions update to the new name automatically.</p>
+                          className="w-full bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-2.5 text-[12px] text-[#e5e5e5] outline-none focus:border-[#d4af37] font-mono"/>
+                        <p className="text-[8px] text-[#555] font-mono">All transactions update to the new name automatically.</p>
                         <button onClick={mcDoRename} className="w-full bg-[#1B2CC1] text-white font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Save Rename</button>
-                        <button onClick={() => setMcAction('none')} className="w-full border border-[#C8C8D8] text-[#6B7280] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                        <button onClick={() => setMcAction('none')} className="w-full border border-[#C8C8D8] text-[#555] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                       </div>
                     )}
 
                     {mcAction === 'merge' && (
-                      <div className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3 space-y-2 mt-1">
-                        <label className="text-[9px] text-[#6B7280] font-mono uppercase block">Move all transactions into</label>
+                      <div className="bg-[#F5F5F5] border border-[#1a1a1a] rounded-xl p-3 space-y-2 mt-1">
+                        <label className="text-[9px] text-[#555] font-mono uppercase block">Move all transactions into</label>
                         <select value={mcMergeTarget} onChange={e => setMcMergeTarget(e.target.value)}
-                          className="w-full bg-[#F5F5FA] border border-[#D5D5E0] rounded-xl p-2.5 text-[12px] text-[#1A1A2E] outline-none focus:border-[#9ab7d8] font-mono appearance-none">
+                          className="w-full bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-2.5 text-[12px] text-[#e5e5e5] outline-none focus:border-[#9ab7d8] font-mono appearance-none">
                           <option value="">— choose target —</option>
                           {categories.filter(c => c !== mcEditSel).map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                         </select>
-                        <p className="text-[8px] text-[#9CA3AF] font-mono">"{mcEditSel}" will be removed. Target name survives.</p>
+                        <p className="text-[8px] text-[#555] font-mono">"{mcEditSel}" will be removed. Target name survives.</p>
                         <button onClick={() => { if (!mcMergeTarget) { alert('Select a target'); return; } setMcModal('merge1'); }}
                           className="w-full border border-[#4a7090] text-[#9ab7d8] font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Done</button>
-                        <button onClick={() => setMcAction('none')} className="w-full border border-[#C8C8D8] text-[#6B7280] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                        <button onClick={() => setMcAction('none')} className="w-full border border-[#C8C8D8] text-[#555] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                       </div>
                     )}
 
                     {mcAction === 'delete' && (
                       <div className="bg-[#F5F5F5] border border-[#7a3020]/50 rounded-xl p-3 space-y-2 mt-1">
-                        <p className="text-[10px] font-mono text-[#6B7280] leading-relaxed">
-                          Every transaction in <span className="text-[#1B2CC1]">{mcEditSel}</span> will move to <span className="text-[#1B2CC1]">Uncategorized 📂</span>. You can re-categorize them later.
+                        <p className="text-[10px] font-mono text-[#555] leading-relaxed">
+                          Every transaction in <span className="text-[#d4af37]">{mcEditSel}</span> will move to <span className="text-[#d4af37]">Uncategorized 📂</span>. You can re-categorize them later.
                         </p>
                         <button onClick={mcDoDelete} className="w-full border border-[#D96A55] text-[#D96A55] font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Delete Category</button>
-                        <button onClick={() => setMcAction('none')} className="w-full border border-[#C8C8D8] text-[#6B7280] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                        <button onClick={() => setMcAction('none')} className="w-full border border-[#C8C8D8] text-[#555] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                       </div>
                     )}
 
-                    <button onClick={mcReset} className="w-full border border-[#D5D5E0] text-[#9CA3AF] font-mono text-[9px] uppercase py-2 rounded-xl mt-1">Close</button>
+                    <button onClick={mcReset} className="w-full border border-[#1a1a1a] text-[#555] font-mono text-[9px] uppercase py-2 rounded-xl mt-1">Close</button>
                   </div>
                 )}
               </div>
@@ -4644,23 +4624,23 @@ export default function App() {
           </div>
 
           {/* ── Excluded from Analysis ── */}
-          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl overflow-hidden">
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('excl-analysis')}>
               <div className="flex items-center gap-2">
-                <BrandIcon size={14} className="text-[#1B2CC1]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">Excluded from Analysis</span>
+                <BrandIcon size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Excluded from Analysis</span>
               </div>
-              <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('excl-analysis')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('excl-analysis')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('excl-analysis') && (
-              <div className="px-4 pb-4 border-t border-[#E0E0E0] pt-3 space-y-3">
-                <p className="text-[#6B7280] text-[9px] font-mono leading-relaxed">Excluded categories are hidden from: Expenditure by Category, Month vs Spending, Week on Week, and Spend Share. Still appear in Ledger, History and Budget.</p>
+              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
+                <p className="text-[#555] text-[9px] font-mono leading-relaxed">Excluded categories are hidden from: Expenditure by Category, Month vs Spending, Week on Week, and Spend Share. Still appear in Ledger, History and Budget.</p>
                 <div className="flex flex-wrap gap-2">
                   {categories.map(cat => {
                     const excluded = excludedCategories.includes(cat);
                     return (
                       <button key={cat} onClick={() => toggleExcluded(cat)}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[#F5F5F5] border-[#D5D5E0] text-[#6B7280] hover:border-gray-500'}`}>
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[#F5F5F5] border-[#1a1a1a] text-[#555] hover:border-gray-500'}`}>
                         {categoryIcons[cat] || '⭐'} {cat}
                         {excluded && <span className="text-red-500 ml-0.5">×</span>}
                       </button>
@@ -4668,31 +4648,31 @@ export default function App() {
                   })}
                 </div>
                 {excludedCategories.length > 0
-                  ? <button onClick={() => setExcludedCategories([])} className="text-[9px] text-[#1B2CC1] font-mono uppercase tracking-wider hover:underline">Clear all</button>
-                  : <p className="text-[8px] text-[#9CA3AF] font-mono italic">Tap any category to exclude from charts</p>
+                  ? <button onClick={() => setExcludedCategories([])} className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">Clear all</button>
+                  : <p className="text-[8px] text-[#555] font-mono italic">Tap any category to exclude from charts</p>
                 }
               </div>
             )}
           </div>
 
           {/* ── Excluded from Ledger ── */}
-          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl overflow-hidden">
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('excl-ledger')}>
               <div className="flex items-center gap-2">
-                <BrandIcon size={14} className="text-[#1B2CC1]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">Excluded from Ledger</span>
+                <BrandIcon size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Excluded from Ledger</span>
               </div>
-              <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('excl-ledger')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('excl-ledger')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('excl-ledger') && (
-              <div className="px-4 pb-4 border-t border-[#E0E0E0] pt-3 space-y-3">
-                <p className="text-[#6B7280] text-[9px] font-mono leading-relaxed">Categories excluded here are completely hidden from the Ledger table — no rows, no totals, no effect on Opening/Closing balance.</p>
+              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
+                <p className="text-[#555] text-[9px] font-mono leading-relaxed">Categories excluded here are completely hidden from the Ledger table — no rows, no totals, no effect on Opening/Closing balance.</p>
                 <div className="flex flex-wrap gap-2">
                   {categories.map(cat => {
                     const excluded = excludedLedgerCategories.includes(cat);
                     return (
                       <button key={cat} onClick={() => toggleExcludedLedger(cat)}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[#F5F5F5] border-[#D5D5E0] text-[#6B7280] hover:border-gray-500'}`}>
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[#F5F5F5] border-[#1a1a1a] text-[#555] hover:border-gray-500'}`}>
                         {categoryIcons[cat] || '⭐'} {cat}
                         {excluded && <span className="text-red-500 ml-0.5">×</span>}
                       </button>
@@ -4700,15 +4680,15 @@ export default function App() {
                   })}
                 </div>
                 {excludedLedgerCategories.length > 0
-                  ? <button onClick={() => setExcludedLedgerCategories([])} className="text-[9px] text-[#1B2CC1] font-mono uppercase tracking-wider hover:underline">Clear all</button>
-                  : <p className="text-[8px] text-[#9CA3AF] font-mono italic">Tap any category to exclude from Ledger</p>
+                  ? <button onClick={() => setExcludedLedgerCategories([])} className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">Clear all</button>
+                  : <p className="text-[8px] text-[#555] font-mono italic">Tap any category to exclude from Ledger</p>
                 }
               </div>
             )}
           </div>
 
           {/* ── Danger Zone ── */}
-          <div className="bg-[#FFFFFF] border border-red-900/50 rounded-2xl overflow-hidden">
+          <div className="bg-[#0f0f0f] border border-red-900/50 rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('danger')}>
               <div className="flex items-center gap-2">
                 <span className="text-red-500 text-[14px]">⚠</span>
@@ -4718,7 +4698,7 @@ export default function App() {
             </button>
             {isSettingsOpen('danger') && (
               <div className="px-4 pb-4 border-t border-red-900/30 pt-3 space-y-3">
-                <p className="text-[#6B7280] text-[9px] font-mono leading-relaxed">Permanently delete all transactions, SMS messages, and budgets. This cannot be undone.</p>
+                <p className="text-[#555] text-[9px] font-mono leading-relaxed">Permanently delete all transactions, SMS messages, and budgets. This cannot be undone.</p>
                 {!dangerConfirm ? (
                   <button onClick={() => setDangerConfirm(true)} className="w-full border border-red-900/50 text-red-400 font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-red-950/30 transition-all">
                     Delete All Data
@@ -4727,9 +4707,28 @@ export default function App() {
                   <div className="space-y-2">
                     <p className="text-red-400 text-[10px] font-mono text-center font-bold">Are you absolutely sure?</p>
                     <div className="grid grid-cols-2 gap-2">
-                      <button onClick={() => setDangerConfirm(false)} className="border border-[#C8C8D8] text-[#6B7280] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                      <button onClick={() => setDangerConfirm(false)} className="border border-[#333] text-[#555] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                       <button onClick={() => { setTransactions([]); setSmsMessages([]); setBudgets([]); setDangerConfirm(false); showToast('All data deleted permanently.'); }} className="border border-red-700 bg-red-950/40 text-red-400 font-mono text-[10px] uppercase py-2 rounded-xl font-bold">Delete Forever</button>
                     </div>
+                  </div>
+                )}
+                {/* Delete Drive Backup — signed in only */}
+                {googleUser && !isCapacitor && (
+                  <div className="mt-3 pt-3 border-t border-[#1a1a1a]">
+                    {!lastExportDate ? (
+                      <div className="space-y-2">
+                        <p className="text-[9px] font-mono text-[#555] leading-relaxed">⚠ Export your data first before deleting the Drive backup.</p>
+                        <button onClick={handleCsvExport}
+                          className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl flex items-center justify-center gap-2">
+                          <Download size={12}/> Export First
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => { if(window.confirm('Permanently delete your Google Drive backup? Your local app data stays untouched.')) deleteDriveBackup(); }}
+                        className="w-full border border-red-900/50 text-red-400 font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-red-950/30 transition-all">
+                        🗑 Delete Drive Backup
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -4737,18 +4736,18 @@ export default function App() {
           </div>
 
           {/* ── About ── */}
-          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl overflow-hidden">
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('about')}>
               <div className="flex items-center gap-2">
-                <Info size={14} className="text-[#1B2CC1]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">About</span>
+                <Info size={14} className="text-[#d4af37]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">About</span>
               </div>
-              <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('about')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('about')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('about') && (
-              <div className="px-4 pb-4 border-t border-[#E0E0E0] pt-3 space-y-1.5">
-                <p className="text-[#6B7280] text-[10px] font-mono">Paypathz v1.0.0</p>
-                <p className="text-[#9CA3AF] text-[9px] font-mono leading-relaxed">Built with React + Capacitor. Your data stays on your device — never sent to any server.</p>
+              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-1.5">
+                <p className="text-[#555] text-[10px] font-mono">Paypathz v1.0.0</p>
+                <p className="text-[#555] text-[9px] font-mono leading-relaxed">Built with React + Capacitor. Your data stays on your device — never sent to any server.</p>
               </div>
             )}
           </div>
@@ -4761,20 +4760,20 @@ export default function App() {
     </div>
 
     {/* Bottom Navigation Bar - PhonePe style with prominent Add */}
-    <div className="bg-[#FFFFFF] border-t border-[#141414] px-2 flex justify-between items-center text-[#6B7280] select-none shrink-0 relative" style={{ height: 'calc(5rem + env(safe-area-inset-bottom, 0px))', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+    <div className="bg-[#0f0f0f] border-t border-[#141414] px-2 flex justify-between items-center text-[#555] select-none shrink-0 relative" style={{ height: 'calc(5rem + env(safe-area-inset-bottom, 0px))', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
 
       {/* Dashboard */}
-      <button onClick={() => setNavTab('dashboard')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'dashboard' ? 'text-[#1B2CC1]' : 'text-[#6B7280]'}`}>
+      <button onClick={() => setNavTab('dashboard')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'dashboard' ? 'text-[#d4af37]' : 'text-[#555]'}`}>
         <TrendingUp size={20} />
         <span className="text-[9px] font-mono tracking-wide">Home</span>
       </button>
 
       {/* SMS */}
-      <button onClick={() => setNavTab('sms')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full relative transition-all ${navTab === 'sms' ? 'text-[#1B2CC1]' : 'text-[#6B7280]'}`}>
+      <button onClick={() => setNavTab('sms')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full relative transition-all ${navTab === 'sms' ? 'text-[#d4af37]' : 'text-[#555]'}`}>
         <div className="relative">
           <MessageSquare size={20} />
           {smsMessages.filter(s => s.status === 'pending').length > 0 && (
-            <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 rounded-full flex items-center justify-center text-[#1A1A2E] text-[8px] font-bold">
+            <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 rounded-full flex items-center justify-center text-[#e5e5e5] text-[8px] font-bold">
               {smsMessages.filter(s => s.status === 'pending').length}
             </span>
           )}
@@ -4800,17 +4799,17 @@ export default function App() {
             <line x1="22" y1="28" x2="34" y2="28" stroke="#1B2CC1" strokeWidth="3" strokeLinecap="round"/>
           </svg>
         </div>
-        <span className={`text-[9px] font-mono tracking-wide ${navTab === 'add' ? 'text-[#1B2CC1]' : 'text-[#6B7280]'}`}>Add</span>
+        <span className={`text-[9px] font-mono tracking-wide ${navTab === 'add' ? 'text-[#d4af37]' : 'text-[#555]'}`}>Add</span>
       </button>
 
       {/* Budgets */}
-      <button onClick={() => setNavTab('budgets')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'budgets' ? 'text-[#1B2CC1]' : 'text-[#6B7280]'}`}>
+      <button onClick={() => setNavTab('budgets')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'budgets' ? 'text-[#d4af37]' : 'text-[#555]'}`}>
         <AlertCircle size={20} />
         <span className="text-[9px] font-mono tracking-wide">Budget</span>
       </button>
 
       {/* History */}
-      <button onClick={() => setNavTab('history')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'history' ? 'text-[#1B2CC1]' : 'text-[#6B7280]'}`}>
+      <button onClick={() => setNavTab('history')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'history' ? 'text-[#d4af37]' : 'text-[#555]'}`}>
         <FileText size={20} />
         <span className="text-[9px] font-mono tracking-wide">History</span>
       </button>
