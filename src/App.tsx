@@ -379,12 +379,14 @@ const BrandIcon = ({ size = 12, className = '' }: { size?: number; className?: s
 
 export default function App() {
   // ── Google Auth State ──────────────────────────────────────────────────
+  const isCapacitor = !!(window as any).Capacitor;
   const [googleUser, setGoogleUser] = useState<GoogleUser | null>(() => {
+    if (isCapacitor) return { name: 'Local User', email: 'local', picture: '' };
     const s = localStorage.getItem('ft_google_user');
     return s ? JSON.parse(s) : null;
   });
   const [accessToken, setAccessToken] = useState<string | null>(() =>
-    localStorage.getItem('ft_access_token')
+    isCapacitor ? null : localStorage.getItem('ft_access_token')
   );
   const [authLoading, setAuthLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
@@ -2143,7 +2145,7 @@ export default function App() {
               </svg>
             </div>
             <div className="text-center">
-              <h1 className="text-white font-bold text-2xl tracking-tight">Finance Tracker</h1>
+              <h1 className="text-white font-bold text-2xl tracking-tight">Paypathz</h1>
               <p className="text-gray-500 text-sm mt-1 font-mono">Dusk · Personal Finance</p>
             </div>
           </div>
@@ -2181,7 +2183,7 @@ export default function App() {
           </button>
 
           <p className="text-gray-600 text-[10px] font-mono text-center leading-relaxed">
-            By signing in you agree to let Finance Tracker store your data in your personal Google Drive. We never see or access your data.
+            By signing in you agree to let Paypathz store your data in your personal Google Drive. We never see or access your data.
           </p>
         </div>
       </div>
@@ -2218,7 +2220,7 @@ export default function App() {
               <text x="50" y="76" textAnchor="middle" fill="#1B2CC1" fontSize="10" fontWeight="bold">机</text>
             </svg>
           </div>
-          <h1 className="text-2xl font-serif text-[#1A1A2E] mb-2">Finance Tracker</h1>
+          <h1 className="text-2xl font-serif text-[#1A1A2E] mb-2">Paypathz</h1>
           <p className="text-[#6B7280] text-sm mb-8 leading-relaxed max-w-xs">
             Automatically detects bank SMS and UPI transactions. Enable notifications so you never miss a transaction.
           </p>
@@ -2572,8 +2574,8 @@ export default function App() {
                     });
                     // Trigger the Android share sheet with the file URI
                     await Share.share({
-                      title: 'Finance Tracker Backup',
-                      text: 'Finance Tracker data export',
+                      title: 'Paypathz Backup',
+                      text: 'Paypathz data export',
                       url: writeRes.uri,
                       dialogTitle: 'Save backup to...'
                     });
@@ -4745,7 +4747,7 @@ export default function App() {
             </button>
             {isSettingsOpen('about') && (
               <div className="px-4 pb-4 border-t border-[#E0E0E0] pt-3 space-y-1.5">
-                <p className="text-[#6B7280] text-[10px] font-mono">Finance Tracker v1.0.0</p>
+                <p className="text-[#6B7280] text-[10px] font-mono">Paypathz v1.0.0</p>
                 <p className="text-[#9CA3AF] text-[9px] font-mono leading-relaxed">Built with React + Capacitor. Your data stays on your device — never sent to any server.</p>
               </div>
             )}
