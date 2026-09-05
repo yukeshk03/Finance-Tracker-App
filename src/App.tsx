@@ -378,101 +378,6 @@ const BrandIcon = ({ size = 12, className = '' }: { size?: number; className?: s
 );
 
 export default function App() {
-  // ── Google Auth State ──────────────────────────────────────────────────
-  const isCapacitor = !!(window as any).Capacitor;
-  const [googleUser, setGoogleUser] = useState<GoogleUser | null>(() => {
-    if (isCapacitor) return { name: 'Local User', email: 'local', picture: '' };
-    const s = localStorage.getItem('ft_google_user');
-    return s ? JSON.parse(s) : null;
-  });
-  const [accessToken, setAccessToken] = useState<string | null>(() =>
-    isCapacitor ? null : localStorage.getItem('ft_access_token')
-  );
-  const [authLoading, setAuthLoading] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
-  const [driveLoaded, setDriveLoaded] = useState(false);
-
-  // Sign in with Google
-  const signInWithGoogle = async () => {
-    setAuthLoading(true);
-    try {
-      await loadGoogleScript();
-      (window as any).google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
-        scope: `${DRIVE_SCOPE} email profile`,
-        callback: async (resp: any) => {
-          if (resp.error) { setAuthLoading(false); return; }
-          const token = resp.access_token;
-          setAccessToken(token);
-          localStorage.setItem('ft_access_token', token);
-          // Get user info
-          const uRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          const u = await uRes.json();
-          const user = { name: u.name, email: u.email, picture: u.picture };
-          setGoogleUser(user);
-          localStorage.setItem('ft_google_user', JSON.stringify(user));
-          // Load data from Drive
-          await loadFromDrive(token);
-          setAuthLoading(false);
-        },
-      }).requestAccessToken();
-    } catch (e) {
-      setAuthLoading(false);
-    }
-  };
-
-  // Sign out
-  const signOut = () => {
-    setGoogleUser(null);
-    setAccessToken(null);
-    localStorage.removeItem('ft_google_user');
-    localStorage.removeItem('ft_access_token');
-    setSyncStatus('idle');
-  };
-
-  // Load data from Drive
-  const loadFromDrive = async (token: string) => {
-    try {
-      setSyncStatus('syncing');
-      const data = await driveReadFile(token);
-      if (data) {
-        if (data.transactions) setTransactions(data.transactions);
-        if (data.budgets) setBudgets(data.budgets);
-        if (data.categories) setCategories(data.categories);
-        if (data.categoryIcons) setCategoryIcons(data.categoryIcons);
-      }
-      setDriveLoaded(true);
-      setSyncStatus('synced');
-    } catch (e) {
-      setSyncStatus('error');
-    }
-  };
-
-  // Save data to Drive
-  const saveToDrive = async () => {
-    if (!accessToken || !googleUser) return;
-    try {
-      setSyncStatus('syncing');
-      await driveWriteFile(accessToken, {
-        transactions, budgets, categories, categoryIcons,
-        lastSaved: new Date().toISOString(),
-      });
-      setSyncStatus('synced');
-    } catch (e) {
-      setSyncStatus('error');
-    }
-  };
-
-  // Auto-sync when data changes
-  useEffect(() => {
-    if (!accessToken || !googleUser || !driveLoaded) return;
-    const timer = setTimeout(() => saveToDrive(), 2000);
-    return () => clearTimeout(timer);
-  }, [transactions, budgets, categories, categoryIcons]);
-
-
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     const saved = localStorage.getItem('aurelius_transactions');
     if (saved) {
@@ -2128,6 +2033,101 @@ export default function App() {
   const selectQuickMonthFilter = (mCode: string) => {
     setFilterMonth(mCode);
   };
+
+  // ── Google Auth State ──────────────────────────────────────────────────
+  const isCapacitor = !!(window as any).Capacitor;
+  const [googleUser, setGoogleUser] = useState<GoogleUser | null>(() => {
+    if (isCapacitor) return { name: 'Local User', email: 'local', picture: '' };
+    const s = localStorage.getItem('ft_google_user');
+    return s ? JSON.parse(s) : null;
+  });
+  const [accessToken, setAccessToken] = useState<string | null>(() =>
+    isCapacitor ? null : localStorage.getItem('ft_access_token')
+  );
+  const [authLoading, setAuthLoading] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+  const [driveLoaded, setDriveLoaded] = useState(false);
+
+  // Sign in with Google
+  const signInWithGoogle = async () => {
+    setAuthLoading(true);
+    try {
+      await loadGoogleScript();
+      (window as any).google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: `${DRIVE_SCOPE} email profile`,
+        callback: async (resp: any) => {
+          if (resp.error) { setAuthLoading(false); return; }
+          const token = resp.access_token;
+          setAccessToken(token);
+          localStorage.setItem('ft_access_token', token);
+          // Get user info
+          const uRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const u = await uRes.json();
+          const user = { name: u.name, email: u.email, picture: u.picture };
+          setGoogleUser(user);
+          localStorage.setItem('ft_google_user', JSON.stringify(user));
+          // Load data from Drive
+          await loadFromDrive(token);
+          setAuthLoading(false);
+        },
+      }).requestAccessToken();
+    } catch (e) {
+      setAuthLoading(false);
+    }
+  };
+
+  // Sign out
+  const signOut = () => {
+    setGoogleUser(null);
+    setAccessToken(null);
+    localStorage.removeItem('ft_google_user');
+    localStorage.removeItem('ft_access_token');
+    setSyncStatus('idle');
+  };
+
+  // Load data from Drive
+  const loadFromDrive = async (token: string) => {
+    try {
+      setSyncStatus('syncing');
+      const data = await driveReadFile(token);
+      if (data) {
+        if (data.transactions) setTransactions(data.transactions);
+        if (data.budgets) setBudgets(data.budgets);
+        if (data.categories) setCategories(data.categories);
+        if (data.categoryIcons) setCategoryIcons(data.categoryIcons);
+      }
+      setDriveLoaded(true);
+      setSyncStatus('synced');
+    } catch (e) {
+      setSyncStatus('error');
+    }
+  };
+
+  // Save data to Drive
+  const saveToDrive = async () => {
+    if (!accessToken || !googleUser) return;
+    try {
+      setSyncStatus('syncing');
+      await driveWriteFile(accessToken, {
+        transactions, budgets, categories, categoryIcons,
+        lastSaved: new Date().toISOString(),
+      });
+      setSyncStatus('synced');
+    } catch (e) {
+      setSyncStatus('error');
+    }
+  };
+
+  // Auto-sync when data changes
+  useEffect(() => {
+    if (!accessToken || !googleUser || !driveLoaded) return;
+    const timer = setTimeout(() => saveToDrive(), 2000);
+    return () => clearTimeout(timer);
+  }, [transactions, budgets, categories, categoryIcons]);
+
 
   // ── Show login screen if not signed in ──────────────────────────────
   if (!googleUser) {
