@@ -3,6 +3,77 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+// ── Google OAuth + Drive Config ───────────────────────────────────────────
+const GOOGLE_CLIENT_ID = '230615350507-0esfnctd66qno0fgueb8kb8m6h3vfsre.apps.googleusercontent.com';
+const DRIVE_FILE_NAME = 'finance-tracker-dusk.json';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+
+interface GoogleUser {
+  name: string;
+  email: string;
+  picture: string;
+}
+
+// ── Load Google Identity Services script ─────────────────────────────────
+function loadGoogleScript(): Promise<void> {
+  return new Promise((resolve) => {
+    if (document.getElementById('google-gsi')) { resolve(); return; }
+    const s = document.createElement('script');
+    s.id = 'google-gsi';
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.onload = () => resolve();
+    document.head.appendChild(s);
+  });
+}
+
+// ── Drive helpers ─────────────────────────────────────────────────────────
+async function driveGetFileId(token: string): Promise<string | null> {
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='${DRIVE_FILE_NAME}'&fields=files(id)`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  const data = await res.json();
+  return data.files?.[0]?.id || null;
+}
+
+async function driveReadFile(token: string): Promise<any | null> {
+  const fileId = await driveGetFileId(token);
+  if (!fileId) return null;
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  return res.json();
+}
+
+async function driveWriteFile(token: string, data: any): Promise<void> {
+  const fileId = await driveGetFileId(token);
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+  const metadata = { name: DRIVE_FILE_NAME, parents: fileId ? undefined : ['appDataFolder'] };
+
+  if (fileId) {
+    // Update existing file
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify({})], { type: 'application/json' }));
+    form.append('file', blob);
+    await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+  } else {
+    // Create new file
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+    form.append('file', blob);
+    await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+  }
+}
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, 
@@ -147,10 +218,10 @@ const RadarChart = ({ data }: { data: { category: string; spent: number; limit: 
   const polygonPath = points.map(p => `${p.x},${p.y}`).join(' ');
 
   return (
-    <div className="flex flex-col items-center bg-[#0d0d0d] rounded-2xl border border-[#1a1a1a] p-4 font-mono">
+    <div className="flex flex-col items-center bg-[#0d0d0d] rounded-2xl border border-[#E0E0E0] p-4 font-mono">
       <div className="flex items-center gap-1.5 self-start mb-2 border-b border-[#141414] w-full pb-1.5">
-        <span className="text-[#d4af37] text-xs">◇</span>
-        <h4 className="text-[10px] uppercase tracking-wider text-[#d4af37] font-semibold">Category Budget Radar</h4>
+        <span className="text-[#1B2CC1] text-xs">◇</span>
+        <h4 className="text-[10px] uppercase tracking-wider text-[#1B2CC1] font-semibold">Category Budget Radar</h4>
       </div>
       
       <div className="relative w-full flex justify-center items-center py-2">
@@ -193,7 +264,7 @@ const RadarChart = ({ data }: { data: { category: string; spent: number; limit: 
           {points.length >= 3 && (
             <polygon
               points={polygonPath}
-              className="fill-[#d4af37]/20 stroke-[#d4af37] stroke-2 transition-all duration-500"
+              className="fill-[#1B2CC1]/20 stroke-[#1B2CC1] stroke-2 transition-all duration-500"
             />
           )}
 
@@ -204,7 +275,7 @@ const RadarChart = ({ data }: { data: { category: string; spent: number; limit: 
               cx={p.x}
               cy={p.y}
               r="3"
-              className="fill-[#050505] stroke-[#d4af37] stroke-[1.5]"
+              className="fill-[#050505] stroke-[#1B2CC1] stroke-[1.5]"
               title={`${p.category}: ₹${p.spent}`}
             />
           ))}
@@ -225,7 +296,7 @@ const RadarChart = ({ data }: { data: { category: string; spent: number; limit: 
                 fontSize="7.5"
                 textAnchor="middle"
                 dominantBaseline="central"
-                className="font-mono bg-[#050505] px-1 text-[7px]"
+                className="font-mono bg-[#F5F5F5] px-1 text-[7px]"
               >
                 {shortName}
               </text>
@@ -242,41 +313,41 @@ const BulletChart = ({ spent, limit }: { spent: number; limit: number }) => {
   const percent = limit > 0 ? Math.round((spent / limit) * 100) : 0;
 
   return (
-    <div className="bg-[#0d0d0d] rounded-2xl border border-[#1a1a1a] p-4 font-mono">
+    <div className="bg-[#0d0d0d] rounded-2xl border border-[#E0E0E0] p-4 font-mono">
       <div className="flex items-center gap-1.5 mb-2 border-b border-[#141414] pb-1.5">
-        <h4 className="text-[10px] uppercase tracking-wider text-[#d4af37] font-semibold">Budget Overview</h4>
+        <h4 className="text-[10px] uppercase tracking-wider text-[#1B2CC1] font-semibold">Budget Overview</h4>
       </div>
 
       <div className="space-y-2">
-        <div className="flex justify-between text-[9px] text-gray-500">
-          <span>Spent: <strong className="text-white">₹{spent.toLocaleString('en-IN')}</strong></span>
-          <span>Budget: <strong className="text-white">₹{limit.toLocaleString('en-IN')}</strong></span>
+        <div className="flex justify-between text-[9px] text-[#6B7280]">
+          <span>Spent: <strong className="text-[#1A1A2E]">₹{Math.round(spent).toLocaleString('en-IN')}</strong></span>
+          <span>Budget: <strong className="text-[#1A1A2E]">₹{Math.round(limit).toLocaleString('en-IN')}</strong></span>
         </div>
 
         {/* The Bullet Gauge */}
-        <div className="relative h-5.5 bg-[#121212] rounded border border-[#222] overflow-hidden flex">
+        <div className="relative h-5.5 bg-[#121212] rounded border border-[#D5D5E0] overflow-hidden flex">
           {/* Shaded Ranges representing Performance Bands */}
-          <div className="w-[60%] h-full bg-[#0a0a0a] border-r border-[#222]/20" title="Good (0-60%)" />
-          <div className="w-[30%] h-full bg-[#141414] border-r border-[#222]/20" title="Caution (60-90%)" />
+          <div className="w-[60%] h-full bg-[#F5F5FA] border-r border-[#D5D5E0]/20" title="Good (0-60%)" />
+          <div className="w-[30%] h-full bg-[#F5F5F5] border-r border-[#D5D5E0]/20" title="Caution (60-90%)" />
           <div className="w-[10%] h-full bg-[#1b0000]" title="Critical Budget Threshold (90-100%+)" />
 
           {/* Actual value bar overlay */}
           <div 
-            className="absolute left-0 top-1.5 h-2.5 bg-gradient-to-r from-yellow-700 to-[#d4af37] rounded-r transition-all duration-500 shadow-md"
+            className="absolute left-0 top-1.5 h-2.5 bg-gradient-to-r from-yellow-700 to-[#1B2CC1] rounded-r transition-all duration-500 shadow-md"
             style={{ width: `${Math.min(100, percent)}%` }}
           />
 
           {/* Target Milestone Indicator Key Line */}
           <div 
-            className="absolute h-full w-1 bg-[#d4af37] top-0 shadow"
+            className="absolute h-full w-1 bg-[#1B2CC1] top-0 shadow"
             style={{ left: `calc(${Math.min(100, percent)}% - 2px)` }}
           />
         </div>
 
         {/* Dynamic Warning messaging inline within phone */}
-        <div className="flex justify-between items-center text-[8px] text-gray-500">
+        <div className="flex justify-between items-center text-[8px] text-[#6B7280]">
           <span>Target Progress</span>
-          <span className={percent >= 90 ? 'text-rose-400 font-bold animate-pulse' : percent >= 65 ? 'text-yellow-500' : 'text-emerald-500'}>
+          <span className={percent >= 90 ? 'text-rose-400 font-bold animate-pulse' : percent >= 65 ? 'text-blue-500' : 'text-emerald-500'}>
             {percent}% Allocated {percent >= 100 ? '[!] Excess!' : ''}
           </span>
         </div>
@@ -307,7 +378,99 @@ const BrandIcon = ({ size = 12, className = '' }: { size?: number; className?: s
 );
 
 export default function App() {
-  // Database Persistence with local storage integration
+  // ── Google Auth State ──────────────────────────────────────────────────
+  const [googleUser, setGoogleUser] = useState<GoogleUser | null>(() => {
+    const s = localStorage.getItem('ft_google_user');
+    return s ? JSON.parse(s) : null;
+  });
+  const [accessToken, setAccessToken] = useState<string | null>(() =>
+    localStorage.getItem('ft_access_token')
+  );
+  const [authLoading, setAuthLoading] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+  const [driveLoaded, setDriveLoaded] = useState(false);
+
+  // Sign in with Google
+  const signInWithGoogle = async () => {
+    setAuthLoading(true);
+    try {
+      await loadGoogleScript();
+      (window as any).google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: `${DRIVE_SCOPE} email profile`,
+        callback: async (resp: any) => {
+          if (resp.error) { setAuthLoading(false); return; }
+          const token = resp.access_token;
+          setAccessToken(token);
+          localStorage.setItem('ft_access_token', token);
+          // Get user info
+          const uRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const u = await uRes.json();
+          const user = { name: u.name, email: u.email, picture: u.picture };
+          setGoogleUser(user);
+          localStorage.setItem('ft_google_user', JSON.stringify(user));
+          // Load data from Drive
+          await loadFromDrive(token);
+          setAuthLoading(false);
+        },
+      }).requestAccessToken();
+    } catch (e) {
+      setAuthLoading(false);
+    }
+  };
+
+  // Sign out
+  const signOut = () => {
+    setGoogleUser(null);
+    setAccessToken(null);
+    localStorage.removeItem('ft_google_user');
+    localStorage.removeItem('ft_access_token');
+    setSyncStatus('idle');
+  };
+
+  // Load data from Drive
+  const loadFromDrive = async (token: string) => {
+    try {
+      setSyncStatus('syncing');
+      const data = await driveReadFile(token);
+      if (data) {
+        if (data.transactions) setTransactions(data.transactions);
+        if (data.budgets) setBudgets(data.budgets);
+        if (data.categories) setCategories(data.categories);
+        if (data.categoryIcons) setCategoryIcons(data.categoryIcons);
+      }
+      setDriveLoaded(true);
+      setSyncStatus('synced');
+    } catch (e) {
+      setSyncStatus('error');
+    }
+  };
+
+  // Save data to Drive
+  const saveToDrive = async () => {
+    if (!accessToken || !googleUser) return;
+    try {
+      setSyncStatus('syncing');
+      await driveWriteFile(accessToken, {
+        transactions, budgets, categories, categoryIcons,
+        lastSaved: new Date().toISOString(),
+      });
+      setSyncStatus('synced');
+    } catch (e) {
+      setSyncStatus('error');
+    }
+  };
+
+  // Auto-sync when data changes
+  useEffect(() => {
+    if (!accessToken || !googleUser || !driveLoaded) return;
+    const timer = setTimeout(() => saveToDrive(), 2000);
+    return () => clearTimeout(timer);
+  }, [transactions, budgets, categories, categoryIcons]);
+
+
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     const saved = localStorage.getItem('aurelius_transactions');
     if (saved) {
@@ -789,6 +952,16 @@ export default function App() {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(''), 3000);
   };
+
+  // ── Theme ─────────────────────────────────────────────────────────────
+  const [appTheme, setAppTheme] = useState<'aurelius' | 'royal'>(() =>
+    (localStorage.getItem('ft_theme') as 'aurelius' | 'royal') || 'aurelius'
+  );
+  const setTheme = (t: 'aurelius' | 'royal') => {
+    setAppTheme(t);
+    localStorage.setItem('ft_theme', t);
+  };
+  const isRoyal = appTheme === 'royal';
 
   // ── Excluded categories from Ledger table ─────────────────────────────
   const [excludedLedgerCategories, setExcludedLedgerCategories] = useState<string[]>(() => {
@@ -1693,7 +1866,7 @@ export default function App() {
       }
     }
 
-    const fmtNum = (n: number) => n > 0 ? n.toFixed(2) : '';
+    const fmtNum = (n: number) => n > 0 ? n : '';
     const esc = (v: any) => { const s = String(v??''); return s.includes(',') ? `"${s}"` : s; };
 
     // Build CSV rows
@@ -1705,7 +1878,7 @@ export default function App() {
     // Opening Balance row
     lines.push([
       'Opening Balance',
-      ...months.map(m => balChain[m]?.opening !== undefined ? balChain[m].opening!.toFixed(2) : ''),
+      ...months.map(m => balChain[m]?.opening !== undefined ? balChain[m].opening! : ''),
       ''
     ].map(esc).join(','));
 
@@ -1738,7 +1911,7 @@ export default function App() {
     // Closing Balance
     lines.push([
       'Closing Balance',
-      ...months.map(m => balChain[m]?.closing !== undefined ? balChain[m].closing!.toFixed(2) : ''),
+      ...months.map(m => balChain[m]?.closing !== undefined ? balChain[m].closing! : ''),
       ''
     ].map(esc).join(','));
 
@@ -1954,13 +2127,74 @@ export default function App() {
     setFilterMonth(mCode);
   };
 
+  // ── Show login screen if not signed in ──────────────────────────────
+  if (!googleUser) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#050505]" style={{fontFamily:'system-ui,sans-serif'}}>
+        <div className="flex flex-col items-center gap-8 px-8 w-full max-w-[360px]">
+
+          {/* Logo */}
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-20 h-20 rounded-3xl bg-[#0f0f0f] border border-[#1a1a1a] flex items-center justify-center shadow-2xl">
+              <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
+                <circle cx="22" cy="22" r="20" stroke="#d4af37" strokeWidth="2.5"/>
+                <rect x="14" y="14" width="16" height="16" rx="2" stroke="#d4af37" strokeWidth="2"/>
+                <circle cx="22" cy="22" r="3" fill="#d4af37"/>
+              </svg>
+            </div>
+            <div className="text-center">
+              <h1 className="text-white font-bold text-2xl tracking-tight">Finance Tracker</h1>
+              <p className="text-gray-500 text-sm mt-1 font-mono">Dusk · Personal Finance</p>
+            </div>
+          </div>
+
+          {/* Feature pills */}
+          <div className="flex flex-col gap-3 w-full">
+            {[
+              { icon: '🔒', text: 'Your data stays private — only you can see it' },
+              { icon: '☁️', text: 'Syncs to your Google Drive automatically' },
+              { icon: '📱', text: 'Access from any device, anytime' },
+            ].map((f, i) => (
+              <div key={i} className="flex items-center gap-3 bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl px-4 py-3">
+                <span className="text-xl">{f.icon}</span>
+                <p className="text-gray-400 text-xs font-mono leading-relaxed">{f.text}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Sign in button */}
+          <button onClick={signInWithGoogle} disabled={authLoading}
+            className="w-full flex items-center justify-center gap-3 bg-white text-gray-800 font-bold text-sm py-4 px-6 rounded-2xl shadow-lg hover:bg-gray-50 active:scale-95 transition-all disabled:opacity-60">
+            {authLoading ? (
+              <span className="text-gray-500 font-mono text-sm">Signing in...</span>
+            ) : (
+              <>
+                <svg width="20" height="20" viewBox="0 0 48 48">
+                  <path fill="#FFC107" d="M43.6 20H24v8h11.3C33.6 33.1 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.8 1.1 7.9 3l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20c11 0 20-8 20-20 0-1.3-.1-2.7-.4-4z"/>
+                  <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 15.1 18.9 12 24 12c3 0 5.8 1.1 7.9 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
+                  <path fill="#4CAF50" d="M24 44c5.2 0 9.9-1.9 13.5-5l-6.2-5.2C29.4 35.6 26.8 36 24 36c-5.2 0-9.5-2.9-11.3-7.1l-6.5 5C9.6 39.6 16.3 44 24 44z"/>
+                  <path fill="#1976D2" d="M43.6 20H24v8h11.3c-.8 2.3-2.4 4.2-4.3 5.5l6.2 5.2C41.2 35 44 29.9 44 24c0-1.3-.1-2.7-.4-4z"/>
+                </svg>
+                Continue with Google
+              </>
+            )}
+          </button>
+
+          <p className="text-gray-600 text-[10px] font-mono text-center leading-relaxed">
+            By signing in you agree to let Finance Tracker store your data in your personal Google Drive. We never see or access your data.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="h-screen w-screen bg-[#050505] text-[#e5e5e5] flex flex-col overflow-hidden font-sans">
+    <div className="h-screen w-screen bg-[#F5F5F5] text-[#1A1A2E] flex flex-col overflow-hidden font-sans">
 
       {/* ── THEME OVERRIDES (Light) ───────────────────────────────────── */}
       <style>{`
         /* Root wrapper */
-        /* KEEP Inflow/Outflow cards & Smart Alerts dark - these have bg-[#0a0a0a] and bg-[#050505] */
+        /* KEEP Inflow/Outflow cards & Smart Alerts dark - these have bg-[#F5F5FA] and bg-[#F5F5F5] */
         /* Section toggle row (Recent / Smart Alerts) — preserve its dark/light contrast */
         /* Borders */
         /* Text colors — only target inside light-bg containers */
@@ -1971,44 +2205,44 @@ export default function App() {
 
       {/* ── ONBOARDING SCREEN ─────────────────────────────────────────── */}
       {showOnboarding && (
-        <div className="absolute inset-0 z-50 bg-[#050505] flex flex-col items-center justify-center p-6 text-center">
-          <div className="w-20 h-20 rounded-full overflow-hidden mb-6 shadow-2xl border-2 border-[#d4af37]/40">
+        <div className="absolute inset-0 z-50 bg-[#F5F5F5] flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-20 h-20 rounded-full overflow-hidden mb-6 shadow-2xl border-2 border-[#1B2CC1]/40">
             <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
               <circle cx="50" cy="50" r="50" fill="#1a1208"/>
-              <circle cx="50" cy="50" r="46" fill="none" stroke="#d4af37" strokeWidth="2"/>
+              <circle cx="50" cy="50" r="46" fill="none" stroke="#1B2CC1" strokeWidth="2"/>
               <circle cx="50" cy="50" r="42" fill="#2a1e0a"/>
-              <rect x="35" y="35" width="30" height="30" fill="#0a0a0a" stroke="#d4af37" strokeWidth="1.5"/>
-              <text x="50" y="32" textAnchor="middle" fill="#d4af37" fontSize="10" fontWeight="bold">芽</text>
-              <text x="28" y="55" textAnchor="middle" fill="#d4af37" fontSize="10" fontWeight="bold">祥</text>
-              <text x="72" y="55" textAnchor="middle" fill="#d4af37" fontSize="10" fontWeight="bold">道</text>
-              <text x="50" y="76" textAnchor="middle" fill="#d4af37" fontSize="10" fontWeight="bold">机</text>
+              <rect x="35" y="35" width="30" height="30" fill="#0a0a0a" stroke="#1B2CC1" strokeWidth="1.5"/>
+              <text x="50" y="32" textAnchor="middle" fill="#1B2CC1" fontSize="10" fontWeight="bold">芽</text>
+              <text x="28" y="55" textAnchor="middle" fill="#1B2CC1" fontSize="10" fontWeight="bold">祥</text>
+              <text x="72" y="55" textAnchor="middle" fill="#1B2CC1" fontSize="10" fontWeight="bold">道</text>
+              <text x="50" y="76" textAnchor="middle" fill="#1B2CC1" fontSize="10" fontWeight="bold">机</text>
             </svg>
           </div>
-          <h1 className="text-2xl font-serif text-white mb-2">Finance Tracker</h1>
-          <p className="text-gray-400 text-sm mb-8 leading-relaxed max-w-xs">
+          <h1 className="text-2xl font-serif text-[#1A1A2E] mb-2">Finance Tracker</h1>
+          <p className="text-[#6B7280] text-sm mb-8 leading-relaxed max-w-xs">
             Automatically detects bank SMS and UPI transactions. Enable notifications so you never miss a transaction.
           </p>
 
           <div className="w-full max-w-xs space-y-3 mb-6">
-            <div className="flex items-start gap-3 text-left bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-3">
+            <div className="flex items-start gap-3 text-left bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-3">
               <span className="text-lg mt-0.5">🔔</span>
               <div>
-                <p className="text-white text-xs font-semibold">Notification Access</p>
-                <p className="text-gray-500 text-[10px] mt-0.5">Detects bank SMS alerts automatically</p>
+                <p className="text-[#1A1A2E] text-xs font-semibold">Notification Access</p>
+                <p className="text-[#6B7280] text-[10px] mt-0.5">Detects bank SMS alerts automatically</p>
               </div>
             </div>
-            <div className="flex items-start gap-3 text-left bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-3">
+            <div className="flex items-start gap-3 text-left bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-3">
               <span className="text-lg mt-0.5">💳</span>
               <div>
-                <p className="text-white text-xs font-semibold">Auto Categorization</p>
-                <p className="text-gray-500 text-[10px] mt-0.5">Parses amount, merchant, and type instantly</p>
+                <p className="text-[#1A1A2E] text-xs font-semibold">Auto Categorization</p>
+                <p className="text-[#6B7280] text-[10px] mt-0.5">Parses amount, merchant, and type instantly</p>
               </div>
             </div>
-            <div className="flex items-start gap-3 text-left bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-3">
+            <div className="flex items-start gap-3 text-left bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-3">
               <span className="text-lg mt-0.5">📊</span>
               <div>
-                <p className="text-white text-xs font-semibold">Budget Tracking</p>
-                <p className="text-gray-500 text-[10px] mt-0.5">Alerts when you approach spending limits</p>
+                <p className="text-[#1A1A2E] text-xs font-semibold">Budget Tracking</p>
+                <p className="text-[#6B7280] text-[10px] mt-0.5">Alerts when you approach spending limits</p>
               </div>
             </div>
           </div>
@@ -2018,7 +2252,7 @@ export default function App() {
               <p className="text-emerald-400 text-xs mb-4 font-mono">Notifications enabled</p>
               <button
                 onClick={() => { localStorage.setItem('ft_onboarded', '1'); setShowOnboarding(false); }}
-                className="w-full bg-[#d4af37] text-black font-bold py-3.5 rounded-2xl text-sm tracking-wide"
+                className="w-full bg-[#1B2CC1] text-black font-bold py-3.5 rounded-2xl text-sm tracking-wide"
               >
                 Get Started
               </button>
@@ -2041,20 +2275,20 @@ export default function App() {
                   localStorage.setItem('ft_onboarded', '1');
                   setShowOnboarding(false);
                 }}
-                className="w-full bg-[#d4af37] text-black font-bold py-3.5 rounded-2xl text-sm tracking-wide"
+                className="w-full bg-[#1B2CC1] text-black font-bold py-3.5 rounded-2xl text-sm tracking-wide"
               >
                 Enable Notifications
               </button>
               <button
                 onClick={() => { localStorage.setItem('ft_onboarded', '1'); setShowOnboarding(false); }}
-                className="w-full text-gray-500 text-xs py-2"
+                className="w-full text-[#6B7280] text-xs py-2"
               >
                 Skip for now
               </button>
             </div>
           )}
 
-          <p className="text-gray-700 text-[10px] mt-6 max-w-xs leading-relaxed">
+          <p className="text-[#9CA3AF] text-[10px] mt-6 max-w-xs leading-relaxed">
             Note: For automatic SMS reading, Android requires this app to be installed as a native APK and granted SMS/Notification Listener permission in device settings.
           </p>
         </div>
@@ -2092,7 +2326,7 @@ export default function App() {
 
       const cells: JSX.Element[] = [];
       for (let i = firstDay - 1; i >= 0; i--) {
-        cells.push(<div key={`p${i}`} className="aspect-square flex items-center justify-center text-[11px] text-gray-700">{prevDays - i}</div>);
+        cells.push(<div key={`p${i}`} className="aspect-square flex items-center justify-center text-[11px] text-[#9CA3AF]">{prevDays - i}</div>);
       }
       for (let d = 1; d <= daysInMonth; d++) {
         const ds = `${calViewYear}-${String(calViewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -2103,10 +2337,10 @@ export default function App() {
         cells.push(
           <button key={ds} onClick={() => pickCalDay(ds)}
             className={`aspect-square flex items-center justify-center text-[12px] font-mono rounded-lg transition-all
-              ${isStart || isEnd ? 'bg-[#d4af37] text-black font-bold' :
-                isRange ? 'bg-[#d4af37]/15 text-[#d4af37]' :
-                isToday ? 'text-[#d4af37] font-bold border border-[#d4af37]/30' :
-                'text-gray-400 hover:bg-[#1a1a1a] hover:text-white'}`}>
+              ${isStart || isEnd ? 'bg-[#1B2CC1] text-black font-bold' :
+                isRange ? 'bg-[#1B2CC1]/15 text-[#1B2CC1]' :
+                isToday ? 'text-[#1B2CC1] font-bold border border-[#1B2CC1]/30' :
+                'text-[#6B7280] hover:bg-[#EEF0FA] hover:text-[#1A1A2E]'}`}>
             {d}
           </button>
         );
@@ -2114,16 +2348,16 @@ export default function App() {
 
       return (
         <div className="fixed inset-0 z-[150] bg-black/80 flex items-end justify-center" onClick={() => setCalOpen(false)}>
-          <div className="bg-[#0f0f0f] border border-[#2a2a2a] rounded-t-2xl p-4 w-full max-w-[420px] pb-8" onClick={e => e.stopPropagation()}>
+          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-t-2xl p-4 w-full max-w-[420px] pb-8" onClick={e => e.stopPropagation()}>
 
             {/* Mode toggle */}
-            <div className="flex bg-[#141414] border border-[#222] rounded-xl overflow-hidden mb-4">
+            <div className="flex bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl overflow-hidden mb-4">
               <button onClick={() => { setCalMode('single'); setCalSel2(null); }}
-                className={`flex-1 py-2 text-[10px] font-mono uppercase tracking-wider transition-all ${calMode === 'single' ? 'bg-[#d4af37]/12 text-[#d4af37] font-bold' : 'text-gray-500'}`}>
+                className={`flex-1 py-2 text-[10px] font-mono uppercase tracking-wider transition-all ${calMode === 'single' ? 'bg-[#1B2CC1]/12 text-[#1B2CC1] font-bold' : 'text-[#6B7280]'}`}>
                 Single Day
               </button>
               <button onClick={() => setCalMode('range')}
-                className={`flex-1 py-2 text-[10px] font-mono uppercase tracking-wider transition-all ${calMode === 'range' ? 'bg-[#d4af37]/12 text-[#d4af37] font-bold' : 'text-gray-500'}`}>
+                className={`flex-1 py-2 text-[10px] font-mono uppercase tracking-wider transition-all ${calMode === 'range' ? 'bg-[#1B2CC1]/12 text-[#1B2CC1] font-bold' : 'text-[#6B7280]'}`}>
                 Date Range
               </button>
             </div>
@@ -2131,16 +2365,16 @@ export default function App() {
             {/* Month nav */}
             <div className="flex justify-between items-center mb-3">
               <button onClick={() => { if (calViewMonth === 0) { setCalViewMonth(11); setCalViewYear(y => y - 1); } else setCalViewMonth(m => m - 1); }}
-                className="w-8 h-8 flex items-center justify-center bg-[#141414] border border-[#222] rounded-lg text-[#d4af37] text-lg">‹</button>
-              <span className="font-serif text-[14px] text-white">{MN_FULL[calViewMonth]} {calViewYear}</span>
+                className="w-8 h-8 flex items-center justify-center bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg text-[#1B2CC1] text-lg">‹</button>
+              <span className="font-serif text-[14px] text-[#1A1A2E]">{MN_FULL[calViewMonth]} {calViewYear}</span>
               <button onClick={() => { if (calViewMonth === 11) { setCalViewMonth(0); setCalViewYear(y => y + 1); } else setCalViewMonth(m => m + 1); }}
-                className="w-8 h-8 flex items-center justify-center bg-[#141414] border border-[#222] rounded-lg text-[#d4af37] text-lg">›</button>
+                className="w-8 h-8 flex items-center justify-center bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg text-[#1B2CC1] text-lg">›</button>
             </div>
 
             {/* Weekday labels */}
             <div className="grid grid-cols-7 mb-1">
               {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
-                <div key={d} className="text-center text-[9px] text-gray-600 py-1">{d}</div>
+                <div key={d} className="text-center text-[9px] text-[#9CA3AF] py-1">{d}</div>
               ))}
             </div>
 
@@ -2148,23 +2382,23 @@ export default function App() {
             <div className="grid grid-cols-7 gap-0.5 mb-3">{cells}</div>
 
             {/* Selection info */}
-            <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl px-3 py-2 flex justify-between items-center mb-3">
+            <div className="bg-[#F5F5FA] border border-[#E0E0E0] rounded-xl px-3 py-2 flex justify-between items-center mb-3">
               <div>
-                <div className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">{info.label}</div>
-                <div className="text-[11px] text-[#d4af37] font-mono mt-0.5">{info.value}</div>
+                <div className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider">{info.label}</div>
+                <div className="text-[11px] text-[#1B2CC1] font-mono mt-0.5">{info.value}</div>
               </div>
               {(calSel1 || calSel2) && (
                 <button onClick={() => { setCalSel1(null); setCalSel2(null); }}
-                  className="text-[9px] font-mono text-gray-500 uppercase tracking-wider hover:text-[#d4af37]">Clear</button>
+                  className="text-[9px] font-mono text-[#6B7280] uppercase tracking-wider hover:text-[#1B2CC1]">Clear</button>
               )}
             </div>
 
             {/* Actions */}
             <div className="grid grid-cols-3 gap-2">
               <button onClick={() => setCalOpen(false)}
-                className="py-2.5 border border-[#333] text-gray-500 font-mono text-[10px] uppercase rounded-xl hover:border-[#d4af37] hover:text-[#d4af37] transition-all">Cancel</button>
+                className="py-2.5 border border-[#C8C8D8] text-[#6B7280] font-mono text-[10px] uppercase rounded-xl hover:border-[#1B2CC1] hover:text-[#1B2CC1] transition-all">Cancel</button>
               <button onClick={confirmCal} disabled={!info.ready}
-                className="col-span-2 py-2.5 bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase rounded-xl disabled:opacity-30 hover:opacity-90 transition-all">
+                className="col-span-2 py-2.5 bg-[#1B2CC1] text-white font-mono font-bold text-[10px] uppercase rounded-xl disabled:opacity-30 hover:opacity-90 transition-all">
                 Apply Filter
               </button>
             </div>
@@ -2176,10 +2410,10 @@ export default function App() {
           {/* ── CSV Import Preview Modal ── */}
     {csvImportPreview && (
       <div className="fixed inset-0 z-[180] bg-black/85 flex items-end justify-center">
-        <div className="bg-[#0f0f0f] border border-[#2a2a2a] rounded-t-2xl p-4 w-full max-w-[420px] pb-8 space-y-3 max-h-[80vh] overflow-y-auto">
+        <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-t-2xl p-4 w-full max-w-[420px] pb-8 space-y-3 max-h-[80vh] overflow-y-auto">
           <div className="flex justify-between items-center">
-            <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Import Preview</span>
-            <button onClick={() => setCsvImportPreview(null)} className="text-gray-500 hover:text-white text-sm">✕</button>
+            <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">Import Preview</span>
+            <button onClick={() => setCsvImportPreview(null)} className="text-[#6B7280] hover:text-[#1A1A2E] text-sm">✕</button>
           </div>
 
           {csvImportPreview.errors.length > 0 && (
@@ -2196,25 +2430,25 @@ export default function App() {
 
           {csvImportPreview.rows.length > 0 ? (
             <>
-              <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3">
+              <div className="bg-[#F5F5FA] border border-[#E0E0E0] rounded-xl p-3">
                 <p className="text-[10px] font-mono text-emerald-400 font-semibold">{csvImportPreview.rows.length} valid transaction{csvImportPreview.rows.length !== 1 ? 's' : ''} ready to import</p>
                 <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
                   {csvImportPreview.rows.slice(0, 5).map((t, i) => (
-                    <div key={i} className="flex justify-between text-[9px] font-mono text-gray-400">
+                    <div key={i} className="flex justify-between text-[9px] font-mono text-[#6B7280]">
                       <span>{t.date} · {t.category}</span>
                       <span className={t.type === 'expense' ? 'text-rose-400' : 'text-emerald-400'}>
-                        {t.type === 'expense' ? '−' : '+'}₹{t.amount.toLocaleString('en-IN')}
+                        {t.type === 'expense' ? '−' : '+'}₹{Math.round(t.amount).toLocaleString('en-IN')}
                       </span>
                     </div>
                   ))}
                   {csvImportPreview.rows.length > 5 && (
-                    <p className="text-[9px] font-mono text-gray-600">...and {csvImportPreview.rows.length - 5} more</p>
+                    <p className="text-[9px] font-mono text-[#9CA3AF]">...and {csvImportPreview.rows.length - 5} more</p>
                   )}
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <button onClick={() => applyCsvImport('add')}
-                  className="py-2.5 border border-[#d4af37]/40 text-[#d4af37] font-mono text-[9px] uppercase rounded-xl hover:bg-[#d4af37]/10 transition-all">
+                  className="py-2.5 border border-[#1B2CC1]/40 text-[#1B2CC1] font-mono text-[9px] uppercase rounded-xl hover:bg-[#1B2CC1]/10 transition-all">
                   Add
                 </button>
                 <button onClick={() => applyCsvImport('merge')}
@@ -2226,14 +2460,14 @@ export default function App() {
                   Replace
                 </button>
               </div>
-              <div className="text-[8px] font-mono text-gray-600 space-y-0.5">
-                <p><span className="text-[#d4af37]">Add</span> — keeps existing + adds imported</p>
+              <div className="text-[8px] font-mono text-[#9CA3AF] space-y-0.5">
+                <p><span className="text-[#1B2CC1]">Add</span> — keeps existing + adds imported</p>
                 <p><span className="text-[#9ab7d8]">Merge</span> — adds imported, skips duplicates</p>
                 <p><span className="text-red-400">Replace</span> — deletes all existing, imports fresh</p>
               </div>
             </>
           ) : (
-            <p className="text-[10px] font-mono text-gray-500 text-center py-4">No valid transactions found in file.</p>
+            <p className="text-[10px] font-mono text-[#6B7280] text-center py-4">No valid transactions found in file.</p>
           )}
         </div>
       </div>
@@ -2242,54 +2476,54 @@ export default function App() {
           {/* ── Manage Category Merge Modal ── */}
     {mcModal === 'merge1' && (
       <div className="fixed inset-0 z-[200] bg-black/85 flex items-center justify-center p-5">
-        <div className="bg-[#0f0f0f] border border-[#d4af37] rounded-2xl p-5 w-full max-w-[360px] space-y-4">
+        <div className="bg-[#FFFFFF] border border-[#1B2CC1] rounded-2xl p-5 w-full max-w-[360px] space-y-4">
           <div className="text-center text-3xl">⇄</div>
-          <h3 className="font-serif text-[16px] text-white text-center">Merge Categories?</h3>
-          <p className="text-[11px] text-gray-400 text-center leading-relaxed">
-            All transactions in <span className="text-[#d4af37] font-bold">{mcEditSel}</span> will move to <span className="text-[#d4af37] font-bold">{mcMergeTarget}</span>.<br/><br/>
-            <span className="text-[#d4af37]">{mcEditSel}</span> will be permanently removed.<br/>
+          <h3 className="font-serif text-[16px] text-[#1A1A2E] text-center">Merge Categories?</h3>
+          <p className="text-[11px] text-[#6B7280] text-center leading-relaxed">
+            All transactions in <span className="text-[#1B2CC1] font-bold">{mcEditSel}</span> will move to <span className="text-[#1B2CC1] font-bold">{mcMergeTarget}</span>.<br/><br/>
+            <span className="text-[#1B2CC1]">{mcEditSel}</span> will be permanently removed.<br/>
             <span className="text-[#D96A55] text-[10px]">This cannot be undone.</span>
           </p>
           <button onClick={mcDoMerge} className="w-full border border-[#4a7090] bg-[#9ab7d8]/10 text-[#9ab7d8] font-mono font-bold text-[11px] uppercase py-3 rounded-xl">Merge Permanently</button>
-          <button onClick={() => setMcModal('none')} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2.5 rounded-xl">Cancel</button>
+          <button onClick={() => setMcModal('none')} className="w-full border border-[#C8C8D8] text-[#6B7280] font-mono text-[10px] uppercase py-2.5 rounded-xl">Cancel</button>
         </div>
       </div>
     )}
 
           {/* ── Global Toast ── */}
     {toastMsg && (
-      <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[300] bg-[#0f0f0f] border border-[#d4af37]/40 rounded-xl px-4 py-2.5 shadow-xl animate-fade-in">
-        <p className="text-[11px] font-mono text-[#d4af37] whitespace-nowrap">{toastMsg}</p>
+      <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[300] bg-[#FFFFFF] border border-[#1B2CC1]/40 rounded-xl px-4 py-2.5 shadow-xl animate-fade-in">
+        <p className="text-[11px] font-mono text-[#1B2CC1] whitespace-nowrap">{toastMsg}</p>
       </div>
     )}
 
           {/* Export Overdue Modal — shown on app open when backup is overdue */}
     {showExportModal && (
       <div className="fixed inset-0 z-[200] bg-black/85 flex items-center justify-center p-5 animate-fade-in">
-        <div className="bg-[#0f0f0f] border border-yellow-700/50 rounded-2xl p-5 w-full max-w-[380px] shadow-2xl space-y-4">
+        <div className="bg-[#FFFFFF] border border-blue-700/50 rounded-2xl p-5 w-full max-w-[380px] shadow-2xl space-y-4">
           <div className="flex items-center gap-3">
             <span className="text-3xl">⚠️</span>
             <div>
-              <p className="text-yellow-300 font-mono font-bold text-[13px]">Backup Overdue</p>
-              <p className="text-gray-500 text-[10px] font-mono mt-0.5">
+              <p className="text-blue-300 font-mono font-bold text-[13px]">Backup Overdue</p>
+              <p className="text-[#6B7280] text-[10px] font-mono mt-0.5">
                 {lastExportDate
                   ? `Last export: ${lastExportDate} · ${exportOverdueDays}d ago`
                   : 'You have never backed up your data'}
               </p>
             </div>
           </div>
-          <p className="text-gray-400 text-[11px] leading-relaxed">
+          <p className="text-[#6B7280] text-[11px] leading-relaxed">
             Your data only lives on this device. If you uninstall or change phones, it's gone forever. Export now to keep a safe copy.
           </p>
           <button
             onClick={() => { handleCsvExport(); dismissExportModal(); }}
-            className="w-full bg-[#d4af37] text-black font-mono font-bold text-[11px] uppercase tracking-wider py-3 rounded-xl hover:opacity-90 transition-all"
+            className="w-full bg-[#1B2CC1] text-white font-mono font-bold text-[11px] uppercase tracking-wider py-3 rounded-xl hover:opacity-90 transition-all"
           >
             Export Now
           </button>
           <button
             onClick={dismissExportModal}
-            className="w-full border border-[#333] text-gray-400 font-mono text-[11px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#141414] transition-all"
+            className="w-full border border-[#C8C8D8] text-[#6B7280] font-mono text-[11px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#F5F5F5] transition-all"
           >
             Remind Me Tomorrow
           </button>
@@ -2299,17 +2533,17 @@ export default function App() {
 
           {/* Export Modal — visible from any tab. Lets user share, copy, or download CSV */}
     {exportTextModal && (
-      <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 animate-fade-in" onClick={() => setExportTextModal(null)}>
-        <div className="bg-[#0a0a0a] border border-[#d4af37]/40 rounded-2xl p-4 max-w-[420px] w-full max-h-[85vh] flex flex-col gap-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-          <div className="flex justify-between items-center border-b border-[#222] pb-2">
+      <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4 animate-fade-in" onClick={() => setExportTextModal(null)}>
+        <div className="bg-[#F5F5FA] border border-[#1B2CC1]/40 rounded-2xl p-4 max-w-[420px] w-full max-h-[85vh] flex flex-col gap-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="flex justify-between items-center border-b border-[#D5D5E0] pb-2">
             <div>
-              <p className="text-[10px] font-mono text-[#d4af37] uppercase tracking-wider font-bold">Export Ready</p>
-              <p className="text-[9px] font-mono text-gray-500 truncate">{exportTextModal.filename}</p>
+              <p className="text-[10px] font-mono text-[#1B2CC1] uppercase tracking-wider font-bold">Export Ready</p>
+              <p className="text-[9px] font-mono text-[#6B7280] truncate">{exportTextModal.filename}</p>
             </div>
-            <button onClick={() => setExportTextModal(null)} className="text-gray-400 hover:text-white text-xl leading-none px-1">×</button>
+            <button onClick={() => setExportTextModal(null)} className="text-[#6B7280] hover:text-[#1A1A2E] text-xl leading-none px-1">×</button>
           </div>
 
-          <p className="text-[10px] font-mono text-gray-400">
+          <p className="text-[10px] font-mono text-[#6B7280]">
             Pick a way to save your data. Share is the most reliable on phone.
           </p>
 
@@ -2374,7 +2608,7 @@ export default function App() {
               // 3) Last-resort message
               alert('Share not available on this device. Use Copy All Text instead and paste into Drive/Notes.');
             }}
-            className="w-full bg-[#d4af37] text-black font-mono font-bold text-[11px] uppercase tracking-wider py-3 rounded-xl hover:opacity-90 transition-all"
+            className="w-full bg-[#1B2CC1] text-white font-mono font-bold text-[11px] uppercase tracking-wider py-3 rounded-xl hover:opacity-90 transition-all"
           >
             Share / Save to Drive
           </button>
@@ -2396,18 +2630,18 @@ export default function App() {
                 document.body.removeChild(ta);
               }
             }}
-            className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[11px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#d4af37]/10 transition-all"
+            className="w-full border border-[#1B2CC1]/40 text-[#1B2CC1] font-mono text-[11px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#1B2CC1]/10 transition-all"
           >
             Copy All Text
           </button>
 
           {/* Preview / Manual copy */}
-          <details className="border border-[#1a1a1a] rounded-xl">
-            <summary className="cursor-pointer text-[10px] font-mono text-gray-400 px-3 py-2">View raw data</summary>
+          <details className="border border-[#E0E0E0] rounded-xl">
+            <summary className="cursor-pointer text-[10px] font-mono text-[#6B7280] px-3 py-2">View raw data</summary>
             <textarea
               readOnly
               value={exportTextModal.content}
-              className="w-full bg-[#050505] border-t border-[#1a1a1a] text-[10px] font-mono text-gray-300 p-2 h-40 outline-none resize-none"
+              className="w-full bg-[#F5F5F5] border-t border-[#E0E0E0] text-[10px] font-mono text-[#4B5563] p-2 h-40 outline-none resize-none"
               onClick={e => (e.target as HTMLTextAreaElement).select()}
             />
           </details>
@@ -2418,27 +2652,27 @@ export default function App() {
           {/* Simulated App Banner Alert for push notifications */}
     {incomingSmsBanner && (
       <div className="w-full max-w-[420px] bg-[#0c0c0c] border border-yellow-950/40 rounded-xl p-4 mb-4 shadow-2xl relative animate-bounce flex gap-3.5">
-        <div className="h-10 w-10 shrink-0 bg-yellow-950/30 border border-yellow-900/30 rounded-full flex items-center justify-center text-[#d4af37]">
+        <div className="h-10 w-10 shrink-0 bg-yellow-950/30 border border-blue-900/30 rounded-full flex items-center justify-center text-[#1B2CC1]">
           <Bell size={18} />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex justify-between items-center mb-1">
-            <span className="text-xs font-mono font-medium text-yellow-500">Android System SMS Alert</span>
+            <span className="text-xs font-mono font-medium text-blue-500">Android System SMS Alert</span>
             <button 
               onClick={() => setIncomingSmsBanner(null)} 
-              className="text-[10px] font-mono text-gray-600 hover:text-white"
+              className="text-[10px] font-mono text-[#9CA3AF] hover:text-[#1A1A2E]"
             >
               Dismiss
             </button>
           </div>
-          <p className="text-[11px] text-gray-300 truncate font-sans italic">"{incomingSmsBanner.text}"</p>
+          <p className="text-[11px] text-[#4B5563] truncate font-sans italic">"{incomingSmsBanner.text}"</p>
           <div className="mt-2 flex gap-3 text-[10px]">
             <button 
               onClick={() => {
                 setIncomingSmsBanner(null);
                 setNavTab('sms');
               }} 
-              className="text-[#d4af37] font-semibold tracking-wider hover:underline"
+              className="text-[#1B2CC1] font-semibold tracking-wider hover:underline"
             >
               OPEN AI WORKFLOW
             </button>
@@ -2447,10 +2681,17 @@ export default function App() {
       </div>
     )}
 
-      <div className="flex-1 flex flex-col overflow-hidden bg-[#050505]">
+      <div className="flex-1 flex flex-col overflow-hidden" style={{
+        background: isRoyal ? '#F4F6FB' : '#050505',
+        '--accent': isRoyal ? '#1B2CC1' : '#d4af37',
+        '--surface': isRoyal ? '#FFFFFF' : '#0f0f0f',
+        '--border': isRoyal ? '#E2E8F0' : '#1a1a1a',
+        '--text': isRoyal ? '#1A1A2E' : '#e5e5e5',
+        '--muted': isRoyal ? '#64748B' : '#555555',
+      } as React.CSSProperties}>
 
     {/* Simulated Screen Content - Dynamic Tab View Rendering */}
-    <div className="flex-1 overflow-y-auto px-4.5 py-4 custom-inner-screen" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1rem)' }}>
+    <div className="flex-1 overflow-y-auto px-4.5 py-4 custom-inner-screen" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)', background: isRoyal ? '#F4F6FB' : '#050505' }}>
       
       {/* --- TAB 1: DASHBOARD --- */}
       {navTab === 'dashboard' && (() => {
@@ -2492,16 +2733,16 @@ export default function App() {
         const overallSpentSum = monthBudgetsList.reduce((sum, b) => sum + b.spent, 0);
 
         return (
-          <div className="space-y-4 animate-fade-in pt-4">
+          <div className="space-y-4 animate-fade-in pt-2">
             
             {/* Sub-tab navigation selector */}
-            <div className="grid grid-cols-2 gap-1.5 bg-[#0a0a0a] p-1 rounded-xl border border-[#181818]">
+            <div className="grid grid-cols-2 gap-1.5 bg-[#F5F5FA] p-1 rounded-xl border border-[#E8E8F0]">
               <button
                 onClick={() => setDashboardView('transactions')}
                 className={`py-1.5 text-[10px] font-semibold rounded-lg transition-all font-mono uppercase tracking-wider flex items-center justify-center gap-1 border ${
                   dashboardView === 'transactions'
-                    ? 'bg-[#151515] text-[#d4af37] border-[#d4af37]/20 shadow-md'
-                    : 'text-gray-500 border-transparent hover:text-gray-300'
+                    ? 'bg-[#151515] text-[#1B2CC1] border-[#1B2CC1]/20 shadow-md'
+                    : 'text-[#6B7280] border-transparent hover:text-[#4B5563]'
                 }`}
               >
                 Overview
@@ -2510,8 +2751,8 @@ export default function App() {
                 onClick={() => setDashboardView('budgets')}
                 className={`py-1.5 text-[10px] font-semibold rounded-lg transition-all font-mono uppercase tracking-wider flex items-center justify-center gap-1 border ${
                   dashboardView === 'budgets'
-                    ? 'bg-[#151515] text-[#d4af37] border-[#d4af37]/20 shadow-md'
-                    : 'text-gray-500 border-transparent hover:text-gray-300'
+                    ? 'bg-[#151515] text-[#1B2CC1] border-[#1B2CC1]/20 shadow-md'
+                    : 'text-[#6B7280] border-transparent hover:text-[#4B5563]'
                 }`}
               >
                 Budgets
@@ -2609,7 +2850,7 @@ export default function App() {
               const othersVal=catList.slice(5).reduce((s,x)=>s+x[1],0);
               const donutData=othersVal>0?[...top5,['Others',othersVal] as [string,number]]:top5;
               const donutTotal=donutData.reduce((s,x)=>s+x[1],0);
-              const palette=['#d4af37','#a8c5a0','#9ab7d8','#c9a4d4','#e8b4a0','#8a8272'];
+              const palette=['#1B2CC1','#a8c5a0','#9ab7d8','#c9a4d4','#e8b4a0','#8a8272'];
 
               const periodLabel = dashDay?dashDay:dashWeek?`W${dashWeek}·${selMonth}`:selMonth;
 
@@ -2617,18 +2858,18 @@ export default function App() {
               <div className="space-y-4">
 
                 {/* ── FILTER BAR ── */}
-                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-3 space-y-2.5">
+                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-3 space-y-2.5">
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <select value={selMonth} onChange={e=>{setFilterMonth(e.target.value);setDashWeek(null);setDashDay(null);}}
-                        className="w-full bg-[#141414] border border-[#222] rounded-lg py-2 px-3 pr-7 text-[11px] font-mono font-bold text-white appearance-none outline-none focus:border-[#d4af37] cursor-pointer">
+                        className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg py-2 px-3 pr-7 text-[11px] font-mono font-bold text-[#1A1A2E] appearance-none outline-none focus:border-[#1B2CC1] cursor-pointer">
                         {availableMonths.map(m=><option key={m} value={m}>{m}</option>)}
                         {!availableMonths.includes(currentMonthLabel)&&<option value={currentMonthLabel}>{currentMonthLabel}</option>}
                       </select>
-                      <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#d4af37] pointer-events-none"/>
+                      <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#1B2CC1] pointer-events-none"/>
                     </div>
                     <button onClick={() => openCal('home')}
-                      className={`flex-1 flex items-center gap-1.5 bg-[#141414] border rounded-lg py-2 px-2.5 text-[11px] font-mono outline-none transition-all ${dashDay ? 'border-[#d4af37] text-[#d4af37]' : 'border-[#222] text-gray-400'}`}>
+                      className={`flex-1 flex items-center gap-1.5 bg-[#F5F5F5] border rounded-lg py-2 px-2.5 text-[11px] font-mono outline-none transition-all ${dashDay ? 'border-[#1B2CC1] text-[#1B2CC1]' : 'border-[#D5D5E0] text-[#6B7280]'}`}>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                       <span className="truncate">{dashDay ? (dashDay.includes('|') ? dashDay.split('|')[0].split('-').slice(1).reverse().join(' ') + ' – ' + dashDay.split('|')[1].split('-').slice(1).reverse().join(' ') : dashDay.split('-').slice(1).reverse().join(' ')) : 'Pick date'}</span>
                     </button>
@@ -2636,50 +2877,50 @@ export default function App() {
                   <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{scrollbarWidth:'none'}}>
                     {categories.map(cat=>{const on=filterCategories.includes(cat);return(
                       <button key={cat} type="button" onClick={()=>setFilterCategories(prev=>on?prev.filter(x=>x!==cat):[...prev,cat])}
-                        className={`px-2.5 py-1 rounded-full text-[9px] font-mono border whitespace-nowrap shrink-0 transition-all ${on?'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37] font-bold':'bg-[#0a0a0a] border-[#222] text-gray-500'}`}>
+                        className={`px-2.5 py-1 rounded-full text-[9px] font-mono border whitespace-nowrap shrink-0 transition-all ${on?'bg-[#1B2CC1]/20 border-[#1B2CC1] text-[#1B2CC1] font-bold':'bg-[#F5F5FA] border-[#D5D5E0] text-[#6B7280]'}`}>
                         {cat}
                       </button>);
                     })}
                   </div>
                   {(dashDay||dashWeek||filterCategories.length>0||selMonth!==currentMonthLabel)&&(
                     <button onClick={()=>{setFilterMonth(currentMonthLabel);setDashWeek(null);setDashDay(null);setFilterCategories([]);}}
-                      className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">↺ Reset to {currentMonthLabel}</button>
+                      className="text-[9px] text-[#1B2CC1] font-mono uppercase tracking-wider hover:underline">↺ Reset to {currentMonthLabel}</button>
                   )}
                 </div>
 
                 {/* ── INFLOW | OUTFLOW cards ── */}
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3">
+                  <div className="bg-[#F5F5FA] border border-[#E0E0E0] rounded-xl p-3">
                     <div className="flex items-center gap-1 mb-1">
                       <TrendingUp size={11} className="text-emerald-400"/>
-                      <span className="text-[9px] font-mono uppercase tracking-widest text-gray-500">Inflow</span>
+                      <span className="text-[9px] font-mono uppercase tracking-widest text-[#6B7280]">Inflow</span>
                     </div>
-                    <p className="text-xl font-mono font-semibold text-emerald-400">₹{received.toLocaleString('en-IN')}</p>
-                    <p className="text-[8px] font-mono text-gray-600 mt-1">{periodLabel}</p>
+                    <p className="text-xl font-mono font-semibold text-emerald-400">₹{Math.round(received).toLocaleString('en-IN')}</p>
+                    <p className="text-[8px] font-mono text-[#9CA3AF] mt-1">{periodLabel}</p>
                   </div>
-                  <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3">
+                  <div className="bg-[#F5F5FA] border border-[#E0E0E0] rounded-xl p-3">
                     <div className="flex items-center gap-1 mb-1">
                       <TrendingDown size={11} className="text-rose-400"/>
-                      <span className="text-[9px] font-mono uppercase tracking-widest text-gray-500">Outflow</span>
+                      <span className="text-[9px] font-mono uppercase tracking-widest text-[#6B7280]">Outflow</span>
                     </div>
-                    <p className="text-xl font-mono font-semibold text-rose-400">₹{sent.toLocaleString('en-IN')}</p>
+                    <p className="text-xl font-mono font-semibold text-rose-400">₹{Math.round(sent).toLocaleString('en-IN')}</p>
                     <div className="flex justify-between mt-1">
-                      {deltaPct!==null?<span className={`text-[9px] font-mono font-bold ${deltaPct>0?'text-rose-400':'text-emerald-400'}`}>{deltaPct>0?'▲':'▼'}{Math.abs(deltaPct)}% {deltaLabel}</span>:<span className="text-[9px] text-gray-600 font-mono">—</span>}
-                      <span className="text-[8px] font-mono text-gray-500">₹{avgDay.toLocaleString('en-IN')}/d</span>
+                      {deltaPct!==null?<span className={`text-[9px] font-mono font-bold ${deltaPct>0?'text-rose-400':'text-emerald-400'}`}>{deltaPct>0?'▲':'▼'}{Math.abs(deltaPct)}% {deltaLabel}</span>:<span className="text-[9px] text-[#9CA3AF] font-mono">—</span>}
+                      <span className="text-[8px] font-mono text-[#6B7280]">₹{Math.round(avgDay).toLocaleString('en-IN')}/d</span>
                     </div>
                   </div>
                 </div>
 
                 {/* ── OPENING | CLOSING cards (collapsible via eye icon) ── */}
-                <div className="bg-[#0b0b0b] border border-[#1a1a1a] rounded-xl overflow-hidden">
+                <div className="bg-[#F8F8FD] border border-[#E0E0E0] rounded-xl overflow-hidden">
                   <div className="flex justify-between items-center px-3 py-2.5">
                     <div>
-                      <span className="text-[9px] font-mono uppercase tracking-widest text-gray-500">Balance · {selMonth}</span>
+                      <span className="text-[9px] font-mono uppercase tracking-widest text-[#6B7280]">Balance · {selMonth}</span>
                       {!balanceVisible && curBal && (
-                        <span className="text-[9px] font-mono text-[#d4af37] ml-2">₹{curBal.closing.toLocaleString('en-IN')}</span>
+                        <span className="text-[9px] font-mono text-[#1B2CC1] ml-2">₹{Math.round(curBal.closing).toLocaleString('en-IN')}</span>
                       )}
                     </div>
-                    <button onClick={()=>setBalanceVisible(v=>!v)} className="text-gray-500 hover:text-[#d4af37] transition-colors p-0.5">
+                    <button onClick={()=>setBalanceVisible(v=>!v)} className="text-[#6B7280] hover:text-[#1B2CC1] transition-colors p-0.5">
                       {balanceVisible
                         ? <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/><line x1="3" y1="3" x2="21" y2="21"/></svg>
                         : <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -2687,29 +2928,29 @@ export default function App() {
                     </button>
                   </div>
                   {balanceVisible && (
-                    <div className="grid grid-cols-2 gap-2 px-3 pb-3 border-t border-[#1a1a1a] pt-2.5">
-                      <div className="bg-[#141414] rounded-lg p-2.5">
-                        <p className="text-[8px] font-mono text-gray-500 uppercase tracking-wider">Opening · 1 {selMn}</p>
+                    <div className="grid grid-cols-2 gap-2 px-3 pb-3 border-t border-[#E0E0E0] pt-2.5">
+                      <div className="bg-[#F5F5F5] rounded-lg p-2.5">
+                        <p className="text-[8px] font-mono text-[#6B7280] uppercase tracking-wider">Opening · 1 {selMn}</p>
                         {curBal
-                          ? <p className="text-[#d4af37] font-mono font-bold text-sm mt-0.5">₹{curBal.opening.toLocaleString('en-IN')}</p>
+                          ? <p className="text-[#1B2CC1] font-mono font-bold text-sm mt-0.5">₹{Math.round(curBal.opening).toLocaleString('en-IN')}</p>
                           : firstOpen===undefined
                             ? <div className="mt-1">
                                 <input type="number" inputMode="numeric" placeholder="Enter ₹"
-                                  className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-1.5 text-[11px] font-mono text-white outline-none focus:border-[#d4af37]"
+                                  className="w-full bg-[#F5F5FA] border border-[#C8C8D8] rounded-lg p-1.5 text-[11px] font-mono text-[#1A1A2E] outline-none focus:border-[#1B2CC1]"
                                   onBlur={e=>{if(e.target.value)setMonthBalance(selMonth,'opening',parseFloat(e.target.value));}}/>
-                                <p className="text-[7px] text-gray-600 font-mono mt-0.5">Enter once → all months auto-calculate</p>
+                                <p className="text-[7px] text-[#9CA3AF] font-mono mt-0.5">Enter once → all months auto-calculate</p>
                               </div>
-                            : <p className="text-gray-600 font-mono text-[11px] mt-0.5">before tracked period</p>
+                            : <p className="text-[#9CA3AF] font-mono text-[11px] mt-0.5">before tracked period</p>
                         }
                       </div>
-                      <div className="bg-[#141414] rounded-lg p-2.5">
-                        <p className="text-[8px] font-mono text-gray-500 uppercase tracking-wider">Closing · now</p>
+                      <div className="bg-[#F5F5F5] rounded-lg p-2.5">
+                        <p className="text-[8px] font-mono text-[#6B7280] uppercase tracking-wider">Closing · now</p>
                         {curBal
                           ? <>
-                              <p className="text-emerald-400 font-mono font-bold text-sm mt-0.5">₹{curBal.closing.toLocaleString('en-IN')}</p>
-                              <p className="text-[7px] text-gray-600 font-mono mt-0.5">estimated · check vs bank</p>
+                              <p className="text-emerald-400 font-mono font-bold text-sm mt-0.5">₹{Math.round(curBal.closing).toLocaleString('en-IN')}</p>
+                              <p className="text-[7px] text-[#9CA3AF] font-mono mt-0.5">estimated · check vs bank</p>
                             </>
-                          : <p className="text-gray-600 font-mono text-[11px] mt-0.5">enter opening first</p>
+                          : <p className="text-[#9CA3AF] font-mono text-[11px] mt-0.5">enter opening first</p>
                         }
                       </div>
                     </div>
@@ -2717,24 +2958,24 @@ export default function App() {
                 </div>
 
                 {/* ── EXPENDITURE BY CATEGORY (kept exactly as before) ── */}
-                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
-                  <h3 className="font-serif text-[11px] tracking-wide text-[#e5e5e5] italic border-b border-[#222] pb-1.5 mb-3 flex items-center gap-1.5">
-                    <BrandIcon size={11} className="text-[#d4af37]"/> Expenditure by Category
+                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-4">
+                  <h3 className="font-serif text-[11px] tracking-wide text-[#1A1A2E] italic border-b border-[#D5D5E0] pb-1.5 mb-3 flex items-center gap-1.5">
+                    <BrandIcon size={11} className="text-[#1B2CC1]"/> Expenditure by Category
                   </h3>
                   {categorySpendingList.length===0
-                    ? <p className="text-[10px] text-gray-500 italic text-center py-2 font-mono">No expenses in this period.</p>
+                    ? <p className="text-[10px] text-[#6B7280] italic text-center py-2 font-mono">No expenses in this period.</p>
                     : <div className="space-y-2.5">
-                        {categorySpendingList.slice(0,6).map(item=>(
+                        {categorySpendingList.slice(0,6).map(item =>(
                           <div key={item.category} className="w-full">
                             <div className="flex justify-between items-center text-[10px] mb-0.5 font-mono">
-                              <span className="text-gray-400 truncate flex items-center gap-1">
+                              <span className="text-[#6B7280] truncate flex items-center gap-1">
                                 <span className="shrink-0">{categoryIcons[item.category]||'⭐'}</span>
                                 <span className="truncate">{item.category}</span>
                               </span>
-                              <span className="text-white whitespace-nowrap pl-2">₹{item.amount.toLocaleString('en-IN')} ({item.percentage}%)</span>
+                              <span className="text-[#1A1A2E] whitespace-nowrap pl-2">₹{Math.round(item.amount).toLocaleString('en-IN')} ({item.percentage}%)</span>
                             </div>
-                            <div className="w-full h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
-                              <div className="bg-[#d4af37] h-full transition-all duration-300" style={{width:`${Math.max(item.percentage,2)}%`}}/>
+                            <div className="w-full h-1.5 bg-[#EEF0FA] rounded-full overflow-hidden">
+                              <div className="bg-[#1B2CC1] h-full transition-all duration-300" style={{width:`${Math.max(item.percentage,2)}%`}}/>
                             </div>
                           </div>
                         ))}
@@ -2743,73 +2984,73 @@ export default function App() {
                 </div>
 
                 {/* ── MONTH-ON-MONTH bar chart ── */}
-                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
-                  <h3 className="font-serif text-[12px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5 border-b border-[#222] pb-1.5 mb-3">
-                    <BrandIcon size={12} className="text-[#d4af37]"/> Month vs Spending
+                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-4">
+                  <h3 className="font-serif text-[12px] tracking-wide text-[#1A1A2E] italic flex items-center gap-1.5 border-b border-[#D5D5E0] pb-1.5 mb-3">
+                    <BrandIcon size={12} className="text-[#1B2CC1]"/> Month vs Spending
                   </h3>
                   <div className="flex items-end justify-between gap-2 h-28">
                     {momBars.map(b=>{const on=b.key===selMonth;return(
                       <button key={b.key} onClick={()=>{setFilterMonth(b.key);setDashWeek(null);setDashDay(null);}}
                         className="flex flex-col items-center gap-1 flex-1 h-full justify-end group">
-                        <span className={`text-[8px] font-mono ${on?'text-[#d4af37] font-bold':'text-gray-500'}`}>{b.val>0?`₹${(b.val/1000).toFixed(1)}k`:'—'}</span>
-                        <div className={`w-full rounded-t transition-all ${on?'bg-[#d4af37]':'bg-[#3a3324] group-hover:bg-[#57491f]'}`} style={{height:`${Math.max(b.val>0?4:1,(b.val/momMax)*70)}%`}}/>
-                        <span className={`text-[9px] font-mono ${on?'text-[#d4af37] font-bold':'text-gray-500'}`}>{b.label}</span>
+                        <span className={`text-[8px] font-mono ${on?'text-[#1B2CC1] font-bold':'text-[#6B7280]'}`}>{b.val>0?`₹${(b.val/1000)}k`:'—'}</span>
+                        <div className={`w-full rounded-t transition-all ${on?'bg-[#1B2CC1]':'bg-[#DDE0F7] group-hover:bg-[#A5ABE8]'}`} style={{height:`${Math.max(b.val>0?4:1,(b.val/momMax)*70)}%`}}/>
+                        <span className={`text-[9px] font-mono ${on?'text-[#1B2CC1] font-bold':'text-[#6B7280]'}`}>{b.label}</span>
                       </button>);
                     })}
                   </div>
-                  <p className="text-[8px] text-gray-600 font-mono text-center mt-2">tap a month to switch</p>
+                  <p className="text-[8px] text-[#9CA3AF] font-mono text-center mt-2">tap a month to switch</p>
                 </div>
 
                 {/* ── WEEK-ON-WEEK ── */}
-                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
-                  <h3 className="font-serif text-[12px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5 border-b border-[#222] pb-1.5 mb-3">
-                    <BrandIcon size={12} className="text-[#d4af37]"/> Week on Week · {selMonth}
+                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-4">
+                  <h3 className="font-serif text-[12px] tracking-wide text-[#1A1A2E] italic flex items-center gap-1.5 border-b border-[#D5D5E0] pb-1.5 mb-3">
+                    <BrandIcon size={12} className="text-[#1B2CC1]"/> Week on Week · {selMonth}
                   </h3>
                   <div className="flex items-end justify-between gap-2 h-24">
                     {wowBars.map(b=>{const on=dashWeek===b.w;return(
                       <button key={b.w} onClick={()=>{setDashDay(null);setDashWeek(on?null:b.w);}}
                         className="flex flex-col items-center gap-1 flex-1 h-full justify-end group">
-                        <span className={`text-[8px] font-mono ${on?'text-[#d4af37] font-bold':'text-gray-500'}`}>{b.val>0?`₹${(b.val/1000).toFixed(1)}k`:'—'}</span>
-                        <div className={`w-full rounded-t transition-all ${on?'bg-[#d4af37]':'bg-[#3a3324] group-hover:bg-[#57491f]'}`} style={{height:`${Math.max(b.val>0?4:1,(b.val/wowMax)*65)}%`}}/>
-                        <span className={`text-[9px] font-mono ${on?'text-[#d4af37] font-bold':'text-gray-500'}`}>W{b.w}</span>
+                        <span className={`text-[8px] font-mono ${on?'text-[#1B2CC1] font-bold':'text-[#6B7280]'}`}>{b.val>0?`₹${(b.val/1000)}k`:'—'}</span>
+                        <div className={`w-full rounded-t transition-all ${on?'bg-[#1B2CC1]':'bg-[#DDE0F7] group-hover:bg-[#A5ABE8]'}`} style={{height:`${Math.max(b.val>0?4:1,(b.val/wowMax)*65)}%`}}/>
+                        <span className={`text-[9px] font-mono ${on?'text-[#1B2CC1] font-bold':'text-[#6B7280]'}`}>W{b.w}</span>
                       </button>);
                     })}
                   </div>
                   {dashWeek&&(
-                    <div className="flex gap-1.5 mt-3 pt-3 border-t border-[#1a1a1a] overflow-x-auto">
+                    <div className="flex gap-1.5 mt-3 pt-3 border-t border-[#E0E0E0] overflow-x-auto">
                       {weekDays.map(d=>{const on=dashDay===d.ds;return(
                         <button key={d.ds} onClick={()=>setDashDay(on?null:d.ds)}
-                          className={`flex flex-col items-center px-2 py-1.5 rounded-lg border shrink-0 min-w-[42px] transition-all ${on?'bg-[#d4af37]/20 border-[#d4af37]':'bg-[#0a0a0a] border-[#222]'}`}>
-                          <span className={`text-[10px] font-mono font-bold ${on?'text-[#d4af37]':'text-white'}`}>{d.dn}</span>
-                          <span className={`text-[7px] font-mono ${d.val>0?'text-gray-400':'text-gray-700'}`}>{d.val>0?`₹${d.val>=1000?(d.val/1000).toFixed(1)+'k':d.val}`:'·'}</span>
+                          className={`flex flex-col items-center px-2 py-1.5 rounded-lg border shrink-0 min-w-[42px] transition-all ${on?'bg-[#1B2CC1]/20 border-[#1B2CC1]':'bg-[#F5F5FA] border-[#D5D5E0]'}`}>
+                          <span className={`text-[10px] font-mono font-bold ${on?'text-[#1B2CC1]':'text-[#1A1A2E]'}`}>{d.dn}</span>
+                          <span className={`text-[7px] font-mono ${d.val>0?'text-[#6B7280]':'text-[#9CA3AF]'}`}>{d.val>0?`₹${Math.round(d.val>=1000?(d.val/1000)+'k':d.val)}`:'·'}</span>
                         </button>);
                       })}
                     </div>
                   )}
-                  <p className="text-[8px] text-gray-600 font-mono text-center mt-2">tap week → tap day to drill down</p>
+                  <p className="text-[8px] text-[#9CA3AF] font-mono text-center mt-2">tap week → tap day to drill down</p>
                 </div>
 
                 {/* ── DONUT ── */}
-                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
-                  <h3 className="font-serif text-[12px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5 border-b border-[#222] pb-1.5 mb-3">
-                    <BrandIcon size={12} className="text-[#d4af37]"/> Spend Share · {periodLabel}
+                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-4">
+                  <h3 className="font-serif text-[12px] tracking-wide text-[#1A1A2E] italic flex items-center gap-1.5 border-b border-[#D5D5E0] pb-1.5 mb-3">
+                    <BrandIcon size={12} className="text-[#1B2CC1]"/> Spend Share · {periodLabel}
                   </h3>
                   {donutTotal===0
-                    ? <p className="text-[10px] text-gray-500 italic text-center py-5 font-mono">No spending in this period.</p>
+                    ? <p className="text-[10px] text-[#6B7280] italic text-center py-5 font-mono">No spending in this period.</p>
                     : <div className="flex items-center gap-4">
                         <svg viewBox="0 0 42 42" className="w-28 h-28 shrink-0">
                           {(()=>{let acc=0;return donutData.map(([name,val],i)=>{const pct=val/donutTotal*100;const el=(<circle key={String(name)} cx="21" cy="21" r="15.9155" fill="none" stroke={palette[i%palette.length]} strokeWidth="6" strokeDasharray={`${pct} ${100-pct}`} strokeDashoffset={-acc+25}/>);acc+=pct;return el;})})()}
-                          <text x="21" y="20" textAnchor="middle" fill="#d4af37" fontSize="4.8" fontFamily="monospace" fontWeight="bold">₹{sent>=1000?(sent/1000).toFixed(1)+'k':sent}</text>
-                          <text x="21" y="26" textAnchor="middle" fill="#666" fontSize="2.8" fontFamily="monospace">SENT</text>
+                          <text x="21" y="20" textAnchor="middle" fill="#1B2CC1" fontSize="4.8" fontFamily="monospace" fontWeight="bold">₹{sent>=1000?(sent/1000)+'k':sent}</text>
+                          <text x="21" y="26" textAnchor="middle" fill="#9CA3AF" fontSize="2.8" fontFamily="monospace">SENT</text>
                         </svg>
                         <div className="flex-1 space-y-1.5 min-w-0">
                           {donutData.map(([name,val],i)=>(
                             <div key={String(name)} className="flex justify-between items-center text-[10px] font-mono">
-                              <span className="flex items-center gap-1.5 text-gray-400 truncate">
+                              <span className="flex items-center gap-1.5 text-[#6B7280] truncate">
                                 <span className="w-2 h-2 rounded-sm shrink-0" style={{backgroundColor:palette[i%palette.length]}}/>
                                 <span className="truncate">{name}</span>
                               </span>
-                              <span className="text-white pl-2 whitespace-nowrap">₹{Number(val).toLocaleString('en-IN')} <span className="text-gray-600">({Math.round(Number(val)/donutTotal*100)}%)</span></span>
+                              <span className="text-[#1A1A2E] pl-2 whitespace-nowrap">₹{Math.round(Number(val)).toLocaleString('en-IN')} <span className="text-[#9CA3AF]">({Math.round(Number(val)/donutTotal*100)}%)</span></span>
                             </div>
                           ))}
                         </div>
@@ -2833,76 +3074,76 @@ export default function App() {
                   const catLabel = filterCategories.length === 1 ? filterCategories[0]
                     : filterCategories.length > 1 ? 'selected categories' : periodLabel;
                   return (
-                    <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl overflow-hidden">
+                    <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl overflow-hidden">
                       {/* Collapsed header — always visible */}
-                      <div className="flex justify-between items-center px-3 py-2.5 cursor-pointer select-none active:bg-[#141414]"
+                      <div className="flex justify-between items-center px-3 py-2.5 cursor-pointer select-none active:bg-[#F5F5F5]"
                         onClick={() => setTxTableOpen(o => !o)}>
                         <div className="flex items-center gap-1.5">
-                          <BrandIcon size={11} className="text-[#d4af37]"/>
-                          <span className="font-serif text-[12px] text-[#e5e5e5] italic">Transactions</span>
-                          <span className="text-[9px] font-mono text-[#d4af37] bg-[#d4af37]/10 border border-[#d4af37]/20 px-1.5 py-0.5 rounded-md">{periodLabel}</span>
+                          <BrandIcon size={11} className="text-[#1B2CC1]"/>
+                          <span className="font-serif text-[12px] text-[#1A1A2E] italic">Transactions</span>
+                          <span className="text-[9px] font-mono text-[#1B2CC1] bg-[#1B2CC1]/10 border border-[#1B2CC1]/20 px-1.5 py-0.5 rounded-md">{periodLabel}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-[9px] font-mono text-gray-500">{allRows.length} {allRows.length===1?'entry':'entries'} · {sign}₹{grandTotal.toLocaleString('en-IN')}</span>
-                          <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:txTableOpen?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+                          <span className="text-[9px] font-mono text-[#6B7280]">{allRows.length} {allRows.length===1?'entry':'entries'} · {sign}₹{Math.round(grandTotal).toLocaleString('en-IN')}</span>
+                          <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:txTableOpen?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
                         </div>
                       </div>
                       {/* Expanded body */}
                       {txTableOpen && (<>
-                        <div className="px-3 py-2 border-t border-[#222] flex justify-between items-center">
+                        <div className="px-3 py-2 border-t border-[#D5D5E0] flex justify-between items-center">
                           <div className="flex items-baseline gap-2">
-                            <span className={`text-base font-mono font-bold ${amtCls}`}>{sign}₹{grandTotal.toLocaleString('en-IN')}</span>
-                            <span className="text-[9px] font-mono text-gray-500">{allRows.length} {allRows.length===1?'entry':'entries'} · all pages</span>
+                            <span className={`text-base font-mono font-bold ${amtCls}`}>{sign}₹{Math.round(grandTotal).toLocaleString('en-IN')}</span>
+                            <span className="text-[9px] font-mono text-[#6B7280]">{allRows.length} {allRows.length===1?'entry':'entries'} · all pages</span>
                           </div>
-                          <div className="flex bg-[#141414] border border-[#222] rounded-lg overflow-hidden">
+                          <div className="flex bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg overflow-hidden">
                             <button onClick={e=>{e.stopPropagation();setTxTableView('sent');}}
-                              className={`px-3 py-1.5 text-[9px] font-mono transition-all ${!isSent?'text-gray-500':'bg-rose-950/30 text-rose-400 font-bold'}`}>Sent</button>
+                              className={`px-3 py-1.5 text-[9px] font-mono transition-all ${!isSent?'text-[#6B7280]':'bg-rose-950/30 text-rose-400 font-bold'}`}>Sent</button>
                             <button onClick={e=>{e.stopPropagation();setTxTableView('received');}}
-                              className={`px-3 py-1.5 text-[9px] font-mono transition-all border-l border-[#222] ${isSent?'text-gray-500':'bg-emerald-950/30 text-emerald-400 font-bold'}`}>Received</button>
+                              className={`px-3 py-1.5 text-[9px] font-mono transition-all border-l border-[#D5D5E0] ${isSent?'text-[#6B7280]':'bg-emerald-950/30 text-emerald-400 font-bold'}`}>Received</button>
                           </div>
                         </div>
                         {allRows.length === 0
-                          ? <div className="py-8 text-center border-t border-[#1a1a1a]">
-                              <p className="text-[10px] font-mono text-gray-500 italic">{isSent?`No expenses in ${catLabel}`:`No income in ${catLabel} for this period`}</p>
-                              {!isSent&&filterCategories.length>0&&<p className="text-[9px] font-mono text-gray-600 mt-1">Received includes reimbursements in any category</p>}
+                          ? <div className="py-8 text-center border-t border-[#E0E0E0]">
+                              <p className="text-[10px] font-mono text-[#6B7280] italic">{isSent?`No expenses in ${catLabel}`:`No income in ${catLabel} for this period`}</p>
+                              {!isSent&&filterCategories.length>0&&<p className="text-[9px] font-mono text-[#9CA3AF] mt-1">Received includes reimbursements in any category</p>}
                             </div>
                           : <>
-                              <table className="w-full border-collapse border-t border-[#1a1a1a]" style={{tableLayout:'fixed'}}>
+                              <table className="w-full border-collapse border-t border-[#E0E0E0]" style={{tableLayout:'fixed'}}>
                                 <colgroup><col style={{width:'52px'}}/><col style={{width:'100px'}}/><col/><col style={{width:'82px'}}/></colgroup>
                                 <thead>
-                                  <tr className="border-b border-[#1a1a1a]">
-                                    <th className="text-left py-2 px-2 text-[8px] font-mono text-gray-600 uppercase tracking-wider">Date</th>
-                                    <th className="text-left py-2 px-1 text-[8px] font-mono text-gray-600 uppercase tracking-wider">Category</th>
-                                    <th className="text-left py-2 px-1 text-[8px] font-mono text-gray-600 uppercase tracking-wider">Description</th>
-                                    <th className="text-right py-2 px-2 text-[8px] font-mono text-gray-600 uppercase tracking-wider">Amount</th>
+                                  <tr className="border-b border-[#E0E0E0]">
+                                    <th className="text-left py-2 px-2 text-[8px] font-mono text-[#9CA3AF] uppercase tracking-wider">Date</th>
+                                    <th className="text-left py-2 px-1 text-[8px] font-mono text-[#9CA3AF] uppercase tracking-wider">Category</th>
+                                    <th className="text-left py-2 px-1 text-[8px] font-mono text-[#9CA3AF] uppercase tracking-wider">Description</th>
+                                    <th className="text-right py-2 px-2 text-[8px] font-mono text-[#9CA3AF] uppercase tracking-wider">Amount</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {pageRows.map((t, i) => (
-                                    <tr key={t.id} className={`border-b border-[#0d0d0d] ${i%2!==0?'bg-[#0a0a0a]':''}`}>
-                                      <td className="py-2 px-2 text-[9px] font-mono text-gray-500 whitespace-nowrap overflow-hidden">{t.date.split('-').slice(1).reverse().join(' ')}</td>
-                                      <td className="py-2 px-1 overflow-hidden"><span className="text-[8px] font-mono bg-[#1a1a1a] border border-[#222] rounded-full px-1.5 py-0.5 text-gray-500 block overflow-hidden text-ellipsis whitespace-nowrap">{categoryIcons[t.category]||'⭐'} {t.category}</span></td>
-                                      <td className="py-2 px-1 text-[10px] text-gray-300 overflow-hidden text-ellipsis whitespace-nowrap">{t.description||'—'}</td>
-                                      <td className={`py-2 px-2 text-[11px] font-mono font-bold text-right whitespace-nowrap ${amtCls}`}>{sign}₹{t.amount.toLocaleString('en-IN')}</td>
+                                    <tr key={t.id} className={`border-b border-[#0d0d0d] ${i%2!==0?'bg-[#F5F5FA]':''}`}>
+                                      <td className="py-2 px-2 text-[9px] font-mono text-[#6B7280] whitespace-nowrap overflow-hidden">{t.date.split('-').slice(1).reverse().join(' ')}</td>
+                                      <td className="py-2 px-1 overflow-hidden"><span className="text-[8px] font-mono bg-[#EEF0FA] border border-[#D5D5E0] rounded-full px-1.5 py-0.5 text-[#6B7280] block overflow-hidden text-ellipsis whitespace-nowrap">{categoryIcons[t.category]||'⭐'} {t.category}</span></td>
+                                      <td className="py-2 px-1 text-[10px] text-[#4B5563] overflow-hidden text-ellipsis whitespace-nowrap">{t.description||'—'}</td>
+                                      <td className={`py-2 px-2 text-[11px] font-mono font-bold text-right whitespace-nowrap ${amtCls}`}>{sign}₹{Math.round(t.amount).toLocaleString('en-IN')}</td>
                                     </tr>
                                   ))}
                                 </tbody>
                                 <tfoot>
-                                  <tr className="border-t border-[#222] bg-[#0a0a0a]">
-                                    <td colSpan={3} className="py-2 px-2 text-[8px] font-mono text-gray-500 uppercase tracking-wider">Page {safePage} Total</td>
-                                    <td className={`py-2 px-2 text-[11px] font-mono font-bold text-right whitespace-nowrap ${amtCls}`}>{sign}₹{pageTotal.toLocaleString('en-IN')}</td>
+                                  <tr className="border-t border-[#D5D5E0] bg-[#F5F5FA]">
+                                    <td colSpan={3} className="py-2 px-2 text-[8px] font-mono text-[#6B7280] uppercase tracking-wider">Page {safePage} Total</td>
+                                    <td className={`py-2 px-2 text-[11px] font-mono font-bold text-right whitespace-nowrap ${amtCls}`}>{sign}₹{Math.round(pageTotal).toLocaleString('en-IN')}</td>
                                   </tr>
                                 </tfoot>
                               </table>
                               {totalPages > 1 && (
-                                <div className="flex justify-between items-center px-3 py-2 border-t border-[#1a1a1a]">
-                                  <span className="text-[8px] font-mono text-gray-500">{(safePage-1)*TX_PAGE_SIZE+1}–{Math.min(safePage*TX_PAGE_SIZE,allRows.length)} of {allRows.length}</span>
+                                <div className="flex justify-between items-center px-3 py-2 border-t border-[#E0E0E0]">
+                                  <span className="text-[8px] font-mono text-[#6B7280]">{(safePage-1)*TX_PAGE_SIZE+1}–{Math.min(safePage*TX_PAGE_SIZE,allRows.length)} of {allRows.length}</span>
                                   <div className="flex gap-1">
-                                    <button onClick={()=>setTxTablePage(p=>Math.max(1,p-1))} disabled={safePage===1} className="px-2.5 py-1 text-[9px] font-mono border border-[#222] bg-[#141414] text-gray-500 rounded-lg disabled:opacity-30 hover:border-[#d4af37] hover:text-[#d4af37] transition-all">←</button>
+                                    <button onClick={()=>setTxTablePage(p=>Math.max(1,p-1))} disabled={safePage===1} className="px-2.5 py-1 text-[9px] font-mono border border-[#D5D5E0] bg-[#F5F5F5] text-[#6B7280] rounded-lg disabled:opacity-30 hover:border-[#1B2CC1] hover:text-[#1B2CC1] transition-all">←</button>
                                     {Array.from({length:totalPages},(_,i)=>i+1).map(p=>(
-                                      <button key={p} onClick={()=>setTxTablePage(p)} className={`px-2.5 py-1 text-[9px] font-mono border rounded-lg transition-all ${p===safePage?'bg-[#d4af37]/15 border-[#d4af37] text-[#d4af37] font-bold':'border-[#222] bg-[#141414] text-gray-500'}`}>{p}</button>
+                                      <button key={p} onClick={()=>setTxTablePage(p)} className={`px-2.5 py-1 text-[9px] font-mono border rounded-lg transition-all ${p===safePage?'bg-[#1B2CC1]/15 border-[#1B2CC1] text-[#1B2CC1] font-bold':'border-[#D5D5E0] bg-[#F5F5F5] text-[#6B7280]'}`}>{p}</button>
                                     ))}
-                                    <button onClick={()=>setTxTablePage(p=>Math.min(totalPages,p+1))} disabled={safePage===totalPages} className="px-2.5 py-1 text-[9px] font-mono border border-[#222] bg-[#141414] text-gray-500 rounded-lg disabled:opacity-30 hover:border-[#d4af37] hover:text-[#d4af37] transition-all">→</button>
+                                    <button onClick={()=>setTxTablePage(p=>Math.min(totalPages,p+1))} disabled={safePage===totalPages} className="px-2.5 py-1 text-[9px] font-mono border border-[#D5D5E0] bg-[#F5F5F5] text-[#6B7280] rounded-lg disabled:opacity-30 hover:border-[#1B2CC1] hover:text-[#1B2CC1] transition-all">→</button>
                                   </div>
                                 </div>
                               )}
@@ -2921,25 +3162,25 @@ export default function App() {
               <div className="space-y-4">
                 
                 {/* Overall month overview + month dropdown */}
-                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-3 flex justify-between items-center">
+                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-3 flex justify-between items-center">
                   <div className="flex flex-col">
-                    <span className="text-[8px] text-gray-500 font-mono">Calculated For</span>
+                    <span className="text-[8px] text-[#6B7280] font-mono">Calculated For</span>
                     <div className="relative mt-0.5">
                       <select
                         value={smartAlertsMonth}
                         onChange={e => setSmartAlertsMonth(e.target.value)}
-                        className="bg-[#141414] border border-[#222] rounded-lg pl-2 pr-6 py-1 text-xs font-mono font-bold text-white uppercase outline-none focus:border-[#d4af37] cursor-pointer appearance-none"
+                        className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg pl-2 pr-6 py-1 text-xs font-mono font-bold text-[#1A1A2E] uppercase outline-none focus:border-[#1B2CC1] cursor-pointer appearance-none"
                       >
                         {smartAlertsAvailableMonths.map(m => (
                           <option key={m} value={m}>{m}</option>
                         ))}
                       </select>
-                      <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[#d4af37] pointer-events-none" />
+                      <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[#1B2CC1] pointer-events-none" />
                     </div>
                   </div>
                   <div className="text-right flex flex-col items-end">
-                    <span className="text-[8px] text-gray-500 font-mono">Active Limits Set</span>
-                    <span className="text-[#d4af37] text-xs font-mono font-bold">{monthBudgetsList.length} Categories</span>
+                    <span className="text-[8px] text-[#6B7280] font-mono">Active Limits Set</span>
+                    <span className="text-[#1B2CC1] text-xs font-mono font-bold">{monthBudgetsList.length} Categories</span>
                   </div>
                 </div>
 
@@ -2947,13 +3188,13 @@ export default function App() {
                 <BulletChart spent={overallSpentSum} limit={overallLimitSum} />
 
                 {/* Real-time configured month budget actual comparison list */}
-                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-4">
-                  <h3 className="font-serif text-[11px] tracking-wide text-[#e5e5e5] italic border-b border-[#222] pb-1.5 mb-3 flex items-center gap-1.5">
-                    <BrandIcon size={11} className="text-[#d4af37]" /> Budget Alerts
+                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-4">
+                  <h3 className="font-serif text-[11px] tracking-wide text-[#1A1A2E] italic border-b border-[#D5D5E0] pb-1.5 mb-3 flex items-center gap-1.5">
+                    <BrandIcon size={11} className="text-[#1B2CC1]" /> Budget Alerts
                   </h3>
 
                   {monthBudgetsList.length === 0 ? (
-                    <p className="text-[10px] text-gray-500 italic text-center py-6 font-mono border border-dashed border-[#222] rounded-lg">
+                    <p className="text-[10px] text-[#6B7280] italic text-center py-6 font-mono border border-dashed border-[#D5D5E0] rounded-lg">
                       No budgets configured for {activeMonthKey}. Select 'Budgets' in the tab navigation to configure limits.
                     </p>
                   ) : (
@@ -2963,24 +3204,24 @@ export default function App() {
                         const isOver = b.spent > b.limit;
 
                         return (
-                          <div key={b.category} className="p-3 bg-[#141414] rounded-xl border border-[#1a1a1a]">
+                          <div key={b.category} className="p-3 bg-[#F5F5F5] rounded-xl border border-[#E0E0E0]">
                             <div className="flex justify-between items-center text-[10px] font-mono leading-none mb-1">
-                              <span className="text-white font-medium truncate max-w-[110px]">{b.category}</span>
-                              <span className="text-gray-400 text-[9px]">
-                                Spent: <strong className="text-white">₹{b.spent}</strong> / <span className="text-[#d4af37] font-semibold">₹{b.limit}</span>
+                              <span className="text-[#1A1A2E] font-medium truncate max-w-[110px]">{b.category}</span>
+                              <span className="text-[#6B7280] text-[9px]">
+                                Spent: <strong className="text-[#1A1A2E]">₹{b.spent}</strong> / <span className="text-[#1B2CC1] font-semibold">₹{b.limit}</span>
                               </span>
                             </div>
 
                             {/* Visual Slider Meter */}
-                            <div className="w-full h-1 bg-[#1a1a1a] rounded-full overflow-hidden mt-1 bg-gray-900">
+                            <div className="w-full h-1 bg-[#EEF0FA] rounded-full overflow-hidden mt-1 bg-gray-900">
                               <div 
-                                className={`h-full transition-all duration-300 ${isOver ? 'bg-red-500' : 'bg-[#d4af37]'}`}
+                                className={`h-full transition-all duration-300 ${isOver ? 'bg-red-500' : 'bg-[#1B2CC1]'}`}
                                 style={{ width: `${Math.min(100, percentage)}%` }}
                               />
                             </div>
 
                             <div className="flex justify-between items-center mt-1.5 text-[8px] font-mono">
-                              <span className={percentage >= 100 ? 'text-red-400 font-semibold' : percentage >= 80 ? 'text-yellow-500' : 'text-gray-500'}>
+                              <span className={percentage >= 100 ? 'text-red-400 font-semibold' : percentage >= 80 ? 'text-blue-500' : 'text-[#6B7280]'}>
                                 {percentage}% utilized
                               </span>
                               {isOver ? (
@@ -3108,48 +3349,48 @@ export default function App() {
 
               if (expCats.length === 0 && incCats.length === 0) return null;
 
-              const fmt2 = (v: number) => v > 0 ? `₹${v.toLocaleString('en-IN')}` : '—';
+              const fmt2 = (v: number) => v > 0 ? `₹${Math.round(v).toLocaleString('en-IN')}` : '—';
               const th = 'text-right py-2 px-1.5 text-[10px] font-mono font-semibold whitespace-nowrap';
               const td = 'text-right py-1.5 px-1.5 text-[10px] font-mono whitespace-nowrap';
 
               // ── Empty state ──
               if (transactions.length === 0) return (
-                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-6 text-center">
-                  <p className="text-gray-500 text-[11px] font-mono italic">No transactions yet. Add entries or import a CSV to see the Ledger.</p>
+                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-6 text-center">
+                  <p className="text-[#6B7280] text-[11px] font-mono italic">No transactions yet. Add entries or import a CSV to see the Ledger.</p>
                 </div>
               );
 
               return (
-                <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl overflow-hidden">
+                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl overflow-hidden">
                   {/* ── Header + controls ── */}
-                  <div className="flex justify-between items-center p-4 border-b border-[#222]">
-                    <h3 className="font-serif text-[13px] tracking-wide text-[#e5e5e5] italic flex items-center gap-1.5">
-                      <BrandIcon size={13} className="text-[#d4af37]" /> Ledger
+                  <div className="flex justify-between items-center p-4 border-b border-[#D5D5E0]">
+                    <h3 className="font-serif text-[13px] tracking-wide text-[#1A1A2E] italic flex items-center gap-1.5">
+                      <BrandIcon size={13} className="text-[#1B2CC1]" /> Ledger
                     </h3>
                     <div className="flex items-center gap-2">
                       {/* Period filter — 2 rows: years on top, duration on bottom */}
                       <div className="flex flex-col gap-1">
                         {/* Row 1: years */}
-                        <div className="flex bg-[#141414] border border-[#222] rounded-lg overflow-hidden text-[9px] font-mono">
+                        <div className="flex bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg overflow-hidden text-[9px] font-mono">
                           {yearOptions.map(yr => (
                             <button key={yr} onClick={() => setLedgerPeriod(String(yr))}
-                              className={`flex-1 px-2.5 py-1.5 transition-colors ${ledgerPeriod === String(yr) ? 'bg-[#d4af37]/20 text-[#d4af37] font-bold' : 'text-gray-500'}`}>
+                              className={`flex-1 px-2.5 py-1.5 transition-colors ${ledgerPeriod === String(yr) ? 'bg-[#1B2CC1]/20 text-[#1B2CC1] font-bold' : 'text-[#6B7280]'}`}>
                               {yr}
                             </button>
                           ))}
                         </div>
                         {/* Row 2: duration */}
-                        <div className="flex bg-[#141414] border border-[#222] rounded-lg overflow-hidden text-[9px] font-mono">
+                        <div className="flex bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg overflow-hidden text-[9px] font-mono">
                           {(['3m','6m','9m','12m'] as const).map(p => (
                             <button key={p} onClick={() => setLedgerPeriod(p)}
-                              className={`flex-1 py-1.5 transition-colors ${ledgerPeriod === p ? 'bg-[#d4af37]/20 text-[#d4af37] font-bold' : 'text-gray-500'}`}>
+                              className={`flex-1 py-1.5 transition-colors ${ledgerPeriod === p ? 'bg-[#1B2CC1]/20 text-[#1B2CC1] font-bold' : 'text-[#6B7280]'}`}>
                               {p.toUpperCase()}
                             </button>
                           ))}
                         </div>
                       </div>
                       <button onClick={() => setTableExpanded(e => !e)}
-                        className="text-[9px] font-mono text-[#d4af37] border border-[#d4af37]/30 px-2 py-1 rounded-lg hover:bg-[#d4af37]/10 transition-all shrink-0">
+                        className="text-[9px] font-mono text-[#1B2CC1] border border-[#1B2CC1]/30 px-2 py-1 rounded-lg hover:bg-[#1B2CC1]/10 transition-all shrink-0">
                         {tableExpanded ? '⊠' : '⊞'}
                       </button>
                     </div>
@@ -3159,71 +3400,71 @@ export default function App() {
                   <div className="overflow-x-auto p-4 pt-3">
                     <table className="w-full border-collapse" style={{minWidth: `${months.length * 100 + 160}px`}}>
                       <thead>
-                        <tr className="border-b border-[#222]">
-                          <th className="text-left py-2 pr-4 text-[10px] font-mono text-gray-500 uppercase tracking-wider whitespace-nowrap w-40">Category</th>
+                        <tr className="border-b border-[#D5D5E0]">
+                          <th className="text-left py-2 pr-4 text-[10px] font-mono text-[#6B7280] uppercase tracking-wider whitespace-nowrap w-40">Category</th>
                           {months.map(m => (
-                            <th key={m} className={`${th} text-gray-500 uppercase tracking-wider`}>{m.split('-')[0]}</th>
+                            <th key={m} className={`${th} text-[#6B7280] uppercase tracking-wider`}>{m.split('-')[0]}</th>
                           ))}
-                          <th className={`${th} text-[#d4af37]`}>Total</th>
+                          <th className={`${th} text-[#1B2CC1]`}>Total</th>
                         </tr>
                       </thead>
                       <tbody>
 
                         {/* ── Opening Balance row ── */}
-                        <tr className="border-b-2 border-[#d4af37]/30 bg-[#0a0a0a]">
-                          <td className="py-2 pr-4 text-[#d4af37] font-bold text-[10px] font-mono whitespace-nowrap">Opening Balance</td>
+                        <tr className="border-b-2 border-[#1B2CC1]/30 bg-[#F5F5FA]">
+                          <td className="py-2 pr-4 text-[#1B2CC1] font-bold text-[10px] font-mono whitespace-nowrap">Opening Balance</td>
                           {months.map(m => {
                             const bc = balanceChain[m];
                             const hasEntry = bc?.opening !== undefined;
                             const isFirst = !firstMonth || m === firstMonth || (firstMonth && months.indexOf(m) === 0 && !balanceChain[m]);
                             return (
-                              <td key={m} className={`${td} text-[#d4af37] font-bold`}>
+                              <td key={m} className={`${td} text-[#1B2CC1] font-bold`}>
                                 {hasEntry
-                                  ? `₹${bc!.opening!.toLocaleString('en-IN')}`
+                                  ? `₹${Math.round(bc!.opening!).toLocaleString('en-IN')}`
                                   : (firstOpen === undefined && (months.indexOf(m) === 0 || !firstMonth))
                                     ? <input type="number" inputMode="numeric" placeholder="Enter ₹"
-                                        className="w-20 bg-[#0a0a0a] border border-[#d4af37]/40 rounded p-1 text-[10px] font-mono text-[#d4af37] outline-none focus:border-[#d4af37] text-right"
+                                        className="w-20 bg-[#F5F5FA] border border-[#1B2CC1]/40 rounded p-1 text-[10px] font-mono text-[#1B2CC1] outline-none focus:border-[#1B2CC1] text-right"
                                         onBlur={e => { if (e.target.value) setMonthBalance(m, 'opening', parseFloat(e.target.value)); }} />
-                                    : <span className="text-gray-700">—</span>
+                                    : <span className="text-[#9CA3AF]">—</span>
                                 }
                               </td>
                             );
                           })}
-                          <td className={`${td} text-gray-600`}>—</td>
+                          <td className={`${td} text-[#9CA3AF]`}>—</td>
                         </tr>
 
                         {/* ── Expense section ── */}
-                        <tr className="bg-[#111] cursor-pointer" onClick={() => setLedgerExpenseExpanded(e => !e)}>
+                        <tr className="bg-[#F5F5F5] cursor-pointer" onClick={() => setLedgerExpenseExpanded(e => !e)}>
                           <td colSpan={months.length + 2} className="py-2 px-2">
-                            <span className="text-[9px] font-mono text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                              <span className="text-[#d4af37]">{ledgerExpenseExpanded ? '▾' : '▸'}</span>
+                            <span className="text-[9px] font-mono text-[#6B7280] uppercase tracking-widest flex items-center gap-1.5">
+                              <span className="text-[#1B2CC1]">{ledgerExpenseExpanded ? '▾' : '▸'}</span>
                               Expenses {ledgerExpenseExpanded ? '' : `(${expCats.length} categories)`}
                             </span>
                           </td>
                         </tr>
 
                         {ledgerExpenseExpanded && expCats.map((ct, idx) => (
-                          <tr key={'e-'+ct} className={`border-b border-[#1a1a1a] ${idx % 2 === 0 ? 'bg-[#0a0a0a]' : ''}`}>
-                            <td className="py-1.5 pr-4 text-white text-[10px] font-mono whitespace-nowrap truncate max-w-[140px]" title={ct}>{ct}</td>
-                            {months.map(m => <td key={m} className={`${td} ${(exp[m]?.[ct]||0) > 0 ? 'text-white' : 'text-gray-700'}`}>{fmt2(exp[m]?.[ct]||0)}</td>)}
-                            <td className={`${td} text-white font-bold`}>{fmt2(months.reduce((s,m)=>s+(exp[m]?.[ct]||0),0))}</td>
+                          <tr key={'e-'+ct} className={`border-b border-[#E0E0E0] ${idx % 2 === 0 ? 'bg-[#F5F5FA]' : ''}`}>
+                            <td className="py-1.5 pr-4 text-[#1A1A2E] text-[10px] font-mono whitespace-nowrap truncate max-w-[140px]" title={ct}>{ct}</td>
+                            {months.map(m => <td key={m} className={`${td} ${(exp[m]?.[ct]||0) > 0 ? 'text-[#1A1A2E]' : 'text-[#9CA3AF]'}`}>{fmt2(exp[m]?.[ct]||0)}</td>)}
+                            <td className={`${td} text-[#1A1A2E] font-bold`}>{fmt2(months.reduce((s,m)=>s+(exp[m]?.[ct]||0),0))}</td>
                           </tr>
                         ))}
 
                         {/* ── Total Sent row ── */}
-                        <tr className="border-b-2 border-[#333] bg-[#0a0a0a]">
-                          <td className="py-2 pr-4 text-white font-bold text-[10px] font-mono">Total Sent</td>
+                        <tr className="border-b-2 border-[#C8C8D8] bg-[#F5F5FA]">
+                          <td className="py-2 pr-4 text-[#1A1A2E] font-bold text-[10px] font-mono">Total Sent</td>
                           {months.map(m => {
                             const v = monthSent(m);
-                            return <td key={m} className={`${td} text-white font-bold`}>{fmt2(v)}</td>;
+                            return <td key={m} className={`${td} text-[#1A1A2E] font-bold`}>{fmt2(v)}</td>;
                           })}
-                          <td className={`${td} text-white font-bold`}>{fmt2(months.reduce((s,m)=>s+monthSent(m),0))}</td>
+                          <td className={`${td} text-[#1A1A2E] font-bold`}>{fmt2(months.reduce((s,m)=>s+monthSent(m),0))}</td>
                         </tr>
 
                         {/* ── Income section ── */}
-                        <tr className="bg-[#111] cursor-pointer" onClick={() => setLedgerIncomeExpanded(e => !e)}>
+                        <tr className="bg-[#F5F5F5] cursor-pointer" onClick={() => setLedgerIncomeExpanded(e => !e)}>
                           <td colSpan={months.length + 2} className="py-2 px-2">
-                            <span className="text-[9px] font-mono text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                            <span className="text-[9px] font-mono text-[#6B7280] uppercase tracking-widest flex items-center gap-1.5">
                               <span className="text-emerald-400">{ledgerIncomeExpanded ? '▾' : '▸'}</span>
                               Income {ledgerIncomeExpanded ? '' : `(${incCats.length} categories)`}
                             </span>
@@ -3231,15 +3472,15 @@ export default function App() {
                         </tr>
 
                         {ledgerIncomeExpanded && incCats.map((ct, idx) => (
-                          <tr key={'i-'+ct} className={`border-b border-[#1a1a1a] ${idx % 2 === 0 ? 'bg-[#0a0a0a]' : ''}`}>
+                          <tr key={'i-'+ct} className={`border-b border-[#E0E0E0] ${idx % 2 === 0 ? 'bg-[#F5F5FA]' : ''}`}>
                             <td className="py-1.5 pr-4 text-emerald-400 text-[10px] font-mono whitespace-nowrap truncate max-w-[140px]" title={ct}>{ct}</td>
-                            {months.map(m => <td key={m} className={`${td} ${(inc[m]?.[ct]||0) > 0 ? 'text-emerald-400' : 'text-gray-700'}`}>{fmt2(inc[m]?.[ct]||0)}</td>)}
+                            {months.map(m => <td key={m} className={`${td} ${(inc[m]?.[ct]||0) > 0 ? 'text-emerald-400' : 'text-[#9CA3AF]'}`}>{fmt2(inc[m]?.[ct]||0)}</td>)}
                             <td className={`${td} text-emerald-400 font-bold`}>{fmt2(months.reduce((s,m)=>s+(inc[m]?.[ct]||0),0))}</td>
                           </tr>
                         ))}
 
                         {/* ── Total Received row ── */}
-                        <tr className="border-b-2 border-[#333] bg-[#0a0a0a]">
+                        <tr className="border-b-2 border-[#C8C8D8] bg-[#F5F5FA]">
                           <td className="py-2 pr-4 text-emerald-400 font-bold text-[10px] font-mono">Total Received</td>
                           {months.map(m => {
                             const v = monthReceived(m);
@@ -3249,17 +3490,17 @@ export default function App() {
                         </tr>
 
                         {/* ── Closing Balance row ── */}
-                        <tr className="bg-[#0a0a0a]">
-                          <td className="py-2 pr-4 text-[#d4af37] font-bold text-[10px] font-mono whitespace-nowrap">Closing Balance</td>
+                        <tr className="bg-[#F5F5FA]">
+                          <td className="py-2 pr-4 text-[#1B2CC1] font-bold text-[10px] font-mono whitespace-nowrap">Closing Balance</td>
                           {months.map(m => {
                             const bc = balanceChain[m];
                             return (
-                              <td key={m} className={`${td} text-[#d4af37] font-bold`}>
-                                {bc?.closing !== undefined ? `₹${bc.closing.toLocaleString('en-IN')}` : <span className="text-gray-700">—</span>}
+                              <td key={m} className={`${td} text-[#1B2CC1] font-bold`}>
+                                {bc?.closing !== undefined ? `₹${Math.round(bc.closing).toLocaleString('en-IN')}` : <span className="text-[#9CA3AF]">—</span>}
                               </td>
                             );
                           })}
-                          <td className={`${td} text-gray-600`}>—</td>
+                          <td className={`${td} text-[#9CA3AF]`}>—</td>
                         </tr>
 
                       </tbody>
@@ -3267,7 +3508,7 @@ export default function App() {
                   </div>
 
                   {!firstMonth && (
-                    <p className="text-[9px] font-mono text-gray-600 text-center pb-3">
+                    <p className="text-[9px] font-mono text-[#9CA3AF] text-center pb-3">
                       Enter an opening balance in the first month column to enable balance tracking
                     </p>
                   )}
@@ -3284,9 +3525,9 @@ export default function App() {
       {navTab === 'add' && (
         <div className="space-y-4 animate-fade-in pt-5 text-xs">
           
-          <div className="flex flex-col border-b border-[#1c1c1c] pb-3">
-            <span className="text-[9px] text-[#888] font-mono tracking-widest uppercase font-bold">Input Module</span>
-            <h2 className="font-serif text-base text-white">Add Entry Record</h2>
+          <div className="flex flex-col border-b border-[#E5E5F0] pb-3">
+            <span className="text-[9px] text-[#6B7280] font-mono tracking-widest uppercase font-bold">Input Module</span>
+            <h2 className="font-serif text-base text-[#1A1A2E]">Add Entry Record</h2>
           </div>
 
           {/* Success toast */}
@@ -3297,17 +3538,17 @@ export default function App() {
             </div>
           )}
 
-          <form onSubmit={handleAddNewManualEntry} className="space-y-4 bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-5">
+          <form onSubmit={handleAddNewManualEntry} className="space-y-4 bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl p-5">
             
             {/* Income vs Expense Selection Tabs */}
-            <div className="grid grid-cols-2 gap-2 bg-[#050505] p-1 rounded-xl border border-[#222]">
+            <div className="grid grid-cols-2 gap-2 bg-[#F5F5F5] p-1 rounded-xl border border-[#D5D5E0]">
               <button
                 type="button"
                 onClick={() => setFormType('expense')}
                 className={`py-2 text-[10px] uppercase font-mono tracking-wider font-semibold rounded-lg transition-all ${
                   formType === 'expense' 
                     ? 'bg-rose-950/50 text-rose-400 border border-rose-900/30' 
-                    : 'text-gray-400'
+                    : 'text-[#6B7280]'
                 }`}
               >
                 Sent
@@ -3318,7 +3559,7 @@ export default function App() {
                 className={`py-2 text-[10px] uppercase font-mono tracking-wider font-semibold rounded-lg transition-all ${
                   formType === 'income' 
                     ? 'bg-emerald-950/50 text-emerald-400 border border-emerald-900/30' 
-                    : 'text-gray-400'
+                    : 'text-[#6B7280]'
                 }`}
               >
                 Received
@@ -3327,21 +3568,21 @@ export default function App() {
 
             {/* Date selection */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-[9px] text-gray-500 uppercase font-mono tracking-wider font-semibold">Date</label>
+              <label className="text-[9px] text-[#6B7280] uppercase font-mono tracking-wider font-semibold">Date</label>
               <div className="relative">
                 <input
                   type="date"
                   required
                   value={formDate}
                   onChange={(e) => setFormDate(e.target.value)}
-                  className="w-full bg-[#141414] border border-[#222] rounded-xl p-3 text-xs text-[#e5e5e5] focus:outline-none focus:border-[#d4af37] appearance-none cursor-pointer"
+                  className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3 text-xs text-[#1A1A2E] focus:outline-none focus:border-[#1B2CC1] appearance-none cursor-pointer"
                 />
               </div>
             </div>
 
             {/* Amount Section with Mobile-Friendly touch arrows up/down */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-[9px] text-gray-500 uppercase font-mono tracking-wider">Amount (₹)</label>
+              <label className="text-[9px] text-[#6B7280] uppercase font-mono tracking-wider">Amount (₹)</label>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -3350,7 +3591,7 @@ export default function App() {
                     setFormAmount(String(Math.max(0, curr - 100)));
                   }}
                   style={{ flexBasis: '15%' }}
-                  className="bg-[#121212] border border-[#222] hover:border-gray-600 text-[#d4af37] font-mono font-extrabold h-11 rounded-xl flex items-center justify-center text-sm active:scale-95 transition-all shrink-0 select-none shadow-md"
+                  className="bg-[#121212] border border-[#D5D5E0] hover:border-gray-600 text-[#1B2CC1] font-mono font-extrabold h-11 rounded-xl flex items-center justify-center text-sm active:scale-95 transition-all shrink-0 select-none shadow-md"
                 >
                   -100
                 </button>
@@ -3361,7 +3602,7 @@ export default function App() {
                     placeholder="e.g. 350"
                     value={formAmount}
                     onChange={(e) => setFormAmount(e.target.value)}
-                    className="w-full bg-[#141414] border border-[#222] rounded-xl p-3 text-center text-sm font-mono font-bold text-white placeholder-gray-800 focus:outline-none focus:border-[#d4af37] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3 text-center text-sm font-mono font-bold text-[#1A1A2E] placeholder-gray-800 focus:outline-none focus:border-[#1B2CC1] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 </div>
                 <button
@@ -3371,7 +3612,7 @@ export default function App() {
                     setFormAmount(String(curr + 100));
                   }}
                   style={{ flexBasis: '15%' }}
-                  className="bg-[#121212] border border-[#222] hover:border-gray-600 text-[#d4af37] font-mono font-extrabold h-11 rounded-xl flex items-center justify-center text-sm active:scale-95 transition-all shrink-0 select-none shadow-md"
+                  className="bg-[#121212] border border-[#D5D5E0] hover:border-gray-600 text-[#1B2CC1] font-mono font-extrabold h-11 rounded-xl flex items-center justify-center text-sm active:scale-95 transition-all shrink-0 select-none shadow-md"
                 >
                   +100
                 </button>
@@ -3386,7 +3627,7 @@ export default function App() {
                       const curr = parseFloat(formAmount) || 0;
                       setFormAmount(String(curr + val));
                     }}
-                    className="bg-[#0b0b0b] border border-[#222] text-gray-400 font-mono hover:text-white text-[9px] py-1.5 rounded-lg active:scale-95 transition-colors text-center"
+                    className="bg-[#F8F8FD] border border-[#D5D5E0] text-[#6B7280] font-mono hover:text-[#1A1A2E] text-[9px] py-1.5 rounded-lg active:scale-95 transition-colors text-center"
                   >
                     +{val}
                   </button>
@@ -3397,39 +3638,39 @@ export default function App() {
             {/* Category list */}
             <div className="flex flex-col gap-1.5">
               <div className="flex justify-between items-center">
-                <label className="text-[9px] text-gray-500 uppercase font-mono tracking-wider font-semibold">Category</label>
+                <label className="text-[9px] text-[#6B7280] uppercase font-mono tracking-wider font-semibold">Category</label>
               </div>
               <div className="relative">
                 <select
                   value={formCategory}
                   onChange={(e) => { setFormCategory(e.target.value); }}
-                  className="w-full bg-[#141414] border border-[#222] rounded-xl p-3 pr-10 text-xs text-[#e5e5e5] focus:outline-none focus:border-[#d4af37] appearance-none cursor-pointer"
+                  className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3 pr-10 text-xs text-[#1A1A2E] focus:outline-none focus:border-[#1B2CC1] appearance-none cursor-pointer"
                 >
                   {categories.map(category => (
                     <option key={category} value={category}>{categoryIcons[category] || '⭐'} {category}</option>
                   ))}
                 </select>
-                <ChevronDown size={14} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <ChevronDown size={14} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-[#6B7280] pointer-events-none" />
               </div>
             </div>
 
             {/* Description */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-[9px] text-gray-500 uppercase font-mono tracking-wider">Description / Notes</label>
+              <label className="text-[9px] text-[#6B7280] uppercase font-mono tracking-wider">Description / Notes</label>
               <input
                 type="text"
                 required
                 placeholder="e.g. Rice, Milk, Coffee details..."
                 value={formDescription}
                 onChange={(e) => setFormDescription(e.target.value)}
-                className="w-full bg-[#141414] border border-[#222] rounded-xl p-3 text-xs text-[#e5e5e5] placeholder-gray-700 focus:outline-none focus:border-[#d4af37]"
+                className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3 text-xs text-[#1A1A2E] placeholder-gray-700 focus:outline-none focus:border-[#1B2CC1]"
               />
             </div>
 
             {/* Action save */}
             <button
               type="submit"
-              className="w-full bg-[#d4af37] text-black font-semibold text-xs py-3 px-4 rounded-xl mt-2 tracking-widest uppercase font-mono hover:opacity-90 transition-all cursor-pointer"
+              className="w-full bg-[#1B2CC1] text-black font-semibold text-xs py-3 px-4 rounded-xl mt-2 tracking-widest uppercase font-mono hover:opacity-90 transition-all cursor-pointer"
             >
               Add Entry
             </button>
@@ -3473,14 +3714,14 @@ export default function App() {
               sms.status === 'confirmed'
                 ? 'bg-emerald-950/20 border-emerald-900/40 opacity-80'
                 : sms.status === 'skipped'
-                ? 'bg-[#0f0f0f] border-[#1a1a1a] opacity-60'
-                : 'bg-[#0f0f0f] border-l-4 border-l-[#d4af37] border-[#1e1a0a] shadow-lg'
+                ? 'bg-[#FFFFFF] border-[#E0E0E0] opacity-60'
+                : 'bg-[#FFFFFF] border-l-4 border-l-[#1B2CC1] border-[#1e1a0a] shadow-lg'
             }`}>
               {/* Header */}
               <div className="flex justify-between items-start">
                 <div>
-                  <span className="text-yellow-400 font-bold font-mono text-[10px]">{sms.sender || 'BANK-SMS'}</span>
-                  <p className="text-gray-400 font-mono text-[9px] mt-0.5">
+                  <span className="text-blue-400 font-bold font-mono text-[10px]">{sms.sender || 'BANK-SMS'}</span>
+                  <p className="text-[#6B7280] font-mono text-[9px] mt-0.5">
                     {new Date(sms.timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                     {' '}
                     {new Date(sms.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -3488,36 +3729,36 @@ export default function App() {
                 </div>
                 <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full border font-bold ${
                   sms.status === 'confirmed' ? 'text-emerald-400 border-emerald-800 bg-emerald-950/30' :
-                  sms.status === 'skipped'   ? 'text-gray-500 border-gray-800 bg-[#111]' :
-                  'text-yellow-400 border-yellow-900 bg-yellow-950/20'
+                  sms.status === 'skipped'   ? 'text-[#6B7280] border-gray-800 bg-[#F5F5F5]' :
+                  'text-blue-400 border-blue-900 bg-yellow-950/20'
                 }`}>
                   {sms.status === 'confirmed' ? 'Confirmed' : sms.status === 'skipped' ? 'Skipped' : 'Pending'}
                 </span>
               </div>
 
-              <p className="text-gray-300 leading-relaxed">{sms.text}</p>
+              <p className="text-[#4B5563] leading-relaxed">{sms.text}</p>
 
               {sms.parsedAmount ? (
                 <div className="flex gap-3 text-[10px] font-mono">
-                  <span className="text-gray-500">Amount: <strong className={sms.parsedType === 'income' ? 'text-emerald-400' : 'text-red-400'}>
-                    {sms.parsedType === 'income' ? '+' : '-'}Rs.{sms.parsedAmount.toLocaleString('en-IN')}
+                  <span className="text-[#6B7280]">Amount: <strong className={sms.parsedType === 'income' ? 'text-emerald-400' : 'text-red-400'}>
+                    {sms.parsedType === 'income' ? '+' : '-'}Rs.{Math.round(sms.parsedAmount).toLocaleString('en-IN')}
                   </strong></span>
-                  {sms.parsedBank && <span className="text-gray-600">{sms.parsedBank}</span>}
+                  {sms.parsedBank && <span className="text-[#9CA3AF]">{sms.parsedBank}</span>}
                 </div>
               ) : null}
 
               {/* Actions — Pending */}
               {sms.status === 'pending' && (
-                <div className="flex gap-2 pt-1 border-t border-[#1a1a1a]">
+                <div className="flex gap-2 pt-1 border-t border-[#E0E0E0]">
                   <button
                     onClick={() => openInlineWizard(sms)}
-                    className="flex-1 bg-[#d4af37] hover:bg-[#c9a227] text-black font-mono font-bold text-[10px] uppercase tracking-wide py-2 rounded-lg transition-all"
+                    className="flex-1 bg-[#1B2CC1] hover:bg-[#c9a227] text-black font-mono font-bold text-[10px] uppercase tracking-wide py-2 rounded-lg transition-all"
                   >
                     Confirm
                   </button>
                   <button
                     onClick={() => { setSmsMessages(prev => prev.map(s => s.id === sms.id ? { ...s, status: 'skipped' } : s)); setInlineWizardSmsId(null); if (parseWizard?.originalSmsId === sms.id) setParseWizard(null); }}
-                    className="flex-1 border border-[#333] text-gray-400 hover:text-white font-mono text-[10px] uppercase tracking-wide py-2 rounded-lg transition-all"
+                    className="flex-1 border border-[#C8C8D8] text-[#6B7280] hover:text-[#1A1A2E] font-mono text-[10px] uppercase tracking-wide py-2 rounded-lg transition-all"
                   >
                     Skip
                   </button>
@@ -3526,10 +3767,10 @@ export default function App() {
 
               {/* Actions — Skipped: re-enter option + delete */}
               {sms.status === 'skipped' && (
-                <div className="flex gap-2 pt-1 border-t border-[#1a1a1a]">
+                <div className="flex gap-2 pt-1 border-t border-[#E0E0E0]">
                   <button
                     onClick={() => openInlineWizard(sms)}
-                    className="flex-1 border border-[#d4af37]/40 text-[#d4af37] hover:bg-[#d4af37]/10 font-mono text-[10px] uppercase py-2 rounded-lg transition-all"
+                    className="flex-1 border border-[#1B2CC1]/40 text-[#1B2CC1] hover:bg-[#1B2CC1]/10 font-mono text-[10px] uppercase py-2 rounded-lg transition-all"
                   >
                     Re-enter
                   </button>
@@ -3544,7 +3785,7 @@ export default function App() {
 
               {/* Confirmed: no delete, just status label */}
               {sms.status === 'confirmed' && (
-                <div className="pt-1 border-t border-[#1a1a1a]">
+                <div className="pt-1 border-t border-[#E0E0E0]">
                   <span className="text-emerald-400 text-[10px] font-mono">Added to ledger · auto-removes in {settingRetentionDays}d</span>
                 </div>
               )}
@@ -3552,48 +3793,48 @@ export default function App() {
 
             {/* Inline wizard — renders directly below this card */}
             {inlineWizardSmsId === sms.id && parseWizard && (
-              <div className="bg-[#0a0a0a] border border-[#d4af37]/30 border-t-0 rounded-b-xl p-4 space-y-3 animate-fade-in">
+              <div className="bg-[#F5F5FA] border border-[#1B2CC1]/30 border-t-0 rounded-b-xl p-4 space-y-3 animate-fade-in">
                 <div className="flex justify-between items-center">
-                  <span className="text-[9px] font-mono text-[#d4af37] uppercase tracking-wider font-semibold">Confirm Transaction</span>
-                  <button onClick={() => { setParseWizard(null); setInlineWizardSmsId(null); }} className="text-gray-500 hover:text-white text-xs">✕</button>
+                  <span className="text-[9px] font-mono text-[#1B2CC1] uppercase tracking-wider font-semibold">Confirm Transaction</span>
+                  <button onClick={() => { setParseWizard(null); setInlineWizardSmsId(null); }} className="text-[#6B7280] hover:text-[#1A1A2E] text-xs">✕</button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-[#121212] p-2 rounded-lg border border-[#1a1a1a]">
-                    <span className="text-[8px] text-gray-500 font-mono uppercase block">Amount</span>
-                    <span className="text-sm font-bold text-white font-mono">₹{parseWizard.amount}</span>
+                  <div className="bg-[#121212] p-2 rounded-lg border border-[#E0E0E0]">
+                    <span className="text-[8px] text-[#6B7280] font-mono uppercase block">Amount</span>
+                    <span className="text-sm font-bold text-[#1A1A2E] font-mono">₹{parseWizard.amount}</span>
                   </div>
-                  <div className="bg-[#121212] p-2 rounded-lg border border-[#1a1a1a]">
-                    <span className="text-[8px] text-gray-500 font-mono uppercase block">Type</span>
+                  <div className="bg-[#121212] p-2 rounded-lg border border-[#E0E0E0]">
+                    <span className="text-[8px] text-[#6B7280] font-mono uppercase block">Type</span>
                     <span className={`text-[11px] font-semibold uppercase ${parseWizard.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}`}>{parseWizard.type}</span>
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-[8px] text-[#d4af37] font-mono uppercase tracking-wider">Category</label>
+                  <label className="text-[8px] text-[#1B2CC1] font-mono uppercase tracking-wider">Category</label>
                   <div className="relative">
                     <select value={parseWizard.proposedCategory} onChange={e => setParseWizard({ ...parseWizard, proposedCategory: e.target.value })}
-                      className="w-full bg-[#050505] p-2 pr-7 rounded-lg text-xs font-mono text-[#e5e5e5] border border-[#222] focus:outline-none focus:border-[#d4af37] appearance-none cursor-pointer">
+                      className="w-full bg-[#F5F5F5] p-2 pr-7 rounded-lg text-xs font-mono text-[#1A1A2E] border border-[#D5D5E0] focus:outline-none focus:border-[#1B2CC1] appearance-none cursor-pointer">
                       {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                     </select>
-                    <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                    <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-[#6B7280] pointer-events-none" />
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-[8px] text-[#d4af37] font-mono uppercase tracking-wider">Description</label>
+                  <label className="text-[8px] text-[#1B2CC1] font-mono uppercase tracking-wider">Description</label>
                   <input type="text" value={parseWizard.description} onChange={e => setParseWizard({ ...parseWizard, description: e.target.value })}
                     placeholder="Add a note..."
-                    className="w-full bg-[#050505] p-2 rounded-lg text-xs text-[#e5e5e5] border border-[#222] focus:outline-none focus:border-[#d4af37]" />
+                    className="w-full bg-[#F5F5F5] p-2 rounded-lg text-xs text-[#1A1A2E] border border-[#D5D5E0] focus:outline-none focus:border-[#1B2CC1]" />
                 </div>
 
                 <div className="flex gap-2">
                   <button onClick={saveTransactionFromSmsWizard}
-                    className="flex-1 bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:opacity-95 transition-all">
+                    className="flex-1 bg-[#1B2CC1] text-white font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:opacity-95 transition-all">
                     Save to Ledger
                   </button>
                   <button onClick={() => { setParseWizard(null); setInlineWizardSmsId(null); }}
-                    className="px-4 border border-[#333] text-gray-400 hover:text-white rounded-xl text-xs transition-all">
+                    className="px-4 border border-[#C8C8D8] text-[#6B7280] hover:text-[#1A1A2E] rounded-xl text-xs transition-all">
                     Cancel
                   </button>
                 </div>
@@ -3604,9 +3845,9 @@ export default function App() {
 
         return (
           <div className="space-y-3 animate-fade-in pt-5 text-xs">
-            <div className="flex justify-between items-center pb-3 border-b border-[#1c1c1c]">
+            <div className="flex justify-between items-center pb-3 border-b border-[#E5E5F0]">
               <div className="flex items-center gap-2">
-                <h2 className="font-serif text-base text-white">SMS Inbox</h2>
+                <h2 className="font-serif text-base text-[#1A1A2E]">SMS Inbox</h2>
                 <span className="text-[9px] bg-red-950/40 text-red-400 font-mono px-2 py-0.5 rounded-full border border-red-900/30">
                   {pendingSms.length} pending
                 </span>
@@ -3614,7 +3855,7 @@ export default function App() {
               {pendingSms.length > 0 && (
                 <button
                   onClick={() => { setSmsMessages(prev => prev.map(s => s.status === 'pending' ? { ...s, status: 'skipped' } : s)); setParseWizard(null); setInlineWizardSmsId(null); }}
-                  className="text-[9px] font-mono border border-[#333] text-gray-400 hover:text-white px-2.5 py-1 rounded-lg transition-all"
+                  className="text-[9px] font-mono border border-[#C8C8D8] text-[#6B7280] hover:text-[#1A1A2E] px-2.5 py-1 rounded-lg transition-all"
                 >
                   Skip All
                 </button>
@@ -3622,17 +3863,17 @@ export default function App() {
             </div>
 
             {smsMessages.length === 0 ? (
-              <div className="text-center py-10 bg-[#0f0f0f] rounded-xl border border-[#1a1a1a]">
-                <MessageSquare className="mx-auto text-gray-700 mb-2.5" size={20} />
-                <p className="text-gray-500 text-[11px]">No SMS messages yet.</p>
-                <p className="text-gray-600 text-[10px] mt-1">Bank SMS will appear here automatically.</p>
+              <div className="text-center py-10 bg-[#FFFFFF] rounded-xl border border-[#E0E0E0]">
+                <MessageSquare className="mx-auto text-[#9CA3AF] mb-2.5" size={20} />
+                <p className="text-[#6B7280] text-[11px]">No SMS messages yet.</p>
+                <p className="text-[#9CA3AF] text-[10px] mt-1">Bank SMS will appear here automatically.</p>
               </div>
             ) : (
               <div className="space-y-3">
                 {/* Section: Pending */}
                 {pendingSms.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-[9px] font-mono text-yellow-500 uppercase tracking-widest font-semibold px-1">Pending ({pendingSms.length})</p>
+                    <p className="text-[9px] font-mono text-blue-500 uppercase tracking-widest font-semibold px-1">Pending ({pendingSms.length})</p>
                     {pendingSms.map(renderSmsCard)}
                   </div>
                 )}
@@ -3646,7 +3887,7 @@ export default function App() {
                 {/* Section: Skipped */}
                 {skippedSms.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-[9px] font-mono text-gray-500 uppercase tracking-widest font-semibold px-1">Skipped ({skippedSms.length})</p>
+                    <p className="text-[9px] font-mono text-[#6B7280] uppercase tracking-widest font-semibold px-1">Skipped ({skippedSms.length})</p>
                     {skippedSms.map(renderSmsCard)}
                   </div>
                 )}
@@ -3659,41 +3900,41 @@ export default function App() {
 
       {/* --- TAB 4: BUDGET CONTROL & LIMIT ALERTS (SETTING ONLY) --- */}
       {navTab === 'budgets' && (
-        <div className="space-y-4 animate-fade-in pt-5 text-xs text-gray-400">
+        <div className="space-y-4 animate-fade-in pt-5 text-xs text-[#6B7280]">
           
-          <div className="flex flex-col border-b border-[#1c1c1c] pb-3">
-            <span className="text-[9px] text-[#888] font-mono tracking-widest uppercase font-bold">Budget Management</span>
-            <h2 className="font-serif text-base text-white">Budget Setup</h2>
+          <div className="flex flex-col border-b border-[#E5E5F0] pb-3">
+            <span className="text-[9px] text-[#6B7280] font-mono tracking-widest uppercase font-bold">Budget Management</span>
+            <h2 className="font-serif text-base text-[#1A1A2E]">Budget Setup</h2>
           </div>
 
           {/* Highly Polished Adjust Category Limit Module - NO basic selectors or basic prompts */}
-          <div className="bg-[#0f0f0f] border border-[#d4af37]/15 rounded-2xl p-4 mt-2 space-y-4">
-            <div className="flex items-center gap-1.5 border-b border-[#222] pb-1.5">
-              <p className="font-mono text-[#d4af37] text-[10px] uppercase font-bold">⚙️ Budget Settings</p>
+          <div className="bg-[#FFFFFF] border border-[#1B2CC1]/15 rounded-2xl p-4 mt-2 space-y-4">
+            <div className="flex items-center gap-1.5 border-b border-[#D5D5E0] pb-1.5">
+              <p className="font-mono text-[#1B2CC1] text-[10px] uppercase font-bold">⚙️ Budget Settings</p>
             </div>
 
             {/* Month Selector — current + future months only, dropdown */}
             <div className="space-y-1.5">
-              <label className="text-[9px] font-mono text-gray-500 uppercase tracking-wider block">Budget Month</label>
+              <label className="text-[9px] font-mono text-[#6B7280] uppercase tracking-wider block">Budget Month</label>
               <div className="relative">
                 <select
                   value={budgetMonth}
                   onChange={e => setBudgetMonth(e.target.value)}
-                  className="w-full bg-[#141414] border border-[#222] rounded-xl py-2.5 px-3 pr-8 text-xs text-[#e5e5e5] appearance-none outline-none focus:border-[#d4af37] cursor-pointer font-mono"
+                  className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl py-2.5 px-3 pr-8 text-xs text-[#1A1A2E] appearance-none outline-none focus:border-[#1B2CC1] cursor-pointer font-mono"
                 >
                   {futureBudgetMonths.map(m => (
                     <option key={m} value={m}>{m}{m === futureBudgetMonths[0] ? ' (Current)' : ''}</option>
                   ))}
                 </select>
-                <ChevronDown size={12} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <ChevronDown size={12} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-[#6B7280] pointer-events-none" />
               </div>
-              <p className="text-[8px] text-gray-600 font-mono italic">Only current &amp; future months. Past budgets are read-only.</p>
+              <p className="text-[8px] text-[#9CA3AF] font-mono italic">Only current &amp; future months. Past budgets are read-only.</p>
             </div>
 
             {/* Premium Custom Category Selector Grid to replace Basic basic dropdown */}
             <div className="space-y-2">
-              <label className="text-[9px] font-mono text-gray-500 uppercase tracking-wider block">Category</label>
-              <div className="grid grid-cols-2 gap-1.5 max-h-44 overflow-y-auto pr-1 no-scrollbar border border-[#1a1a1a] rounded-xl p-2 bg-[#050505]">
+              <label className="text-[9px] font-mono text-[#6B7280] uppercase tracking-wider block">Category</label>
+              <div className="grid grid-cols-2 gap-1.5 max-h-44 overflow-y-auto pr-1 no-scrollbar border border-[#E0E0E0] rounded-xl p-2 bg-[#F5F5F5]">
                 {categories.filter(c => c !== 'Income').map(cat => {
                   const isSelected = budgetCategory === cat;
                   return (
@@ -3703,8 +3944,8 @@ export default function App() {
                       onClick={() => setBudgetCategory(cat)}
                       className={`p-2.5 rounded-lg text-[10px] text-left font-mono transition-all border flex items-center justify-between ${
                         isSelected
-                          ? 'bg-[#d4af37]/10 border-[#d4af37] text-[#d4af37] font-bold'
-                          : 'bg-[#0f0f0f]/80 border-[#222]/80 text-gray-400 hover:border-gray-600'
+                          ? 'bg-[#1B2CC1]/10 border-[#1B2CC1] text-[#1B2CC1] font-bold'
+                          : 'bg-[#FFFFFF]/80 border-[#D5D5E0]/80 text-[#6B7280] hover:border-gray-600'
                       }`}
                     >
                       <span className="truncate">{cat}</span>
@@ -3717,15 +3958,15 @@ export default function App() {
 
             {/* Limit Input Box Integrated Inline */}
             <div className="space-y-1.5">
-              <label className="text-[9px] font-mono text-gray-500 uppercase tracking-wider block">Limit Amount (₹)</label>
+              <label className="text-[9px] font-mono text-[#6B7280] uppercase tracking-wider block">Limit Amount (₹)</label>
               <div className="relative">
-                <span className="absolute left-3 top-2.5 text-gray-500 font-mono text-xs">₹</span>
+                <span className="absolute left-3 top-2.5 text-[#6B7280] font-mono text-xs">₹</span>
                 <input
                   type="number"
                   placeholder="Set expectation limit amount, e.g. 15000"
                   value={budgetAmountInput}
                   onChange={(e) => setBudgetAmountInput(e.target.value)}
-                  className="bg-[#141414] border border-[#222] p-2.5 pl-7 rounded-xl text-xs text-white focus:outline-none focus:border-[#d4af37] font-mono w-full"
+                  className="bg-[#F5F5F5] border border-[#D5D5E0] p-2.5 pl-7 rounded-xl text-xs text-[#1A1A2E] focus:outline-none focus:border-[#1B2CC1] font-mono w-full"
                 />
               </div>
             </div>
@@ -3753,7 +3994,7 @@ export default function App() {
                 alert(`Budget saved: ${budgetCategory} → ₹${val} for ${budgetMonth}`);
                 setBudgetAmountInput('');
               }}
-              className="w-full bg-[#d4af37] hover:opacity-95 text-black font-semibold uppercase text-[10px] tracking-wider py-3 px-4 rounded-xl shadow-lg transition-all font-mono"
+              className="w-full bg-[#1B2CC1] hover:opacity-95 text-black font-semibold uppercase text-[10px] tracking-wider py-3 px-4 rounded-xl shadow-lg transition-all font-mono"
             >
               Apply Limit
             </button>
@@ -3776,42 +4017,107 @@ export default function App() {
               return `${yr}-${mc}` >= curKey;
             });
             return (
-              <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl p-4 mt-4 space-y-3">
-                <div className="flex justify-between items-center border-b border-[#222] pb-1.5">
-                  <span className="text-[10px] font-mono text-white">Active Limits List ({visibleBudgets.length})</span>
-                  <span className="text-[8px] font-mono text-gray-500 uppercase font-bold">{budgetMonth} view</span>
-                </div>
-                <p className="text-[8px] text-gray-600 font-mono italic">Past budgets are locked and hidden. Only current &amp; future limits are editable.</p>
-                <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
-                  {visibleBudgets.length === 0 ? (
-                    <p className="text-[10px] text-gray-500 italic text-center py-4 font-mono">No current/future budgets. Create above!</p>
-                  ) : (
-                    [...visibleBudgets]
-                      .sort((a, b) => (a.month || currentMonthLabel).localeCompare(b.month || currentMonthLabel) || a.category.localeCompare(b.category))
-                      .map((b, idx) => (
-                        <div key={`${b.category}-${b.month}-${idx}`} className="bg-[#141414] rounded-lg p-2.5 border border-[#1d1d1d] flex justify-between items-center text-[10px] font-mono">
-                          <div>
-                            <span className="text-white block font-medium">{b.category}</span>
-                            <span className="text-gray-500 text-[8px]">Period: <strong className="text-gray-300 font-mono text-[9px]">{b.month || currentMonthLabel}</strong></span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="text-[#d4af37] font-bold">₹{b.limit.toLocaleString('en-IN')}</span>
-                            <button
-                              onClick={() => {
-                                if (confirm(`Discard the ${b.category} budget for ${b.month || currentMonthLabel}?`)) {
-                                  setBudgets(prev => prev.filter(item => !(item.category === b.category && (item.month || currentMonthLabel) === (b.month || currentMonthLabel))));
-                                }
-                              }}
-                              className="text-gray-500 hover:text-red-400 text-[10px]"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                  )}
-                </div>
-              </div>
+              <>{(() => {
+                // ── Budget Table: all budgets grouped by category × month ──
+                if (budgets.length === 0) return (
+                  <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl p-4 mt-4 text-center">
+                    <p className="text-[10px] text-[#6B7280] font-mono italic py-4">No budgets set yet. Create one above.</p>
+                  </div>
+                );
+
+                // Get all unique months and categories from ALL budgets
+                const MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                const allMonths = Array.from(new Set(budgets.map(b => b.month || currentMonthLabel)))
+                  .sort((a, b) => {
+                    const [am, ay] = a.split('-'); const [bm, by] = b.split('-');
+                    return parseInt(ay) - parseInt(by) || MN.indexOf(am) - MN.indexOf(bm);
+                  });
+                const allCats = Array.from(new Set(budgets.map(b => b.category))).sort();
+
+                // Build lookup: cat+month → limit
+                const lookup: Record<string, number> = {};
+                budgets.forEach(b => { lookup[`${b.category}|${b.month || currentMonthLabel}`] = b.limit; });
+
+                // Column totals per month
+                const monthTotals: Record<string, number> = {};
+                allMonths.forEach(m => {
+                  monthTotals[m] = allCats.reduce((s, cat) => s + (lookup[`${cat}|${m}`] || 0), 0);
+                });
+                const grandTotal = Object.values(monthTotals).reduce((s, v) => s + v, 0);
+
+                // Current month for highlighting
+                const now = new Date();
+                const curM = `${MN[now.getMonth()]}-${now.getFullYear()}`;
+
+                const tdBase = 'py-2 px-2 text-[10px] font-mono text-right border-b border-[#E0E0E0] whitespace-nowrap';
+                const thBase = 'py-2 px-2 text-[9px] font-mono font-bold uppercase tracking-wider text-right border-b-2 border-[#1B2CC1] whitespace-nowrap';
+
+                return (
+                  <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl mt-4 overflow-hidden">
+                    <div className="flex justify-between items-center px-4 py-3 border-b border-[#E0E0E0]">
+                      <span className="text-[11px] font-bold text-[#1A1A2E]">Budget Table</span>
+                      <span className="text-[9px] font-mono text-[#6B7280]">{allCats.length} categories · {allMonths.length} months</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse" style={{minWidth: `${Math.max(280, allMonths.length * 80 + 110)}px`}}>
+                        <thead>
+                          <tr className="bg-[#F8F8FF]">
+                            <th className="py-2 px-3 text-[9px] font-bold uppercase tracking-wider text-left border-b-2 border-[#1B2CC1] text-[#1A1A2E] whitespace-nowrap sticky left-0 bg-[#F8F8FF]">Category</th>
+                            {allMonths.map(m => (
+                              <th key={m} className={`${thBase} ${m === curM ? 'text-[#1B2CC1]' : 'text-[#6B7280]'}`}>
+                                {m}{m === curM ? ' ●' : ''}
+                              </th>
+                            ))}
+                            <th className={`${thBase} text-[#1A1A2E]`}>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {allCats.map(cat => {
+                            const rowTotal = allMonths.reduce((s, m) => s + (lookup[`${cat}|${m}`] || 0), 0);
+                            return (
+                              <tr key={cat} className="hover:bg-[#F8F8FF] transition-colors">
+                                <td className="py-2 px-3 text-[10px] font-mono text-[#1A1A2E] font-semibold border-b border-[#E0E0E0] sticky left-0 bg-white whitespace-nowrap">
+                                  {categoryIcons[cat] || '⭐'} {cat}
+                                </td>
+                                {allMonths.map(m => {
+                                  const val = lookup[`${cat}|${m}`];
+                                  const isCur = m === curM;
+                                  return (
+                                    <td key={m} className={`${tdBase} ${val ? (isCur ? 'text-[#1B2CC1] font-bold' : 'text-[#1A1A2E]') : 'text-[#D1D5DB]'}`}>
+                                      {val ? `₹${Math.round(val).toLocaleString('en-IN')}` : '—'}
+                                    </td>
+                                  );
+                                })}
+                                <td className="py-2 px-2 text-[10px] font-mono font-bold text-[#1A1A2E] text-right border-b border-[#E0E0E0] whitespace-nowrap border-l border-[#E0E0E0]">
+                                  {rowTotal > 0 ? `₹${Math.round(rowTotal).toLocaleString('en-IN')}` : '—'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-[#F0F2FF]">
+                            <td className="py-2 px-3 text-[10px] font-mono font-bold text-[#1B2CC1] uppercase tracking-wider border-t-2 border-[#1B2CC1] sticky left-0 bg-[#F0F2FF]">Total</td>
+                            {allMonths.map(m => (
+                              <td key={m} className="py-2 px-2 text-[10px] font-mono font-bold text-[#1B2CC1] text-right border-t-2 border-[#1B2CC1] whitespace-nowrap">
+                                {monthTotals[m] > 0 ? `₹${Math.round(monthTotals[m]).toLocaleString('en-IN')}` : '—'}
+                              </td>
+                            ))}
+                            <td className="py-2 px-2 text-[10px] font-mono font-bold text-[#1B2CC1] text-right border-t-2 border-[#1B2CC1] border-l border-[#1B2CC1] whitespace-nowrap">
+                              ₹{Math.round(grandTotal).toLocaleString('en-IN')}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                    <div className="px-4 py-2 border-t border-[#E0E0E0] flex justify-between items-center">
+                      <p className="text-[8px] text-[#9CA3AF] font-mono italic">● = current month · scroll right for more months</p>
+                      <button onClick={() => { if(window.confirm('Delete all budgets?')) setBudgets([]); }}
+                        className="text-[8px] font-mono text-red-400 hover:underline">Clear all</button>
+                    </div>
+                  </div>
+                );
+              })()}</>
             );
           })()}
 
@@ -3823,21 +4129,21 @@ export default function App() {
       {navTab === 'history' && (
         <div className="space-y-4 animate-fade-in pt-2 text-xs">
 
-          <div className="flex justify-between items-center pb-3 border-b border-[#1c1c1c]">
+          <div className="flex justify-between items-center pb-3 border-b border-[#E5E5F0]">
             <div>
-              <span className="text-[9px] text-[#888] font-mono tracking-widest uppercase font-bold">Transaction Log</span>
-              <h2 className="font-serif text-base text-white">History</h2>
+              <span className="text-[9px] text-[#6B7280] font-mono tracking-widest uppercase font-bold">Transaction Log</span>
+              <h2 className="font-serif text-base text-[#1A1A2E]">History</h2>
             </div>
             <div className="flex gap-2">
               <button
                 onClick={handleExportToExcelStyleCsv}
-                className="bg-[#141414] border border-[#222] hover:border-[#d4af37] text-[#d4af37] py-1.5 px-3 rounded-xl flex items-center gap-1.5 transition-all font-mono text-[9px] uppercase tracking-wider"
+                className="bg-[#F5F5F5] border border-[#D5D5E0] hover:border-[#1B2CC1] text-[#1B2CC1] py-1.5 px-3 rounded-xl flex items-center gap-1.5 transition-all font-mono text-[9px] uppercase tracking-wider"
               >
                 <Download size={12} /> Export
               </button>
               <button
                 onClick={() => setNavTab('settings')}
-                className="bg-[#141414] border border-[#222] hover:border-[#d4af37] text-gray-400 hover:text-[#d4af37] p-1.5 rounded-xl transition-all"
+                className="bg-[#F5F5F5] border border-[#D5D5E0] hover:border-[#1B2CC1] text-[#6B7280] hover:text-[#1B2CC1] p-1.5 rounded-xl transition-all"
               >
                 <Info size={15} />
               </button>
@@ -3847,42 +4153,42 @@ export default function App() {
           {/* Edit modal */}
           {/* ── Edit Transaction Modal ── */}
           {editingTransaction && (
-            <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4" onClick={() => setEditingTransaction(null)}>
-              <div className="bg-[#0f0f0f] border border-[#d4af37]/30 rounded-2xl p-4 w-full max-w-[380px] space-y-3 shadow-2xl" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center border-b border-[#222] pb-2">
-                  <span className="text-[10px] font-mono text-[#d4af37] uppercase tracking-wider font-semibold">Edit Transaction</span>
-                  <button onClick={() => setEditingTransaction(null)} className="text-gray-500 hover:text-white text-xs">✕</button>
+            <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4" onClick={() => setEditingTransaction(null)}>
+              <div className="bg-white border border-[#1B2CC1]/20 rounded-2xl shadow-2xl p-4 w-full max-w-[380px] space-y-3 shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center border-b border-[#D5D5E0] pb-2">
+                  <span className="text-[10px] font-mono text-[#1B2CC1] uppercase tracking-wider font-semibold">Edit Transaction</span>
+                  <button onClick={() => setEditingTransaction(null)} className="text-[#6B7280] hover:text-[#1A1A2E] text-xs">✕</button>
                 </div>
                 <div className="space-y-2.5">
                   <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Date</label>
+                    <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider">Date</label>
                     <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
-                      className="bg-[#141414] border border-[#222] rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#d4af37] font-mono" />
+                      className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-2.5 text-xs text-[#1A1A2E] outline-none focus:border-[#1B2CC1] font-mono" />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Category</label>
+                    <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider">Category</label>
                     <div className="relative">
                       <select value={editCategory} onChange={e => setEditCategory(e.target.value)}
-                        className="w-full bg-[#141414] border border-[#222] rounded-xl p-2.5 pr-8 text-xs text-white appearance-none outline-none focus:border-[#d4af37]">
+                        className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-2.5 pr-8 text-xs text-[#1A1A2E] appearance-none outline-none focus:border-[#1B2CC1]">
                         {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                       </select>
-                      <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                      <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#6B7280] pointer-events-none" />
                     </div>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Description</label>
+                    <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider">Description</label>
                     <input type="text" value={editDescription} onChange={e => setEditDescription(e.target.value)}
-                      className="bg-[#141414] border border-[#222] rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#d4af37]" />
+                      className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-2.5 text-xs text-[#1A1A2E] outline-none focus:border-[#1B2CC1]" />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Amount (₹)</label>
+                    <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider">Amount (₹)</label>
                     <input type="number" value={editAmount} onChange={e => setEditAmount(e.target.value)}
-                      className="bg-[#141414] border border-[#222] rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#d4af37] font-mono" />
+                      className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-2.5 text-xs text-[#1A1A2E] outline-none focus:border-[#1B2CC1] font-mono" />
                   </div>
                 </div>
                 <div className="flex gap-2 pt-1">
                   <button onClick={saveEditTransaction}
-                    className="flex-1 bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:opacity-90 transition-all">
+                    className="flex-1 bg-[#1B2CC1] text-white font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:opacity-90 transition-all">
                     Save Changes
                   </button>
                   <button onClick={() => { handleDeleteTransaction(editingTransaction.id); setEditingTransaction(null); }}
@@ -3895,32 +4201,32 @@ export default function App() {
           )}
 
           {/* Filters */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-3 space-y-3">
+          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-3 space-y-3">
             {/* Month filter row */}
             <div className="flex flex-col gap-1">
-              <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Month</label>
+              <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider">Month</label>
               <div className="relative">
                 <select value={historyMonthFilter} onChange={e => setHistoryMonthFilter(e.target.value)}
-                  className="w-full bg-[#141414] border border-[#222] rounded-lg py-1.5 px-2 pr-6 text-[10px] text-white appearance-none outline-none focus:border-[#d4af37]">
+                  className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg py-1.5 px-2 pr-6 text-[10px] text-[#1A1A2E] appearance-none outline-none focus:border-[#1B2CC1]">
                   <option value="All">All Time</option>
                   {availableMonths.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
-                <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-[#6B7280] pointer-events-none" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="flex flex-col gap-1">
-                <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Category</label>
+                <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider">Category</label>
                 <select value={historyFilterCategory} onChange={e => setHistoryFilterCategory(e.target.value)}
-                  className="bg-[#141414] border border-[#222] rounded-lg py-1.5 px-2 text-[10px] text-white appearance-none outline-none focus:border-[#d4af37]">
+                  className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg py-1.5 px-2 text-[10px] text-[#1A1A2E] appearance-none outline-none focus:border-[#1B2CC1]">
                   <option value="All">All</option>
                   {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                 </select>
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">Type</label>
+                <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider">Type</label>
                 <select value={historyFilterType} onChange={e => setHistoryFilterType(e.target.value)}
-                  className="bg-[#141414] border border-[#222] rounded-lg py-1.5 px-2 text-[10px] text-white appearance-none outline-none focus:border-[#d4af37]">
+                  className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg py-1.5 px-2 text-[10px] text-[#1A1A2E] appearance-none outline-none focus:border-[#1B2CC1]">
                   <option value="All">All</option>
                   <option value="income">Received</option>
                   <option value="expense">Sent</option>
@@ -3937,10 +4243,10 @@ export default function App() {
               return (
                 <div className="flex flex-col gap-1.5">
                   <button onClick={() => openCal('history')}
-                    className={`flex items-center gap-2 bg-[#141414] border rounded-lg py-2 px-3 text-[11px] font-mono outline-none transition-all w-full ${hasDateFilter ? 'border-[#d4af37] text-[#d4af37]' : 'border-[#222] text-gray-400'}`}>
+                    className={`flex items-center gap-2 bg-[#F5F5F5] border rounded-lg py-2 px-3 text-[11px] font-mono outline-none transition-all w-full ${hasDateFilter ? 'border-[#1B2CC1] text-[#1B2CC1]' : 'border-[#D5D5E0] text-[#6B7280]'}`}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                     <span className="truncate">{dateLabel}</span>
-                    {hasDateFilter && <button onClick={e => { e.stopPropagation(); setHistoryDateFrom(null); setHistoryDateTo(null); }} className="ml-auto text-gray-500 hover:text-white text-[10px]">×</button>}
+                    {hasDateFilter && <button onClick={e => { e.stopPropagation(); setHistoryDateFrom(null); setHistoryDateTo(null); }} className="ml-auto text-[#6B7280] hover:text-[#1A1A2E] text-[10px]">×</button>}
                   </button>
                 </div>
               );
@@ -3954,7 +4260,7 @@ export default function App() {
                 setHistoryDateTo(null);
                 setHistoryDateTo(null);
               }}
-                className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">
+                className="text-[9px] text-[#1B2CC1] font-mono uppercase tracking-wider hover:underline">
                 Reset to Current Month
               </button>
             )}
@@ -3980,7 +4286,7 @@ export default function App() {
               if (historyDateTo) list = list.filter(t => t.date <= historyDateTo!);
 
               if (list.length === 0) return (
-                <div className="text-center py-10 text-gray-600 font-mono text-[10px]">
+                <div className="text-center py-10 text-[#9CA3AF] font-mono text-[10px]">
                   No transactions for {historyMonthFilter === 'All' ? 'selected filters' : historyMonthFilter}.
                 </div>
               );
@@ -3989,13 +4295,13 @@ export default function App() {
                 <div
                   key={item.id}
                   onClick={() => startEditTransaction(item)}
-                  className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-3 flex justify-between items-center cursor-pointer hover:border-[#d4af37]/30 hover:bg-[#111] transition-all active:scale-[0.99]"
+                  className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-3 flex justify-between items-center cursor-pointer hover:border-[#1B2CC1]/30 hover:bg-[#F5F5F5] transition-all active:scale-[0.99]"
                 >
                   <div className="min-w-0 flex-1 pr-2">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] font-medium text-white truncate">{item.description}</span>
+                      <span className="text-[11px] font-medium text-[#1A1A2E] truncate">{item.description}</span>
                     </div>
-                    <div className="flex gap-1.5 text-[9px] text-gray-500 font-mono mt-0.5">
+                    <div className="flex gap-1.5 text-[9px] text-[#6B7280] font-mono mt-0.5">
                       <span>{item.date}</span>
                       <span>•</span>
                       <span>{categoryIcons[item.category] || '⭐'} {item.category}</span>
@@ -4003,9 +4309,9 @@ export default function App() {
                   </div>
                   <div className="text-right shrink-0">
                     <p className={`text-[11px] font-bold font-mono ${item.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {item.type === 'income' ? '+' : '-'}₹{item.amount.toLocaleString('en-IN')}
+                      {item.type === 'income' ? '+' : '-'}₹{Math.round(item.amount).toLocaleString('en-IN')}
                     </p>
-                    <p className="text-[8px] text-gray-600 font-mono">{item.type === 'income' ? 'Received' : 'Sent'}</p>
+                    <p className="text-[8px] text-[#9CA3AF] font-mono">{item.type === 'income' ? 'Received' : 'Sent'}</p>
                   </div>
                 </div>
               ));
@@ -4019,32 +4325,100 @@ export default function App() {
       {navTab === 'settings' && (
         <div className="space-y-3 animate-fade-in text-xs p-1">
 
-          {/* ── Data Management ── */}
+          {/* ── Google Account ── */}
           <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+            <div className="px-4 py-3">
+              <div className="flex items-center gap-3 mb-3">
+                {googleUser?.picture && (
+                  <img src={googleUser.picture} alt="avatar" className="w-10 h-10 rounded-full border border-[#333]"/>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-semibold text-[12px] truncate">{googleUser?.name}</p>
+                  <p className="text-gray-500 font-mono text-[10px] truncate">{googleUser?.email}</p>
+                </div>
+                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${syncStatus === 'synced' ? 'bg-emerald-400' : syncStatus === 'syncing' ? 'bg-yellow-400 animate-pulse' : syncStatus === 'error' ? 'bg-red-400' : 'bg-gray-600'}`}/>
+              </div>
+              <div className="flex items-center justify-between bg-[#141414] border border-[#222] rounded-xl px-3 py-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px]">☁️</span>
+                  <span className="font-mono text-[10px] text-gray-400">
+                    {syncStatus === 'synced' ? 'Synced to Google Drive' :
+                     syncStatus === 'syncing' ? 'Syncing...' :
+                     syncStatus === 'error' ? 'Sync failed' : 'Not synced yet'}
+                  </span>
+                </div>
+                <button onClick={saveToDrive}
+                  className="font-mono text-[9px] uppercase tracking-wider text-[#d4af37] hover:underline">
+                  Sync now
+                </button>
+              </div>
+              <button onClick={signOut}
+                className="w-full border border-red-900/50 text-red-400 font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-red-950/30 transition-all">
+                Sign Out
+              </button>
+            </div>
+          </div>
+
+          {/* ── Appearance ── */}
+          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-[#1a1a1a]">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-[14px]">🎨</span>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Appearance</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setTheme('aurelius')}
+                  className={`flex flex-col items-center gap-2 py-3 px-2 rounded-xl border-2 transition-all ${!isRoyal ? 'border-[#d4af37] bg-[#d4af37]/10' : 'border-[#222] bg-[#141414]'}`}>
+                  <div className="w-10 h-10 rounded-xl bg-[#050505] border-2 border-[#d4af37] flex items-center justify-center">
+                    <span className="text-[#d4af37] text-[16px]">★</span>
+                  </div>
+                  <div className="text-center">
+                    <p className={`font-mono text-[10px] font-bold uppercase ${!isRoyal ? 'text-[#d4af37]' : 'text-gray-500'}`}>Aurelius</p>
+                    <p className="font-mono text-[8px] text-gray-600">Dark · Gold</p>
+                  </div>
+                  {!isRoyal && <span className="text-[8px] font-mono text-[#d4af37]">● Active</span>}
+                </button>
+                <button onClick={() => setTheme('royal')}
+                  className={`flex flex-col items-center gap-2 py-3 px-2 rounded-xl border-2 transition-all ${isRoyal ? 'border-[#1B2CC1] bg-[#1B2CC1]/10' : 'border-[#222] bg-[#141414]'}`}>
+                  <div className="w-10 h-10 rounded-xl bg-[#F4F6FB] border-2 border-[#1B2CC1] flex items-center justify-center">
+                    <span className="text-[#1B2CC1] text-[16px]">◆</span>
+                  </div>
+                  <div className="text-center">
+                    <p className={`font-mono text-[10px] font-bold uppercase ${isRoyal ? 'text-[#1B2CC1]' : 'text-gray-500'}`}>Royal</p>
+                    <p className="font-mono text-[8px] text-gray-600">Light · Blue</p>
+                  </div>
+                  {isRoyal && <span className="text-[8px] font-mono text-[#1B2CC1]">● Active</span>}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Data Management ── */}
+          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('data-mgmt')}>
               <div className="flex items-center gap-2">
-                <Download size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Data Management</span>
+                <Download size={14} className="text-[#1B2CC1]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">Data Management</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('data-mgmt')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('data-mgmt')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('data-mgmt') && (
-              <div className="px-4 pb-4 space-y-3 border-t border-[#1a1a1a]">
-                <p className="text-gray-500 text-[9px] font-mono leading-relaxed pt-3">Backup or restore your transactions. CSV files work with Excel, Google Sheets, or other finance apps.</p>
-                <button onClick={handleCsvExport} className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#d4af37]/10 transition-all flex items-center justify-center gap-2">
+              <div className="px-4 pb-4 space-y-3 border-t border-[#E0E0E0]">
+                <p className="text-[#6B7280] text-[9px] font-mono leading-relaxed pt-3">Backup or restore your transactions. CSV files work with Excel, Google Sheets, or other finance apps.</p>
+                <button onClick={handleCsvExport} className="w-full border border-[#1B2CC1]/40 text-[#1B2CC1] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#1B2CC1]/10 transition-all flex items-center justify-center gap-2">
                   <Download size={12}/> Export All Transactions (CSV)
                 </button>
-                <button onClick={handleLedgerExport} className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#d4af37]/10 transition-all flex items-center justify-center gap-2">
+                <button onClick={handleLedgerExport} className="w-full border border-[#1B2CC1]/40 text-[#1B2CC1] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#1B2CC1]/10 transition-all flex items-center justify-center gap-2">
                   <Download size={12}/> Export Ledger (CSV)
                 </button>
                 <label className="block">
                   <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleCsvImportFile(f); e.target.value = ''; }}/>
-                  <span className="w-full border border-[#555] text-gray-300 font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#1a1a1a] transition-all flex items-center justify-center gap-2 cursor-pointer">
+                  <span className="w-full border border-[#555] text-[#4B5563] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#EEF0FA] transition-all flex items-center justify-center gap-2 cursor-pointer">
                     <Upload size={12}/> Import CSV
                   </span>
                 </label>
-                <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3 text-[9px] font-mono text-gray-500 leading-relaxed">
-                  <p className="font-semibold text-gray-400 mb-1">Import accepts two formats:</p>
+                <div className="bg-[#F5F5FA] border border-[#E0E0E0] rounded-xl p-3 text-[9px] font-mono text-[#6B7280] leading-relaxed">
+                  <p className="font-semibold text-[#6B7280] mb-1">Import accepts two formats:</p>
                   <p>• Export format: Date, Category, Description, Amount In, Amount Out</p>
                   <p>• Template format: Date, Type, Amount, Category, Description</p>
                 </div>
@@ -4053,16 +4427,16 @@ export default function App() {
           </div>
 
           {/* ── SMS & Notifications ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('sms-notif')}>
               <div className="flex items-center gap-2">
-                <MessageSquare size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">SMS & Notifications</span>
+                <MessageSquare size={14} className="text-[#1B2CC1]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">SMS & Notifications</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('sms-notif')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('sms-notif')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('sms-notif') && (
-              <div className="px-4 pb-4 space-y-3 border-t border-[#1a1a1a] pt-3">
+              <div className="px-4 pb-4 space-y-3 border-t border-[#E0E0E0] pt-3">
                 {[
                   { key: 'ft_setting_sms_reader', label: 'SMS Reader', desc: 'Auto-detect bank SMS messages', state: settingSmsReader, set: setSettingSmsReader },
                   { key: 'ft_setting_tx_notif', label: 'Transaction Notifications', desc: 'Notify when new SMS is detected', state: settingTxNotif, set: setSettingTxNotif },
@@ -4070,11 +4444,11 @@ export default function App() {
                 ].map(item => (
                   <div key={item.key} className="flex items-center justify-between">
                     <div>
-                      <p className="text-white text-[11px] font-mono font-semibold">{item.label}</p>
-                      <p className="text-gray-500 text-[9px] font-mono mt-0.5">{item.desc}</p>
+                      <p className="text-[#1A1A2E] text-[11px] font-mono font-semibold">{item.label}</p>
+                      <p className="text-[#6B7280] text-[9px] font-mono mt-0.5">{item.desc}</p>
                     </div>
                     <button onClick={() => item.set(!item.state)}
-                      className={`relative w-10 h-5 rounded-full transition-all ${item.state ? 'bg-[#d4af37]' : 'bg-[#333]'}`}>
+                      className={`relative w-10 h-5 rounded-full transition-all ${item.state ? 'bg-[#1B2CC1]' : 'bg-[#DDE0F7]'}`}>
                       <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${item.state ? 'left-5' : 'left-0.5'}`}/>
                     </button>
                   </div>
@@ -4084,104 +4458,104 @@ export default function App() {
           </div>
 
           {/* ── Retention Period ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('retention')}>
               <div className="flex items-center gap-2">
-                <Calendar size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Retention Period</span>
+                <Calendar size={14} className="text-[#1B2CC1]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">Retention Period</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('retention')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('retention')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('retention') && (
-              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3">
-                <p className="text-gray-500 text-[9px] font-mono mb-3">Keep SMS messages for this many days before auto-deleting confirmed/skipped ones.</p>
-                <div className="flex items-center justify-between bg-[#141414] border border-[#222] rounded-xl p-3">
-                  <button onClick={() => setSettingRetentionDays(d => Math.max(7, d - 7))} className="text-[#d4af37] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#d4af37]/10">−</button>
+              <div className="px-4 pb-4 border-t border-[#E0E0E0] pt-3">
+                <p className="text-[#6B7280] text-[9px] font-mono mb-3">Keep SMS messages for this many days before auto-deleting confirmed/skipped ones.</p>
+                <div className="flex items-center justify-between bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3">
+                  <button onClick={() => setSettingRetentionDays(d => Math.max(7, d - 7))} className="text-[#1B2CC1] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#1B2CC1]/10">−</button>
                   <div className="text-center">
-                    <span className="text-white font-mono font-bold text-base">{settingRetentionDays}</span>
-                    <span className="text-gray-500 font-mono text-[9px] ml-1">days</span>
+                    <span className="text-[#1A1A2E] font-mono font-bold text-base">{settingRetentionDays}</span>
+                    <span className="text-[#6B7280] font-mono text-[9px] ml-1">days</span>
                   </div>
-                  <button onClick={() => setSettingRetentionDays(d => Math.min(365, d + 7))} className="text-[#d4af37] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#d4af37]/10">+</button>
+                  <button onClick={() => setSettingRetentionDays(d => Math.min(365, d + 7))} className="text-[#1B2CC1] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#1B2CC1]/10">+</button>
                 </div>
               </div>
             )}
           </div>
 
           {/* ── Export Reminder ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('export-reminder')}>
               <div className="flex items-center gap-2">
-                <Download size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Export Reminder</span>
+                <Download size={14} className="text-[#1B2CC1]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">Export Reminder</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('export-reminder')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('export-reminder')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('export-reminder') && (
-              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
-                <p className="text-gray-500 text-[9px] font-mono">Remind you to export if you haven't backed up in this many days.</p>
-                <div className="flex items-center justify-between bg-[#141414] border border-[#222] rounded-xl p-3">
-                  <button onClick={() => setSettingExportReminderDays(d => Math.max(1, d - 1))} className="text-[#d4af37] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#d4af37]/10">−</button>
+              <div className="px-4 pb-4 border-t border-[#E0E0E0] pt-3 space-y-3">
+                <p className="text-[#6B7280] text-[9px] font-mono">Remind you to export if you haven't backed up in this many days.</p>
+                <div className="flex items-center justify-between bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3">
+                  <button onClick={() => setSettingExportReminderDays(d => Math.max(1, d - 1))} className="text-[#1B2CC1] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#1B2CC1]/10">−</button>
                   <div className="text-center">
-                    <span className="text-white font-mono font-bold text-base">{settingExportReminderDays}</span>
-                    <span className="text-gray-500 font-mono text-[9px] ml-1">days</span>
+                    <span className="text-[#1A1A2E] font-mono font-bold text-base">{settingExportReminderDays}</span>
+                    <span className="text-[#6B7280] font-mono text-[9px] ml-1">days</span>
                   </div>
-                  <button onClick={() => setSettingExportReminderDays(d => Math.min(90, d + 1))} className="text-[#d4af37] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#d4af37]/10">+</button>
+                  <button onClick={() => setSettingExportReminderDays(d => Math.min(90, d + 1))} className="text-[#1B2CC1] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#1B2CC1]/10">+</button>
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   {[3,7,14,30].map(d => (
                     <button key={d} onClick={() => setSettingExportReminderDays(d)}
-                      className={`px-3 py-1.5 rounded-lg border text-[9px] font-mono transition-all ${settingExportReminderDays === d ? 'border-[#d4af37] text-[#d4af37] bg-[#d4af37]/10' : 'border-[#222] text-gray-500'}`}>
+                      className={`px-3 py-1.5 rounded-lg border text-[9px] font-mono transition-all ${settingExportReminderDays === d ? 'border-[#1B2CC1] text-[#1B2CC1] bg-[#1B2CC1]/10' : 'border-[#D5D5E0] text-[#6B7280]'}`}>
                       {d}d
                     </button>
                   ))}
                 </div>
                 {lastExportDate && (
-                  <p className="text-[9px] font-mono text-gray-500">Last export: <span className="text-[#d4af37]">{lastExportDate}</span></p>
+                  <p className="text-[9px] font-mono text-[#6B7280]">Last export: <span className="text-[#1B2CC1]">{lastExportDate}</span></p>
                 )}
               </div>
             )}
           </div>
 
           {/* ── Manage Category ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('manage-cat')}>
               <div className="flex items-center gap-2">
-                <BrandIcon size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Manage Category</span>
+                <BrandIcon size={14} className="text-[#1B2CC1]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">Manage Category</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('manage-cat')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('manage-cat')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('manage-cat') && (
-              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
+              <div className="px-4 pb-4 border-t border-[#E0E0E0] pt-3 space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={() => { setMcPanel(mcPanel === 'add' ? 'none' : 'add'); setMcEditSel(''); setMcAction('none'); }}
-                    className={`py-2.5 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'add' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#222] bg-[#141414] text-gray-400'}`}>
+                    className={`py-2.5 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'add' ? 'border-[#1B2CC1] bg-[#1B2CC1]/10 text-[#1B2CC1]' : 'border-[#D5D5E0] bg-[#F5F5F5] text-[#6B7280]'}`}>
                     + Add
                   </button>
                   <button onClick={() => { setMcPanel(mcPanel === 'edit' ? 'none' : 'edit'); setMcEditSel(''); setMcAction('none'); }}
-                    className={`py-2.5 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'edit' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#222] bg-[#141414] text-gray-400'}`}>
+                    className={`py-2.5 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'edit' ? 'border-[#1B2CC1] bg-[#1B2CC1]/10 text-[#1B2CC1]' : 'border-[#D5D5E0] bg-[#F5F5F5] text-[#6B7280]'}`}>
                     ✏ Edit
                   </button>
                 </div>
 
                 {mcPanel === 'add' && (
-                  <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3 space-y-2">
-                    <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider block">Icon</label>
+                  <div className="bg-[#F5F5FA] border border-[#E0E0E0] rounded-xl p-3 space-y-2">
+                    <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider block">Icon</label>
                     <input type="text" value={mcAddIcon} onChange={e => setMcAddIcon(e.target.value)} maxLength={4} placeholder="⭐"
-                      className="w-16 text-center text-[18px] bg-[#141414] border border-[#222] rounded-lg p-2 outline-none focus:border-[#d4af37] text-white"/>
-                    <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider block mt-2">Category Name</label>
+                      className="w-16 text-center text-[18px] bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg p-2 outline-none focus:border-[#1B2CC1] text-[#1A1A2E]"/>
+                    <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider block mt-2">Category Name</label>
                     <input type="text" value={mcAddName} onChange={e => setMcAddName(e.target.value)} placeholder="e.g. Cooking"
-                      className="w-full bg-[#141414] border border-[#222] rounded-xl p-2.5 text-[12px] text-white outline-none focus:border-[#d4af37] font-mono"/>
-                    <button onClick={mcDoAdd} className="w-full bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl mt-1">Save Category</button>
-                    <button onClick={mcReset} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                      className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-2.5 text-[12px] text-[#1A1A2E] outline-none focus:border-[#1B2CC1] font-mono"/>
+                    <button onClick={mcDoAdd} className="w-full bg-[#1B2CC1] text-white font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl mt-1">Save Category</button>
+                    <button onClick={mcReset} className="w-full border border-[#C8C8D8] text-[#6B7280] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                   </div>
                 )}
 
                 {mcPanel === 'edit' && (
-                  <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3 space-y-2">
-                    <label className="text-[9px] text-gray-500 font-mono uppercase tracking-wider block">Select Category</label>
+                  <div className="bg-[#F5F5FA] border border-[#E0E0E0] rounded-xl p-3 space-y-2">
+                    <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider block">Select Category</label>
                     <select value={mcEditSel} onChange={e => { setMcEditSel(e.target.value); setMcAction('none'); setMcMergeTarget(''); }}
-                      className="w-full bg-[#141414] border border-[#222] rounded-xl p-2.5 text-[12px] text-white outline-none focus:border-[#d4af37] font-mono appearance-none">
+                      className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-2.5 text-[12px] text-[#1A1A2E] outline-none focus:border-[#1B2CC1] font-mono appearance-none">
                       <option value="">— choose a category —</option>
                       {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                     </select>
@@ -4189,7 +4563,7 @@ export default function App() {
                     {mcEditSel && (
                       <div className="grid grid-cols-3 gap-1.5 pt-1">
                         <button onClick={() => { setMcAction('rename'); setMcRenameIcon(categoryIcons[mcEditSel] || '⭐'); setMcRenameName(mcEditSel); }}
-                          className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'rename' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#d4af37]/40 text-[#d4af37]'}`}>✏ Rename</button>
+                          className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'rename' ? 'border-[#1B2CC1] bg-[#1B2CC1]/10 text-[#1B2CC1]' : 'border-[#1B2CC1]/40 text-[#1B2CC1]'}`}>✏ Rename</button>
                         <button onClick={() => { setMcAction('merge'); setMcMergeTarget(''); }}
                           className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'merge' ? 'border-[#9ab7d8] bg-[#9ab7d8]/10 text-[#9ab7d8]' : 'border-[#4a7090] text-[#9ab7d8]'}`}>⇄ Merge</button>
                         <button onClick={() => setMcAction('delete')}
@@ -4199,12 +4573,12 @@ export default function App() {
 
                     {/* ── Change Icon Only ── */}
                     {mcEditSel && mcAction === 'none' && (
-                      <div className="bg-[#141414] border border-[#222] rounded-xl p-3 mt-1">
-                        <label className="text-[9px] text-gray-500 font-mono uppercase block mb-2">Change Icon</label>
+                      <div className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3 mt-1">
+                        <label className="text-[9px] text-[#6B7280] font-mono uppercase block mb-2">Change Icon</label>
                         <div className="flex items-center gap-3">
                           <input type="text" value={mcRenameIcon || categoryIcons[mcEditSel] || '⭐'}
                             onChange={e => setMcRenameIcon(e.target.value)}
-                            className="w-16 text-center text-[20px] bg-[#0a0a0a] border border-[#222] rounded-lg p-2 outline-none focus:border-[#d4af37] text-white"
+                            className="w-16 text-center text-[20px] bg-[#F5F5FA] border border-[#D5D5E0] rounded-lg p-2 outline-none focus:border-[#1B2CC1] text-[#1A1A2E]"
                             placeholder="⭐"/>
                           <button onClick={() => {
                             const icon = (mcRenameIcon || categoryIcons[mcEditSel] || '⭐').trim();
@@ -4213,54 +4587,54 @@ export default function App() {
                             localStorage.setItem('aurelius_category_icons', JSON.stringify(ni));
                             showToast(`Icon updated for "${mcEditSel}"`);
                             setMcRenameIcon('');
-                          }} className="flex-1 bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">
+                          }} className="flex-1 bg-[#1B2CC1] text-white font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">
                             Save Icon
                           </button>
                         </div>
-                        <p className="text-[8px] text-gray-600 font-mono mt-1.5">Tap the box, type or paste an emoji, then Save.</p>
+                        <p className="text-[8px] text-[#9CA3AF] font-mono mt-1.5">Tap the box, type or paste an emoji, then Save.</p>
                       </div>
                     )}
 
                     {mcAction === 'rename' && (
-                      <div className="bg-[#141414] border border-[#222] rounded-xl p-3 space-y-2 mt-1">
-                        <label className="text-[9px] text-gray-500 font-mono uppercase block">Icon</label>
+                      <div className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3 space-y-2 mt-1">
+                        <label className="text-[9px] text-[#6B7280] font-mono uppercase block">Icon</label>
                         <input type="text" value={mcRenameIcon} onChange={e => setMcRenameIcon(e.target.value)} maxLength={4}
-                          className="w-16 text-center text-[18px] bg-[#0a0a0a] border border-[#222] rounded-lg p-2 outline-none focus:border-[#d4af37] text-white"/>
-                        <label className="text-[9px] text-gray-500 font-mono uppercase block mt-2">New Name</label>
+                          className="w-16 text-center text-[18px] bg-[#F5F5FA] border border-[#D5D5E0] rounded-lg p-2 outline-none focus:border-[#1B2CC1] text-[#1A1A2E]"/>
+                        <label className="text-[9px] text-[#6B7280] font-mono uppercase block mt-2">New Name</label>
                         <input type="text" value={mcRenameName} onChange={e => setMcRenameName(e.target.value)}
-                          className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl p-2.5 text-[12px] text-white outline-none focus:border-[#d4af37] font-mono"/>
-                        <p className="text-[8px] text-gray-600 font-mono">All transactions update to the new name automatically.</p>
-                        <button onClick={mcDoRename} className="w-full bg-[#d4af37] text-black font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Save Rename</button>
-                        <button onClick={() => setMcAction('none')} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                          className="w-full bg-[#F5F5FA] border border-[#D5D5E0] rounded-xl p-2.5 text-[12px] text-[#1A1A2E] outline-none focus:border-[#1B2CC1] font-mono"/>
+                        <p className="text-[8px] text-[#9CA3AF] font-mono">All transactions update to the new name automatically.</p>
+                        <button onClick={mcDoRename} className="w-full bg-[#1B2CC1] text-white font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Save Rename</button>
+                        <button onClick={() => setMcAction('none')} className="w-full border border-[#C8C8D8] text-[#6B7280] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                       </div>
                     )}
 
                     {mcAction === 'merge' && (
-                      <div className="bg-[#141414] border border-[#222] rounded-xl p-3 space-y-2 mt-1">
-                        <label className="text-[9px] text-gray-500 font-mono uppercase block">Move all transactions into</label>
+                      <div className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3 space-y-2 mt-1">
+                        <label className="text-[9px] text-[#6B7280] font-mono uppercase block">Move all transactions into</label>
                         <select value={mcMergeTarget} onChange={e => setMcMergeTarget(e.target.value)}
-                          className="w-full bg-[#0a0a0a] border border-[#222] rounded-xl p-2.5 text-[12px] text-white outline-none focus:border-[#9ab7d8] font-mono appearance-none">
+                          className="w-full bg-[#F5F5FA] border border-[#D5D5E0] rounded-xl p-2.5 text-[12px] text-[#1A1A2E] outline-none focus:border-[#9ab7d8] font-mono appearance-none">
                           <option value="">— choose target —</option>
                           {categories.filter(c => c !== mcEditSel).map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                         </select>
-                        <p className="text-[8px] text-gray-600 font-mono">"{mcEditSel}" will be removed. Target name survives.</p>
+                        <p className="text-[8px] text-[#9CA3AF] font-mono">"{mcEditSel}" will be removed. Target name survives.</p>
                         <button onClick={() => { if (!mcMergeTarget) { alert('Select a target'); return; } setMcModal('merge1'); }}
                           className="w-full border border-[#4a7090] text-[#9ab7d8] font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Done</button>
-                        <button onClick={() => setMcAction('none')} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                        <button onClick={() => setMcAction('none')} className="w-full border border-[#C8C8D8] text-[#6B7280] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                       </div>
                     )}
 
                     {mcAction === 'delete' && (
-                      <div className="bg-[#141414] border border-[#7a3020]/50 rounded-xl p-3 space-y-2 mt-1">
-                        <p className="text-[10px] font-mono text-gray-400 leading-relaxed">
-                          Every transaction in <span className="text-[#d4af37]">{mcEditSel}</span> will move to <span className="text-[#d4af37]">Uncategorized 📂</span>. You can re-categorize them later.
+                      <div className="bg-[#F5F5F5] border border-[#7a3020]/50 rounded-xl p-3 space-y-2 mt-1">
+                        <p className="text-[10px] font-mono text-[#6B7280] leading-relaxed">
+                          Every transaction in <span className="text-[#1B2CC1]">{mcEditSel}</span> will move to <span className="text-[#1B2CC1]">Uncategorized 📂</span>. You can re-categorize them later.
                         </p>
                         <button onClick={mcDoDelete} className="w-full border border-[#D96A55] text-[#D96A55] font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Delete Category</button>
-                        <button onClick={() => setMcAction('none')} className="w-full border border-[#333] text-gray-500 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                        <button onClick={() => setMcAction('none')} className="w-full border border-[#C8C8D8] text-[#6B7280] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                       </div>
                     )}
 
-                    <button onClick={mcReset} className="w-full border border-[#222] text-gray-600 font-mono text-[9px] uppercase py-2 rounded-xl mt-1">Close</button>
+                    <button onClick={mcReset} className="w-full border border-[#D5D5E0] text-[#9CA3AF] font-mono text-[9px] uppercase py-2 rounded-xl mt-1">Close</button>
                   </div>
                 )}
               </div>
@@ -4268,23 +4642,23 @@ export default function App() {
           </div>
 
           {/* ── Excluded from Analysis ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('excl-analysis')}>
               <div className="flex items-center gap-2">
-                <BrandIcon size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Excluded from Analysis</span>
+                <BrandIcon size={14} className="text-[#1B2CC1]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">Excluded from Analysis</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('excl-analysis')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('excl-analysis')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('excl-analysis') && (
-              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
-                <p className="text-gray-500 text-[9px] font-mono leading-relaxed">Excluded categories are hidden from: Expenditure by Category, Month vs Spending, Week on Week, and Spend Share. Still appear in Ledger, History and Budget.</p>
+              <div className="px-4 pb-4 border-t border-[#E0E0E0] pt-3 space-y-3">
+                <p className="text-[#6B7280] text-[9px] font-mono leading-relaxed">Excluded categories are hidden from: Expenditure by Category, Month vs Spending, Week on Week, and Spend Share. Still appear in Ledger, History and Budget.</p>
                 <div className="flex flex-wrap gap-2">
                   {categories.map(cat => {
                     const excluded = excludedCategories.includes(cat);
                     return (
                       <button key={cat} onClick={() => toggleExcluded(cat)}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[#141414] border-[#222] text-gray-400 hover:border-gray-500'}`}>
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[#F5F5F5] border-[#D5D5E0] text-[#6B7280] hover:border-gray-500'}`}>
                         {categoryIcons[cat] || '⭐'} {cat}
                         {excluded && <span className="text-red-500 ml-0.5">×</span>}
                       </button>
@@ -4292,31 +4666,31 @@ export default function App() {
                   })}
                 </div>
                 {excludedCategories.length > 0
-                  ? <button onClick={() => setExcludedCategories([])} className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">Clear all</button>
-                  : <p className="text-[8px] text-gray-600 font-mono italic">Tap any category to exclude from charts</p>
+                  ? <button onClick={() => setExcludedCategories([])} className="text-[9px] text-[#1B2CC1] font-mono uppercase tracking-wider hover:underline">Clear all</button>
+                  : <p className="text-[8px] text-[#9CA3AF] font-mono italic">Tap any category to exclude from charts</p>
                 }
               </div>
             )}
           </div>
 
           {/* ── Excluded from Ledger ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('excl-ledger')}>
               <div className="flex items-center gap-2">
-                <BrandIcon size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Excluded from Ledger</span>
+                <BrandIcon size={14} className="text-[#1B2CC1]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">Excluded from Ledger</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('excl-ledger')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('excl-ledger')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('excl-ledger') && (
-              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
-                <p className="text-gray-500 text-[9px] font-mono leading-relaxed">Categories excluded here are completely hidden from the Ledger table — no rows, no totals, no effect on Opening/Closing balance.</p>
+              <div className="px-4 pb-4 border-t border-[#E0E0E0] pt-3 space-y-3">
+                <p className="text-[#6B7280] text-[9px] font-mono leading-relaxed">Categories excluded here are completely hidden from the Ledger table — no rows, no totals, no effect on Opening/Closing balance.</p>
                 <div className="flex flex-wrap gap-2">
                   {categories.map(cat => {
                     const excluded = excludedLedgerCategories.includes(cat);
                     return (
                       <button key={cat} onClick={() => toggleExcludedLedger(cat)}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[#141414] border-[#222] text-gray-400 hover:border-gray-500'}`}>
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[#F5F5F5] border-[#D5D5E0] text-[#6B7280] hover:border-gray-500'}`}>
                         {categoryIcons[cat] || '⭐'} {cat}
                         {excluded && <span className="text-red-500 ml-0.5">×</span>}
                       </button>
@@ -4324,15 +4698,15 @@ export default function App() {
                   })}
                 </div>
                 {excludedLedgerCategories.length > 0
-                  ? <button onClick={() => setExcludedLedgerCategories([])} className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">Clear all</button>
-                  : <p className="text-[8px] text-gray-600 font-mono italic">Tap any category to exclude from Ledger</p>
+                  ? <button onClick={() => setExcludedLedgerCategories([])} className="text-[9px] text-[#1B2CC1] font-mono uppercase tracking-wider hover:underline">Clear all</button>
+                  : <p className="text-[8px] text-[#9CA3AF] font-mono italic">Tap any category to exclude from Ledger</p>
                 }
               </div>
             )}
           </div>
 
           {/* ── Danger Zone ── */}
-          <div className="bg-[#0f0f0f] border border-red-900/50 rounded-2xl overflow-hidden">
+          <div className="bg-[#FFFFFF] border border-red-900/50 rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('danger')}>
               <div className="flex items-center gap-2">
                 <span className="text-red-500 text-[14px]">⚠</span>
@@ -4342,7 +4716,7 @@ export default function App() {
             </button>
             {isSettingsOpen('danger') && (
               <div className="px-4 pb-4 border-t border-red-900/30 pt-3 space-y-3">
-                <p className="text-gray-500 text-[9px] font-mono leading-relaxed">Permanently delete all transactions, SMS messages, and budgets. This cannot be undone.</p>
+                <p className="text-[#6B7280] text-[9px] font-mono leading-relaxed">Permanently delete all transactions, SMS messages, and budgets. This cannot be undone.</p>
                 {!dangerConfirm ? (
                   <button onClick={() => setDangerConfirm(true)} className="w-full border border-red-900/50 text-red-400 font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-red-950/30 transition-all">
                     Delete All Data
@@ -4351,7 +4725,7 @@ export default function App() {
                   <div className="space-y-2">
                     <p className="text-red-400 text-[10px] font-mono text-center font-bold">Are you absolutely sure?</p>
                     <div className="grid grid-cols-2 gap-2">
-                      <button onClick={() => setDangerConfirm(false)} className="border border-[#333] text-gray-400 font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                      <button onClick={() => setDangerConfirm(false)} className="border border-[#C8C8D8] text-[#6B7280] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                       <button onClick={() => { setTransactions([]); setSmsMessages([]); setBudgets([]); setDangerConfirm(false); showToast('All data deleted permanently.'); }} className="border border-red-700 bg-red-950/40 text-red-400 font-mono text-[10px] uppercase py-2 rounded-xl font-bold">Delete Forever</button>
                     </div>
                   </div>
@@ -4361,18 +4735,18 @@ export default function App() {
           </div>
 
           {/* ── About ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('about')}>
               <div className="flex items-center gap-2">
-                <Info size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">About</span>
+                <Info size={14} className="text-[#1B2CC1]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">About</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('about')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('about')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('about') && (
-              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-1.5">
-                <p className="text-[#888] text-[10px] font-mono">Finance Tracker v1.0.0</p>
-                <p className="text-[#555] text-[9px] font-mono leading-relaxed">Built with React + Capacitor. Your data stays on your device — never sent to any server.</p>
+              <div className="px-4 pb-4 border-t border-[#E0E0E0] pt-3 space-y-1.5">
+                <p className="text-[#6B7280] text-[10px] font-mono">Finance Tracker v1.0.0</p>
+                <p className="text-[#9CA3AF] text-[9px] font-mono leading-relaxed">Built with React + Capacitor. Your data stays on your device — never sent to any server.</p>
               </div>
             )}
           </div>
@@ -4385,20 +4759,20 @@ export default function App() {
     </div>
 
     {/* Bottom Navigation Bar - PhonePe style with prominent Add */}
-    <div className="bg-[#090909] border-t border-[#141414] px-2 flex justify-between items-center text-gray-500 select-none shrink-0 relative" style={{ height: 'calc(5rem + env(safe-area-inset-bottom, 0px))', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+    <div className="bg-[#FFFFFF] border-t border-[#141414] px-2 flex justify-between items-center text-[#6B7280] select-none shrink-0 relative" style={{ height: 'calc(5rem + env(safe-area-inset-bottom, 0px))', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
 
       {/* Dashboard */}
-      <button onClick={() => setNavTab('dashboard')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'dashboard' ? 'text-[#d4af37]' : 'text-gray-500'}`}>
+      <button onClick={() => setNavTab('dashboard')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'dashboard' ? 'text-[#1B2CC1]' : 'text-[#6B7280]'}`}>
         <TrendingUp size={20} />
         <span className="text-[9px] font-mono tracking-wide">Home</span>
       </button>
 
       {/* SMS */}
-      <button onClick={() => setNavTab('sms')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full relative transition-all ${navTab === 'sms' ? 'text-[#d4af37]' : 'text-gray-500'}`}>
+      <button onClick={() => setNavTab('sms')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full relative transition-all ${navTab === 'sms' ? 'text-[#1B2CC1]' : 'text-[#6B7280]'}`}>
         <div className="relative">
           <MessageSquare size={20} />
           {smsMessages.filter(s => s.status === 'pending').length > 0 && (
-            <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 rounded-full flex items-center justify-center text-white text-[8px] font-bold">
+            <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 rounded-full flex items-center justify-center text-[#1A1A2E] text-[8px] font-bold">
               {smsMessages.filter(s => s.status === 'pending').length}
             </span>
           )}
@@ -4415,26 +4789,26 @@ export default function App() {
         }`}>
           <svg viewBox="0 0 56 56" className="w-full h-full">
             {/* Outer gold ring */}
-            <circle cx="28" cy="28" r="27" fill="#d4af37" stroke="#b8962a" strokeWidth="2"/>
+            <circle cx="28" cy="28" r="27" fill="#1B2CC1" stroke="#b8962a" strokeWidth="2"/>
             <circle cx="28" cy="28" r="24" fill="none" stroke="#a07d20" strokeWidth="0.6" opacity="0.5"/>
             {/* Central square cutout — coin hole */}
             <rect x="18" y="18" width="20" height="20" fill="#050505" stroke="#a07d20" strokeWidth="1"/>
             {/* Plus inside the square */}
-            <line x1="28" y1="22" x2="28" y2="34" stroke="#d4af37" strokeWidth="3" strokeLinecap="round"/>
-            <line x1="22" y1="28" x2="34" y2="28" stroke="#d4af37" strokeWidth="3" strokeLinecap="round"/>
+            <line x1="28" y1="22" x2="28" y2="34" stroke="#1B2CC1" strokeWidth="3" strokeLinecap="round"/>
+            <line x1="22" y1="28" x2="34" y2="28" stroke="#1B2CC1" strokeWidth="3" strokeLinecap="round"/>
           </svg>
         </div>
-        <span className={`text-[9px] font-mono tracking-wide ${navTab === 'add' ? 'text-[#d4af37]' : 'text-gray-500'}`}>Add</span>
+        <span className={`text-[9px] font-mono tracking-wide ${navTab === 'add' ? 'text-[#1B2CC1]' : 'text-[#6B7280]'}`}>Add</span>
       </button>
 
       {/* Budgets */}
-      <button onClick={() => setNavTab('budgets')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'budgets' ? 'text-[#d4af37]' : 'text-gray-500'}`}>
+      <button onClick={() => setNavTab('budgets')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'budgets' ? 'text-[#1B2CC1]' : 'text-[#6B7280]'}`}>
         <AlertCircle size={20} />
         <span className="text-[9px] font-mono tracking-wide">Budget</span>
       </button>
 
       {/* History */}
-      <button onClick={() => setNavTab('history')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'history' ? 'text-[#d4af37]' : 'text-gray-500'}`}>
+      <button onClick={() => setNavTab('history')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'history' ? 'text-[#1B2CC1]' : 'text-[#6B7280]'}`}>
         <FileText size={20} />
         <span className="text-[9px] font-mono tracking-wide">History</span>
       </button>
