@@ -855,6 +855,8 @@ export default function App() {
   const isSettingsOpen = (key: string) => !!settingsOpen[key];
   const [dangerConfirm, setDangerConfirm] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
+  const [openMonths, setOpenMonths] = useState<Record<string, boolean>>({});
+  const toggleMonth = (key: string) => setOpenMonths(prev => ({ ...prev, [key]: !prev[key] }));
   const showToast = (msg: string) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(''), 3000);
@@ -2207,19 +2209,35 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen w-screen bg-[#F5F5F5] text-[#1A1A2E] flex flex-col overflow-hidden font-sans">
+    <div className={`h-screen w-screen flex flex-col overflow-hidden font-sans ${isRoyal ? 'royal-theme bg-[#F4F6FB] text-[#1A1A2E]' : 'bg-[#050505] text-[#e5e5e5]'}`}>
 
-      {/* ── THEME OVERRIDES (Light) ───────────────────────────────────── */}
-      <style>{`
-        /* Root wrapper */
-        /* KEEP Inflow/Outflow cards & Smart Alerts dark - these have bg-[#F5F5FA] and bg-[#F5F5F5] */
-        /* Section toggle row (Recent / Smart Alerts) — preserve its dark/light contrast */
-        /* Borders */
-        /* Text colors — only target inside light-bg containers */
-        /* Keep gold/emerald/rose accents */
-        /* Inputs */
-        html[data-theme="light"] input::placeholder { color: #999 !important; }
-      `}</style>
+      {/* ── THEME: Royal Blue overrides when isRoyal ── */}
+      {isRoyal && <style>{`
+        .royal-theme { background: #F4F6FB !important; }
+        .royal-theme * { border-color: inherit; }
+        /* Backgrounds: dark → white/light */
+        .royal-theme [class*="bg-\\[#050505\\]"] { background: #F4F6FB !important; }
+        .royal-theme [class*="bg-\\[#0f0f0f\\]"] { background: #FFFFFF !important; }
+        .royal-theme [class*="bg-\\[#0a0a0a\\]"] { background: #F0F0F0 !important; }
+        .royal-theme [class*="bg-\\[#141414\\]"] { background: #EEEEEE !important; }
+        .royal-theme [class*="bg-\\[#090909\\]"] { background: #FFFFFF !important; }
+        /* Borders: dark → light */
+        .royal-theme [class*="border-\\[#1a1a1a\\]"] { border-color: #E2E8F0 !important; }
+        .royal-theme [class*="border-\\[#222\\]"] { border-color: #E2E8F0 !important; }
+        /* Text: white/light → dark */
+        .royal-theme [class*="text-\\[#e5e5e5\\]"] { color: #1A1A2E !important; }
+        .royal-theme [class*="text-\\[#fff\\]"] { color: #1A1A2E !important; }
+        /* Gold → Royal Blue */
+        .royal-theme [class*="text-\\[#d4af37\\]"] { color: #1B2CC1 !important; }
+        .royal-theme [class*="bg-\\[#d4af37\\]"] { background: #1B2CC1 !important; }
+        .royal-theme [class*="border-\\[#d4af37\\]"] { border-color: #1B2CC1 !important; }
+        .royal-theme [class*="bg-\\[#1a1500\\]"] { background: #E8EAFB !important; }
+        /* Muted stays grey */
+        .royal-theme [class*="text-\\[#555\\]"] { color: #64748B !important; }
+        /* Input backgrounds */
+        .royal-theme input, .royal-theme select, .royal-theme textarea { background: #F4F6FB !important; color: #1A1A2E !important; border-color: #E2E8F0 !important; }
+        .royal-theme input::placeholder { color: #94A3B8 !important; }
+      `}</style>}
 
       {/* ── ONBOARDING SCREEN ─────────────────────────────────────────── */}
       {showOnboarding && (
@@ -3936,8 +3954,6 @@ export default function App() {
           return parseInt(by) - parseInt(ay) || MN.indexOf(bm) - MN.indexOf(am);
         });
 
-        const [openMonths, setOpenMonths] = React.useState<Record<string, boolean>>({ [curMonthKey]: true });
-        const toggleMonth = (key: string) => setOpenMonths(prev => ({ ...prev, [key]: !prev[key] }));
 
         return (
           <div className="space-y-4 animate-fade-in pt-2 text-xs">
