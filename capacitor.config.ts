@@ -1,8 +1,8 @@
 import { CapacitorConfig } from '@capacitor/cli';
-
+ 
 const config: CapacitorConfig = {
   appId: 'com.financetracker.app',
-  appName: 'Finance Tracker',
+  appName: 'Paypathz',
   webDir: 'dist',
   server: {
     androidScheme: 'https'
@@ -21,5 +21,6 @@ const config: CapacitorConfig = {
     }
   }
 };
-
+ 
 export default config;
+ 
