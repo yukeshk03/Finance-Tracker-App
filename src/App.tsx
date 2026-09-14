@@ -4,7 +4,8 @@
  */
 
 // ── Google OAuth + Drive Config ───────────────────────────────────────────────
-const GOOGLE_CLIENT_ID = '230615350507-0esfnctd66qno0fgueb8kb8m6h3vfsre.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID_WEB     = '230615350507-0esfnctd66qno0fgueb8kb8m6h3vfsre.apps.googleusercontent.com'; // For web (GSI)
+const GOOGLE_CLIENT_ID_ANDROID = '230615350507-ekt6go528e2n5kbcid1n9b9emdcrc0qm.apps.googleusercontent.com'; // For APK (PKCE)
 const DRIVE_FILE_NAME  = 'finance-tracker-dusk.json';
 const DRIVE_SCOPE      = 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile';
 const OAUTH_REDIRECT   = 'com.financetracker.app:/oauth2callback'; // Custom scheme for APK
@@ -43,7 +44,7 @@ async function exchangeCodeForTokens(code: string, verifier: string): Promise<{ 
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       code,
-      client_id: GOOGLE_CLIENT_ID,
+      client_id: GOOGLE_CLIENT_ID_ANDROID,
       redirect_uri: OAUTH_REDIRECT,
       grant_type: 'authorization_code',
       code_verifier: verifier,
@@ -63,7 +64,7 @@ async function refreshAccessToken(refreshToken: string): Promise<{ access_token:
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       refresh_token: refreshToken,
-      client_id: GOOGLE_CLIENT_ID,
+      client_id: GOOGLE_CLIENT_ID_ANDROID,
       grant_type: 'refresh_token',
     }),
   });
@@ -2127,6 +2128,9 @@ export default function App() {
   const isCapacitor = !!(window as any).Capacitor;
 
   // ── Auth state ────────────────────────────────────────────────────────────
+  const [isGuest, setIsGuest] = useState<boolean>(() =>
+    localStorage.getItem('ft_guest_mode') === 'true'
+  );
   const [googleUser, setGoogleUser] = useState<GoogleUser | null>(() => {
     const s = localStorage.getItem('ft_google_user');
     return s ? JSON.parse(s) : null;
@@ -2157,19 +2161,17 @@ export default function App() {
     }
   };
 
-  // ── APK Sign-in: PKCE via Chrome Custom Tab ───────────────────────────────
+  // ── APK Sign-in: GSI implicit flow (works via androidScheme: https → origin = https://localhost) ──
+  // ── APK Sign-in: PKCE via Android OAuth client + system browser ────────────
   const signInApk = async () => {
     try {
       setAuthLoading(true);
-      const { Browser } = await import('@capacitor/browser');
-      const { App } = await import('@capacitor/app');
-
+      setSyncError('');
       const verifier  = generateCodeVerifier();
       const challenge = await generateCodeChallenge(verifier);
       localStorage.setItem('ft_pkce_verifier', verifier);
-
       const params = new URLSearchParams({
-        client_id:             GOOGLE_CLIENT_ID,
+        client_id:             GOOGLE_CLIENT_ID_ANDROID,
         redirect_uri:          OAUTH_REDIRECT,
         response_type:         'code',
         scope:                 DRIVE_SCOPE,
@@ -2178,43 +2180,32 @@ export default function App() {
         access_type:           'offline',
         prompt:                'select_account',
       });
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
-
-      // Listen for the callback URL before opening the browser
-      const listener = await App.addListener('appUrlOpen', async (event: any) => {
-        listener.remove();
-        await Browser.close();
-        const url = new URL(event.url);
-        const code  = url.searchParams.get('code');
-        const error = url.searchParams.get('error');
-        if (error || !code) {
-          setAuthLoading(false);
-          setSyncError('Sign-in was cancelled or failed');
-          return;
-        }
+      const authUrl = "https://accounts.google.com/o/oauth2/v2/auth?" + params.toString();
+      (window as any).open(authUrl, '_system');
+      const handleResume = async () => {
+        document.removeEventListener('resume', handleResume);
+        const bridge = (window as any).AndroidBridge;
+        const code  = bridge ? bridge.getOAuthCode()  : '';
+        const error = bridge ? bridge.getOAuthError() : '';
+        if (error || !code) { setAuthLoading(false); if (error) setSyncError('Sign-in cancelled'); return; }
         try {
           const savedVerifier = localStorage.getItem('ft_pkce_verifier') || '';
+          localStorage.removeItem('ft_pkce_verifier');
           const tokens = await exchangeCodeForTokens(code, savedVerifier);
           storeTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
           setAccessToken(tokens.access_token);
           const user = await fetchGoogleUserInfo(tokens.access_token);
           setGoogleUser(user);
           localStorage.setItem('ft_google_user', JSON.stringify(user));
-          localStorage.removeItem('ft_pkce_verifier');
+          setIsGuest(false); localStorage.removeItem('ft_guest_mode');
           await loadFromDrive(tokens.access_token);
         } catch (e: any) {
-          setSyncError(e.message || 'Authentication failed');
-          setSyncStatus('error');
-        } finally {
-          setAuthLoading(false);
-        }
-      });
-
-      await Browser.open({ url: authUrl, windowName: '_self' });
-    } catch (e: any) {
-      setAuthLoading(false);
-      setSyncError(e.message || 'Failed to open sign-in');
-    }
+          setSyncError(e.message || 'Authentication failed'); setSyncStatus('error');
+        } finally { setAuthLoading(false); }
+      };
+      document.addEventListener('resume', handleResume);
+      setTimeout(() => { document.removeEventListener('resume', handleResume); setAuthLoading(false); }, 300000);
+    } catch (e: any) { setAuthLoading(false); setSyncError(e.message || 'Failed to open sign-in'); }
   };
 
   // ── Web Sign-in: GSI implicit flow ───────────────────────────────────────
@@ -2223,7 +2214,7 @@ export default function App() {
     try {
       await loadGoogleScript();
       (window as any).google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
+        client_id: GOOGLE_CLIENT_ID_WEB,
         scope: DRIVE_SCOPE,
         callback: async (resp: any) => {
           if (resp.error) { setAuthLoading(false); setSyncError('Sign-in failed'); return; }
@@ -2259,7 +2250,15 @@ export default function App() {
     setDriveLoaded(false);
     setSyncStatus('idle');
     setSyncError('');
+    setIsGuest(false);
+    localStorage.removeItem('ft_guest_mode');
     clearTokenStorage();
+  };
+
+  // ── Continue as Guest ────────────────────────────────────────────────────
+  const continueAsGuest = () => {
+    localStorage.setItem('ft_guest_mode', 'true');
+    setIsGuest(true);
   };
 
   // ── Load from Drive — validates data before overwriting local ─────────────
@@ -2331,6 +2330,7 @@ export default function App() {
   // ── On startup: load from Drive if already authenticated ─────────────────
   useEffect(() => {
     const startup = async () => {
+      if (isGuest) return; // Guest mode — no Drive
       const storedUser = localStorage.getItem('ft_google_user');
       if (!storedUser) return; // Not signed in
       const token = await getValidToken();
@@ -2350,14 +2350,14 @@ export default function App() {
 
   // ── Auto-sync 2s after any data change ───────────────────────────────────
   useEffect(() => {
-    if (!accessToken || !googleUser || !driveLoaded) return;
+    if (isGuest || !accessToken || !googleUser || !driveLoaded) return;
     const timer = setTimeout(() => saveToDrive(), 2000);
     return () => clearTimeout(timer);
   }, [transactions, budgets, categories, categoryIcons]);
 
 
   // ── Show login screen if not signed in ──────────────────────────────
-  if (!googleUser) {
+  if (!googleUser && !isGuest) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-[var(--p-bg)]" style={{fontFamily:'system-ui,sans-serif'}}>
         <div className="flex flex-col items-center gap-6 px-8 w-full max-w-[360px]">
@@ -2411,13 +2411,19 @@ export default function App() {
                   <path fill="#4CAF50" d="M24 44c5.2 0 9.9-1.9 13.5-5l-6.2-5.2C29.4 35.6 26.8 36 24 36c-5.2 0-9.5-2.9-11.3-7.1l-6.5 5C9.6 39.6 16.3 44 24 44z"/>
                   <path fill="#1976D2" d="M43.6 20H24v8h11.3c-.8 2.3-2.4 4.2-4.3 5.5l6.2 5.2C41.2 35 44 29.9 44 24c0-1.3-.1-2.7-.4-4z"/>
                 </svg>
-                <span className="text-[var(--p-text)]">Continue with Google</span>
+                <span className="text-[var(--p-text)]">Sign in with Google</span>
               </>
             )}
           </button>
 
+          {/* Guest button */}
+          <button onClick={continueAsGuest}
+            className="w-full flex items-center justify-center gap-2 border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[11px] font-bold uppercase tracking-wider py-3 px-6 rounded-2xl active:scale-95 transition-all">
+            👤 Continue as Guest
+          </button>
+
           <p className="text-[#333] text-[10px] font-mono text-center leading-relaxed">
-            Signing in stores your data in your own Google Drive. We never see or access your data.
+            Sign in to sync data via Google Drive. Guest mode keeps data on this device only.
           </p>
         </div>
       </div>
@@ -4526,7 +4532,9 @@ export default function App() {
               <div className="w-7 h-7 rounded-lg bg-[var(--p-accdim)] flex items-center justify-center text-[14px] flex-shrink-0">☁️</div>
               <div className="flex-1 min-w-0">
                 <p className="font-mono font-bold text-[12px] text-[var(--p-text)]">Google Drive Sync</p>
-                {googleUser ? (
+                {isGuest && !googleUser ? (
+                  <p className="font-mono text-[9px] text-[var(--p-muted)] mt-0.5">Guest mode · data local only · sign in to sync</p>
+                ) : googleUser ? (
                   <div className="mt-0.5">
                     <div className="flex items-center gap-1.5">
                       <span className={`w-[7px] h-[7px] rounded-full flex-shrink-0 inline-block ${
