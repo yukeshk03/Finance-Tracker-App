@@ -3,18 +3,28 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-// ── Google OAuth + Drive Config ───────────────────────────────────────────
+// ── Google OAuth + Drive Config ───────────────────────────────────────────────
 const GOOGLE_CLIENT_ID = '230615350507-0esfnctd66qno0fgueb8kb8m6h3vfsre.apps.googleusercontent.com';
-const DRIVE_FILE_NAME = 'finance-tracker-dusk.json';
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+const DRIVE_FILE_NAME  = 'finance-tracker-dusk.json';
+const DRIVE_SCOPE      = 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile';
+const OAUTH_REDIRECT   = 'com.financetracker.app:/oauth2callback'; // Custom scheme for APK
+const OAUTH_REDIRECT_WEB = 'https://paypathz.netlify.app';        // Web fallback (implicit)
 
-interface GoogleUser {
-  name: string;
-  email: string;
-  picture: string;
+interface GoogleUser { name: string; email: string; picture: string; }
+
+// ── PKCE helpers ──────────────────────────────────────────────────────────────
+function generateCodeVerifier(): string {
+  const arr = new Uint8Array(32);
+  crypto.getRandomValues(arr);
+  return btoa(String.fromCharCode(...arr)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+}
+async function generateCodeChallenge(verifier: string): Promise<string> {
+  const enc = new TextEncoder().encode(verifier);
+  const digest = await crypto.subtle.digest('SHA-256', enc);
+  return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
 }
 
-// ── Load Google Identity Services script ─────────────────────────────────
+// ── Load Google GSI script (web-only) ────────────────────────────────────────
 function loadGoogleScript(): Promise<void> {
   return new Promise((resolve) => {
     if (document.getElementById('google-gsi')) { resolve(); return; }
@@ -26,12 +36,51 @@ function loadGoogleScript(): Promise<void> {
   });
 }
 
-// ── Drive helpers ─────────────────────────────────────────────────────────
+// ── Token exchange: auth code → tokens (APK PKCE flow) ───────────────────────
+async function exchangeCodeForTokens(code: string, verifier: string): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      code,
+      client_id: GOOGLE_CLIENT_ID,
+      redirect_uri: OAUTH_REDIRECT,
+      grant_type: 'authorization_code',
+      code_verifier: verifier,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`Token exchange failed: ${err.error || res.status}`);
+  }
+  return res.json();
+}
+
+// ── Refresh access token using stored refresh token ───────────────────────────
+async function refreshAccessToken(refreshToken: string): Promise<{ access_token: string; expires_in: number }> {
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      refresh_token: refreshToken,
+      client_id: GOOGLE_CLIENT_ID,
+      grant_type: 'refresh_token',
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`Token refresh failed: ${err.error || res.status}`);
+  }
+  return res.json();
+}
+
+// ── Drive helpers — all check HTTP status ─────────────────────────────────────
 async function driveGetFileId(token: string): Promise<string | null> {
   const res = await fetch(
     `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='${DRIVE_FILE_NAME}'&fields=files(id)`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
+  if (!res.ok) throw new Error(`Drive list failed: ${res.status}`);
   const data = await res.json();
   return data.files?.[0]?.id || null;
 }
@@ -43,6 +92,7 @@ async function driveReadFile(token: string): Promise<any | null> {
     `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
+  if (!res.ok) throw new Error(`Drive read failed: ${res.status}`);
   return res.json();
 }
 
@@ -51,29 +101,65 @@ async function driveWriteFile(token: string, data: any): Promise<void> {
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
   const metadata = { name: DRIVE_FILE_NAME, parents: fileId ? undefined : ['appDataFolder'] };
 
-  if (fileId) {
-    // Update existing file
-    const form = new FormData();
-    form.append('metadata', new Blob([JSON.stringify({})], { type: 'application/json' }));
-    form.append('file', blob);
-    await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`, {
-      method: 'PATCH',
-      headers: { Authorization: `Bearer ${token}` },
-      body: form,
-    });
-  } else {
-    // Create new file
-    const form = new FormData();
-    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-    form.append('file', blob);
-    await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: form,
-    });
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify(fileId ? {} : metadata)], { type: 'application/json' }));
+  form.append('file', blob);
+
+  const url = fileId
+    ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`
+    : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+  const method = fileId ? 'PATCH' : 'POST';
+
+  const res = await fetch(url, { method, headers: { Authorization: `Bearer ${token}` }, body: form });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`Drive write failed: ${res.status} ${err.error?.message || ''}`);
   }
 }
 
+async function driveDeleteFile(token: string): Promise<void> {
+  const fileId = await driveGetFileId(token);
+  if (!fileId) return;
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok && res.status !== 404) throw new Error(`Drive delete failed: ${res.status}`);
+}
+
+// ── Get Google user info ──────────────────────────────────────────────────────
+async function fetchGoogleUserInfo(token: string): Promise<GoogleUser> {
+  const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Userinfo failed: ${res.status}`);
+  const u = await res.json();
+  return { name: u.name || u.email, email: u.email, picture: u.picture || '' };
+}
+
+// ── Token storage helpers ─────────────────────────────────────────────────────
+const TOKEN_EXPIRY_KEY  = 'ft_token_expiry';
+const TOKEN_REFRESH_KEY = 'ft_refresh_token';
+
+function storeTokens(accessToken: string, refreshToken: string | null, expiresIn: number) {
+  localStorage.setItem('ft_access_token', accessToken);
+  localStorage.setItem(TOKEN_EXPIRY_KEY, String(Date.now() + (expiresIn - 60) * 1000)); // 60s buffer
+  if (refreshToken) localStorage.setItem(TOKEN_REFRESH_KEY, refreshToken);
+}
+
+function isTokenExpired(): boolean {
+  const expiry = localStorage.getItem(TOKEN_EXPIRY_KEY);
+  if (!expiry) return true;
+  return Date.now() > parseInt(expiry);
+}
+
+function clearTokenStorage() {
+  localStorage.removeItem('ft_access_token');
+  localStorage.removeItem('ft_access_token');
+  localStorage.removeItem(TOKEN_EXPIRY_KEY);
+  localStorage.removeItem(TOKEN_REFRESH_KEY);
+  localStorage.removeItem('ft_google_user');
+}
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, 
@@ -218,10 +304,10 @@ const RadarChart = ({ data }: { data: { category: string; spent: number; limit: 
   const polygonPath = points.map(p => `${p.x},${p.y}`).join(' ');
 
   return (
-    <div className="flex flex-col items-center bg-[#0d0d0d] rounded-2xl border border-[#E0E0E0] p-4 font-mono">
-      <div className="flex items-center gap-1.5 self-start mb-2 border-b border-[#141414] w-full pb-1.5">
-        <span className="text-[#1B2CC1] text-xs">◇</span>
-        <h4 className="text-[10px] uppercase tracking-wider text-[#1B2CC1] font-semibold">Category Budget Radar</h4>
+    <div className="flex flex-col items-center bg-[var(--p-surf2)] rounded-2xl border border-[var(--p-border)] p-4 font-mono">
+      <div className="flex items-center gap-1.5 self-start mb-2 border-b border-[var(--p-border)] w-full pb-1.5">
+        <span className="text-[var(--p-acc)] text-xs">◇</span>
+        <h4 className="text-[10px] uppercase tracking-wider text-[var(--p-acc)] font-semibold">Category Budget Radar</h4>
       </div>
       
       <div className="relative w-full flex justify-center items-center py-2">
@@ -264,7 +350,7 @@ const RadarChart = ({ data }: { data: { category: string; spent: number; limit: 
           {points.length >= 3 && (
             <polygon
               points={polygonPath}
-              className="fill-[#1B2CC1]/20 stroke-[#1B2CC1] stroke-2 transition-all duration-500"
+              className="fill-[#d4af37]/20 stroke-[#d4af37] stroke-2 transition-all duration-500"
             />
           )}
 
@@ -275,7 +361,7 @@ const RadarChart = ({ data }: { data: { category: string; spent: number; limit: 
               cx={p.x}
               cy={p.y}
               r="3"
-              className="fill-[#050505] stroke-[#1B2CC1] stroke-[1.5]"
+              className="fill-[#050505] stroke-[#d4af37] stroke-[1.5]"
               title={`${p.category}: ₹${p.spent}`}
             />
           ))}
@@ -296,7 +382,7 @@ const RadarChart = ({ data }: { data: { category: string; spent: number; limit: 
                 fontSize="7.5"
                 textAnchor="middle"
                 dominantBaseline="central"
-                className="font-mono bg-[#F5F5F5] px-1 text-[7px]"
+                className="font-mono bg-[var(--p-bg)] px-1 text-[7px]"
               >
                 {shortName}
               </text>
@@ -313,39 +399,39 @@ const BulletChart = ({ spent, limit }: { spent: number; limit: number }) => {
   const percent = limit > 0 ? Math.round((spent / limit) * 100) : 0;
 
   return (
-    <div className="bg-[#0d0d0d] rounded-2xl border border-[#E0E0E0] p-4 font-mono">
-      <div className="flex items-center gap-1.5 mb-2 border-b border-[#141414] pb-1.5">
-        <h4 className="text-[10px] uppercase tracking-wider text-[#1B2CC1] font-semibold">Budget Overview</h4>
+    <div className="bg-[var(--p-surf2)] rounded-2xl border border-[var(--p-border)] p-4 font-mono">
+      <div className="flex items-center gap-1.5 mb-2 border-b border-[var(--p-border)] pb-1.5">
+        <h4 className="text-[10px] uppercase tracking-wider text-[var(--p-acc)] font-semibold">Budget Overview</h4>
       </div>
 
       <div className="space-y-2">
-        <div className="flex justify-between text-[9px] text-[#6B7280]">
-          <span>Spent: <strong className="text-[#1A1A2E]">₹{Math.round(spent).toLocaleString('en-IN')}</strong></span>
-          <span>Budget: <strong className="text-[#1A1A2E]">₹{Math.round(limit).toLocaleString('en-IN')}</strong></span>
+        <div className="flex justify-between text-[9px] text-[var(--p-muted)]">
+          <span>Spent: <strong className="text-[var(--p-text)]">₹{Math.round(spent).toLocaleString('en-IN')}</strong></span>
+          <span>Budget: <strong className="text-[var(--p-text)]">₹{Math.round(limit).toLocaleString('en-IN')}</strong></span>
         </div>
 
         {/* The Bullet Gauge */}
-        <div className="relative h-5.5 bg-[#121212] rounded border border-[#D5D5E0] overflow-hidden flex">
+        <div className="relative h-5.5 bg-[var(--p-surf3)] rounded border border-[var(--p-border)] overflow-hidden flex">
           {/* Shaded Ranges representing Performance Bands */}
-          <div className="w-[60%] h-full bg-[#F5F5FA] border-r border-[#D5D5E0]/20" title="Good (0-60%)" />
-          <div className="w-[30%] h-full bg-[#F5F5F5] border-r border-[#D5D5E0]/20" title="Caution (60-90%)" />
+          <div className="w-[60%] h-full bg-[var(--p-surf2)] border-r border-[var(--p-border)]/20" title="Good (0-60%)" />
+          <div className="w-[30%] h-full bg-[var(--p-bg)] border-r border-[var(--p-border)]/20" title="Caution (60-90%)" />
           <div className="w-[10%] h-full bg-[#1b0000]" title="Critical Budget Threshold (90-100%+)" />
 
           {/* Actual value bar overlay */}
           <div 
-            className="absolute left-0 top-1.5 h-2.5 bg-gradient-to-r from-yellow-700 to-[#1B2CC1] rounded-r transition-all duration-500 shadow-md"
+            className="absolute left-0 top-1.5 h-2.5 bg-gradient-to-r from-yellow-700 to-[#d4af37] rounded-r transition-all duration-500 shadow-md"
             style={{ width: `${Math.min(100, percent)}%` }}
           />
 
           {/* Target Milestone Indicator Key Line */}
           <div 
-            className="absolute h-full w-1 bg-[#1B2CC1] top-0 shadow"
+            className="absolute h-full w-1 bg-[var(--p-acc)] top-0 shadow"
             style={{ left: `calc(${Math.min(100, percent)}% - 2px)` }}
           />
         </div>
 
         {/* Dynamic Warning messaging inline within phone */}
-        <div className="flex justify-between items-center text-[8px] text-[#6B7280]">
+        <div className="flex justify-between items-center text-[8px] text-[var(--p-muted)]">
           <span>Target Progress</span>
           <span className={percent >= 90 ? 'text-rose-400 font-bold animate-pulse' : percent >= 65 ? 'text-blue-500' : 'text-emerald-500'}>
             {percent}% Allocated {percent >= 100 ? '[!] Excess!' : ''}
@@ -2037,109 +2123,232 @@ export default function App() {
   };
 
   // ── Google Auth State ──────────────────────────────────────────────────
+  // ── Capacitor detection ──────────────────────────────────────────────────
   const isCapacitor = !!(window as any).Capacitor;
+
+  // ── Auth state ────────────────────────────────────────────────────────────
   const [googleUser, setGoogleUser] = useState<GoogleUser | null>(() => {
-    if (isCapacitor) return { name: 'Local User', email: 'local', picture: '' };
     const s = localStorage.getItem('ft_google_user');
     return s ? JSON.parse(s) : null;
   });
   const [accessToken, setAccessToken] = useState<string | null>(() =>
-    isCapacitor ? null : localStorage.getItem('ft_access_token')
+    localStorage.getItem('ft_access_token')
   );
   const [authLoading, setAuthLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
+  const [syncError, setSyncError] = useState<string>('');
   const [driveLoaded, setDriveLoaded] = useState(false);
 
-  // Sign in with Google
-  const signInWithGoogle = async () => {
+  // ── Get a valid access token (refresh if expired) ─────────────────────────
+  const getValidToken = async (): Promise<string | null> => {
+    const stored = localStorage.getItem('ft_access_token');
+    if (stored && !isTokenExpired()) return stored;
+    // Try refresh
+    const refreshToken = localStorage.getItem(TOKEN_REFRESH_KEY);
+    if (!refreshToken) return null;
+    try {
+      const result = await refreshAccessToken(refreshToken);
+      storeTokens(result.access_token, null, result.expires_in);
+      setAccessToken(result.access_token);
+      return result.access_token;
+    } catch (e) {
+      // Refresh failed — user must sign in again
+      return null;
+    }
+  };
+
+  // ── APK Sign-in: PKCE via Chrome Custom Tab ───────────────────────────────
+  const signInApk = async () => {
+    try {
+      setAuthLoading(true);
+      const { Browser } = await import('@capacitor/browser');
+      const { App } = await import('@capacitor/app');
+
+      const verifier  = generateCodeVerifier();
+      const challenge = await generateCodeChallenge(verifier);
+      localStorage.setItem('ft_pkce_verifier', verifier);
+
+      const params = new URLSearchParams({
+        client_id:             GOOGLE_CLIENT_ID,
+        redirect_uri:          OAUTH_REDIRECT,
+        response_type:         'code',
+        scope:                 DRIVE_SCOPE,
+        code_challenge:        challenge,
+        code_challenge_method: 'S256',
+        access_type:           'offline',
+        prompt:                'select_account',
+      });
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+
+      // Listen for the callback URL before opening the browser
+      const listener = await App.addListener('appUrlOpen', async (event: any) => {
+        listener.remove();
+        await Browser.close();
+        const url = new URL(event.url);
+        const code  = url.searchParams.get('code');
+        const error = url.searchParams.get('error');
+        if (error || !code) {
+          setAuthLoading(false);
+          setSyncError('Sign-in was cancelled or failed');
+          return;
+        }
+        try {
+          const savedVerifier = localStorage.getItem('ft_pkce_verifier') || '';
+          const tokens = await exchangeCodeForTokens(code, savedVerifier);
+          storeTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
+          setAccessToken(tokens.access_token);
+          const user = await fetchGoogleUserInfo(tokens.access_token);
+          setGoogleUser(user);
+          localStorage.setItem('ft_google_user', JSON.stringify(user));
+          localStorage.removeItem('ft_pkce_verifier');
+          await loadFromDrive(tokens.access_token);
+        } catch (e: any) {
+          setSyncError(e.message || 'Authentication failed');
+          setSyncStatus('error');
+        } finally {
+          setAuthLoading(false);
+        }
+      });
+
+      await Browser.open({ url: authUrl, windowName: '_self' });
+    } catch (e: any) {
+      setAuthLoading(false);
+      setSyncError(e.message || 'Failed to open sign-in');
+    }
+  };
+
+  // ── Web Sign-in: GSI implicit flow ───────────────────────────────────────
+  const signInWeb = async () => {
     setAuthLoading(true);
     try {
       await loadGoogleScript();
       (window as any).google.accounts.oauth2.initTokenClient({
         client_id: GOOGLE_CLIENT_ID,
-        scope: `${DRIVE_SCOPE} email profile`,
+        scope: DRIVE_SCOPE,
         callback: async (resp: any) => {
-          if (resp.error) { setAuthLoading(false); return; }
+          if (resp.error) { setAuthLoading(false); setSyncError('Sign-in failed'); return; }
           const token = resp.access_token;
+          // GSI tokens expire in 1 hour — store expiry
+          storeTokens(token, null, resp.expires_in || 3600);
           setAccessToken(token);
-          localStorage.setItem('ft_access_token', token);
-          // Get user info
-          const uRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          const u = await uRes.json();
-          const user = { name: u.name, email: u.email, picture: u.picture };
-          setGoogleUser(user);
-          localStorage.setItem('ft_google_user', JSON.stringify(user));
-          // Load data from Drive
-          await loadFromDrive(token);
-          setAuthLoading(false);
+          try {
+            const user = await fetchGoogleUserInfo(token);
+            setGoogleUser(user);
+            localStorage.setItem('ft_google_user', JSON.stringify(user));
+            await loadFromDrive(token);
+          } catch(e: any) {
+            setSyncError(e.message || 'Failed after sign-in');
+            setSyncStatus('error');
+          } finally {
+            setAuthLoading(false);
+          }
         },
       }).requestAccessToken();
-    } catch (e) {
+    } catch (e: any) {
       setAuthLoading(false);
+      setSyncError(e.message || 'Sign-in error');
     }
   };
 
-  // Sign out
+  const signInWithGoogle = isCapacitor ? signInApk : signInWeb;
+
+  // ── Sign out ──────────────────────────────────────────────────────────────
   const signOut = () => {
     setGoogleUser(null);
     setAccessToken(null);
-    localStorage.removeItem('ft_google_user');
-    localStorage.removeItem('ft_access_token');
+    setDriveLoaded(false);
     setSyncStatus('idle');
+    setSyncError('');
+    clearTokenStorage();
   };
 
-  // Load data from Drive
+  // ── Load from Drive — validates data before overwriting local ─────────────
   const loadFromDrive = async (token: string) => {
     try {
       setSyncStatus('syncing');
+      setSyncError('');
       const data = await driveReadFile(token);
       if (data) {
-        if (data.transactions) setTransactions(data.transactions);
-        if (data.budgets) setBudgets(data.budgets);
-        if (data.categories) setCategories(data.categories);
-        if (data.categoryIcons) setCategoryIcons(data.categoryIcons);
+        // Validate before overwriting — must have at least one expected field
+        const isValid = data.transactions !== undefined || data.categories !== undefined;
+        if (!isValid) throw new Error('Drive file appears corrupt or empty');
+        if (Array.isArray(data.transactions)) setTransactions(data.transactions);
+        if (Array.isArray(data.budgets))      setBudgets(data.budgets);
+        if (Array.isArray(data.categories))   setCategories(data.categories);
+        if (data.categoryIcons && typeof data.categoryIcons === 'object') setCategoryIcons(data.categoryIcons);
       }
       setDriveLoaded(true);
       setSyncStatus('synced');
-    } catch (e) {
+    } catch (e: any) {
+      setDriveLoaded(true); // allow app to continue even if load fails
       setSyncStatus('error');
+      const msg = e.message || '';
+      if (msg.includes('401')) setSyncError('Auth expired — tap Sign In again');
+      else if (msg.includes('403')) setSyncError('Drive permission denied');
+      else if (msg.includes('404')) setSyncError('Drive file not found');
+      else setSyncError(msg || 'Failed to load from Drive');
     }
   };
 
-  // Save data to Drive
+  // ── Save to Drive — only confirms success after HTTP 200 ──────────────────
   const saveToDrive = async () => {
-    if (!accessToken || !googleUser) return;
+    const token = await getValidToken();
+    if (!token || !googleUser) return;
     try {
       setSyncStatus('syncing');
-      await driveWriteFile(accessToken, {
+      setSyncError('');
+      await driveWriteFile(token, {
         transactions, budgets, categories, categoryIcons,
         lastSaved: new Date().toISOString(),
       });
       setSyncStatus('synced');
       setLastExportDate(new Date().toISOString().split('T')[0]);
-    } catch (e) {
+    } catch (e: any) {
       setSyncStatus('error');
+      const msg = e.message || '';
+      if (msg.includes('401')) {
+        setSyncError('Auth expired — tap Sign In again');
+        // Clear stored token so user knows they need to re-auth
+        localStorage.removeItem('ft_access_token');
+        setAccessToken(null);
+      } else if (msg.includes('403')) setSyncError('Drive permission denied');
+      else setSyncError(msg || 'Sync failed');
     }
   };
 
+  // ── Delete Drive backup ───────────────────────────────────────────────────
   const deleteDriveBackup = async () => {
-    if (!accessToken || !googleUser) return;
+    const token = await getValidToken();
+    if (!token) { showToast('Not signed in'); return; }
     try {
-      const fileId = await driveGetFileId(accessToken);
-      if (!fileId) { showToast('No Drive backup found'); return; }
-      await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      await driveDeleteFile(token);
       showToast('Drive backup deleted');
-    } catch (e) {
-      showToast('Failed to delete Drive backup');
+    } catch (e: any) {
+      showToast('Failed: ' + (e.message || 'unknown error'));
     }
   };
 
-  // Auto-sync when data changes
+  // ── On startup: load from Drive if already authenticated ─────────────────
+  useEffect(() => {
+    const startup = async () => {
+      const storedUser = localStorage.getItem('ft_google_user');
+      if (!storedUser) return; // Not signed in
+      const token = await getValidToken();
+      if (!token) {
+        // Token expired and no refresh token — sign user out cleanly
+        setSyncStatus('error');
+        setSyncError('Session expired — please sign in again');
+        setGoogleUser(null);
+        clearTokenStorage();
+        return;
+      }
+      setAccessToken(token);
+      await loadFromDrive(token);
+    };
+    startup();
+  }, []); // runs once on mount
+
+  // ── Auto-sync 2s after any data change ───────────────────────────────────
   useEffect(() => {
     if (!accessToken || !googleUser || !driveLoaded) return;
     const timer = setTimeout(() => saveToDrive(), 2000);
@@ -2150,43 +2359,50 @@ export default function App() {
   // ── Show login screen if not signed in ──────────────────────────────
   if (!googleUser) {
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#050505]" style={{fontFamily:'system-ui,sans-serif'}}>
-        <div className="flex flex-col items-center gap-8 px-8 w-full max-w-[360px]">
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[var(--p-bg)]" style={{fontFamily:'system-ui,sans-serif'}}>
+        <div className="flex flex-col items-center gap-6 px-8 w-full max-w-[360px]">
 
           {/* Logo */}
           <div className="flex flex-col items-center gap-3">
-            <div className="w-20 h-20 rounded-3xl bg-[#0f0f0f] border border-[#1a1a1a] flex items-center justify-center shadow-2xl">
+            <div className="w-20 h-20 rounded-3xl bg-[var(--p-surf)] border border-[var(--p-border)] flex items-center justify-center shadow-2xl">
               <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
-                <circle cx="22" cy="22" r="20" stroke="#d4af37" strokeWidth="2.5"/>
-                <rect x="14" y="14" width="16" height="16" rx="2" stroke="#d4af37" strokeWidth="2"/>
-                <circle cx="22" cy="22" r="3" fill="#d4af37"/>
+                <circle cx="22" cy="22" r="20" stroke="var(--p-acc)" strokeWidth="2.5"/>
+                <rect x="14" y="14" width="16" height="16" rx="2" stroke="var(--p-acc)" strokeWidth="2"/>
+                <circle cx="22" cy="22" r="3" fill="var(--p-acc)"/>
               </svg>
             </div>
             <div className="text-center">
-              <h1 className="text-white font-bold text-2xl tracking-tight">Paypathz</h1>
-              <p className="text-gray-500 text-sm mt-1 font-mono">Dusk · Personal Finance</p>
+              <h1 className="text-[var(--p-text)] font-bold text-2xl tracking-tight">Paypathz</h1>
+              <p className="text-[var(--p-muted)] text-sm mt-1 font-mono">Personal Finance · Dusk</p>
             </div>
           </div>
 
           {/* Feature pills */}
-          <div className="flex flex-col gap-3 w-full">
+          <div className="flex flex-col gap-2 w-full">
             {[
               { icon: '🔒', text: 'Your data stays private — only you can see it' },
               { icon: '☁️', text: 'Syncs to your Google Drive automatically' },
-              { icon: '📱', text: 'Access from any device, anytime' },
+              { icon: '📱', text: 'Works on any device with your Google account' },
             ].map((f, i) => (
-              <div key={i} className="flex items-center gap-3 bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl px-4 py-3">
-                <span className="text-xl">{f.icon}</span>
-                <p className="text-gray-400 text-xs font-mono leading-relaxed">{f.text}</p>
+              <div key={i} className="flex items-center gap-3 bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl px-4 py-3">
+                <span className="text-lg">{f.icon}</span>
+                <p className="text-[var(--p-muted)] text-[11px] font-mono leading-relaxed">{f.text}</p>
               </div>
             ))}
           </div>
 
+          {/* Error message */}
+          {syncError ? (
+            <div className="w-full bg-red-950/40 border border-red-800/50 rounded-xl px-4 py-3">
+              <p className="text-red-400 text-[11px] font-mono text-center">{syncError}</p>
+            </div>
+          ) : null}
+
           {/* Sign in button */}
           <button onClick={signInWithGoogle} disabled={authLoading}
-            className="w-full flex items-center justify-center gap-3 bg-white text-gray-800 font-bold text-sm py-4 px-6 rounded-2xl shadow-lg hover:bg-gray-50 active:scale-95 transition-all disabled:opacity-60">
+            className="w-full flex items-center justify-center gap-3 bg-[var(--p-surf)] border border-[var(--p-acc)]/30 font-bold text-sm py-4 px-6 rounded-2xl shadow-lg active:scale-95 transition-all disabled:opacity-60">
             {authLoading ? (
-              <span className="text-gray-500 font-mono text-sm">Signing in...</span>
+              <span className="text-[var(--p-acc)] font-mono text-sm">Opening sign-in...</span>
             ) : (
               <>
                 <svg width="20" height="20" viewBox="0 0 48 48">
@@ -2195,13 +2411,13 @@ export default function App() {
                   <path fill="#4CAF50" d="M24 44c5.2 0 9.9-1.9 13.5-5l-6.2-5.2C29.4 35.6 26.8 36 24 36c-5.2 0-9.5-2.9-11.3-7.1l-6.5 5C9.6 39.6 16.3 44 24 44z"/>
                   <path fill="#1976D2" d="M43.6 20H24v8h11.3c-.8 2.3-2.4 4.2-4.3 5.5l6.2 5.2C41.2 35 44 29.9 44 24c0-1.3-.1-2.7-.4-4z"/>
                 </svg>
-                Continue with Google
+                <span className="text-[var(--p-text)]">Continue with Google</span>
               </>
             )}
           </button>
 
-          <p className="text-gray-600 text-[10px] font-mono text-center leading-relaxed">
-            By signing in you agree to let Paypathz store your data in your personal Google Drive. We never see or access your data.
+          <p className="text-[#333] text-[10px] font-mono text-center leading-relaxed">
+            Signing in stores your data in your own Google Drive. We never see or access your data.
           </p>
         </div>
       </div>
@@ -2209,76 +2425,50 @@ export default function App() {
   }
 
   return (
-    <div className={`h-screen w-screen flex flex-col overflow-hidden font-sans ${isRoyal ? 'royal-theme bg-[#F4F6FB] text-[#1A1A2E]' : 'bg-[#050505] text-[#e5e5e5]'}`}>
+    <div className="h-screen w-screen flex flex-col overflow-hidden font-sans bg-[var(--p-bg)] text-[var(--p-text)]">
 
-      {/* ── THEME: Royal Blue overrides when isRoyal ── */}
-      {isRoyal && <style>{`
-        .royal-theme { background: #F4F6FB !important; }
-        .royal-theme * { border-color: inherit; }
-        /* Backgrounds: dark → white/light */
-        .royal-theme [class*="bg-\\[#050505\\]"] { background: #F4F6FB !important; }
-        .royal-theme [class*="bg-\\[#0f0f0f\\]"] { background: #FFFFFF !important; }
-        .royal-theme [class*="bg-\\[#0a0a0a\\]"] { background: #F0F0F0 !important; }
-        .royal-theme [class*="bg-\\[#141414\\]"] { background: #EEEEEE !important; }
-        .royal-theme [class*="bg-\\[#090909\\]"] { background: #FFFFFF !important; }
-        /* Borders: dark → light */
-        .royal-theme [class*="border-\\[#1a1a1a\\]"] { border-color: #E2E8F0 !important; }
-        .royal-theme [class*="border-\\[#222\\]"] { border-color: #E2E8F0 !important; }
-        /* Text: white/light → dark */
-        .royal-theme [class*="text-\\[#e5e5e5\\]"] { color: #1A1A2E !important; }
-        .royal-theme [class*="text-\\[#fff\\]"] { color: #1A1A2E !important; }
-        /* Gold → Royal Blue */
-        .royal-theme [class*="text-\\[#d4af37\\]"] { color: #1B2CC1 !important; }
-        .royal-theme [class*="bg-\\[#d4af37\\]"] { background: #1B2CC1 !important; }
-        .royal-theme [class*="border-\\[#d4af37\\]"] { border-color: #1B2CC1 !important; }
-        .royal-theme [class*="bg-\\[#1a1500\\]"] { background: #E8EAFB !important; }
-        /* Muted stays grey */
-        .royal-theme [class*="text-\\[#555\\]"] { color: #64748B !important; }
-        /* Input backgrounds */
-        .royal-theme input, .royal-theme select, .royal-theme textarea { background: #F4F6FB !important; color: #1A1A2E !important; border-color: #E2E8F0 !important; }
-        .royal-theme input::placeholder { color: #94A3B8 !important; }
-      `}</style>}
+
 
       {/* ── ONBOARDING SCREEN ─────────────────────────────────────────── */}
       {showOnboarding && (
-        <div className="absolute inset-0 z-50 bg-[#F5F5F5] flex flex-col items-center justify-center p-6 text-center">
-          <div className="w-20 h-20 rounded-full overflow-hidden mb-6 shadow-2xl border-2 border-[#1B2CC1]/40">
+        <div className="absolute inset-0 z-50 bg-[var(--p-bg)] flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-20 h-20 rounded-full overflow-hidden mb-6 shadow-2xl border-2 border-[var(--p-acc)]/40">
             <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
               <circle cx="50" cy="50" r="50" fill="#1a1208"/>
-              <circle cx="50" cy="50" r="46" fill="none" stroke="#1B2CC1" strokeWidth="2"/>
+              <circle cx="50" cy="50" r="46" fill="none" stroke="var(--p-acc)" strokeWidth="2"/>
               <circle cx="50" cy="50" r="42" fill="#2a1e0a"/>
-              <rect x="35" y="35" width="30" height="30" fill="#0a0a0a" stroke="#1B2CC1" strokeWidth="1.5"/>
-              <text x="50" y="32" textAnchor="middle" fill="#1B2CC1" fontSize="10" fontWeight="bold">芽</text>
-              <text x="28" y="55" textAnchor="middle" fill="#1B2CC1" fontSize="10" fontWeight="bold">祥</text>
-              <text x="72" y="55" textAnchor="middle" fill="#1B2CC1" fontSize="10" fontWeight="bold">道</text>
-              <text x="50" y="76" textAnchor="middle" fill="#1B2CC1" fontSize="10" fontWeight="bold">机</text>
+              <rect x="35" y="35" width="30" height="30" fill="#0a0a0a" stroke="var(--p-acc)" strokeWidth="1.5"/>
+              <text x="50" y="32" textAnchor="middle" fill="var(--p-acc)" fontSize="10" fontWeight="bold">芽</text>
+              <text x="28" y="55" textAnchor="middle" fill="var(--p-acc)" fontSize="10" fontWeight="bold">祥</text>
+              <text x="72" y="55" textAnchor="middle" fill="var(--p-acc)" fontSize="10" fontWeight="bold">道</text>
+              <text x="50" y="76" textAnchor="middle" fill="var(--p-acc)" fontSize="10" fontWeight="bold">机</text>
             </svg>
           </div>
-          <h1 className="text-2xl font-serif text-[#1A1A2E] mb-2">Paypathz</h1>
-          <p className="text-[#6B7280] text-sm mb-8 leading-relaxed max-w-xs">
+          <h1 className="text-2xl font-serif text-[var(--p-text)] mb-2">Paypathz</h1>
+          <p className="text-[var(--p-muted)] text-sm mb-8 leading-relaxed max-w-xs">
             Automatically detects bank SMS and UPI transactions. Enable notifications so you never miss a transaction.
           </p>
 
           <div className="w-full max-w-xs space-y-3 mb-6">
-            <div className="flex items-start gap-3 text-left bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-3">
+            <div className="flex items-start gap-3 text-left bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-3">
               <span className="text-lg mt-0.5">🔔</span>
               <div>
-                <p className="text-[#1A1A2E] text-xs font-semibold">Notification Access</p>
-                <p className="text-[#6B7280] text-[10px] mt-0.5">Detects bank SMS alerts automatically</p>
+                <p className="text-[var(--p-text)] text-xs font-semibold">Notification Access</p>
+                <p className="text-[var(--p-muted)] text-[10px] mt-0.5">Detects bank SMS alerts automatically</p>
               </div>
             </div>
-            <div className="flex items-start gap-3 text-left bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-3">
+            <div className="flex items-start gap-3 text-left bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-3">
               <span className="text-lg mt-0.5">💳</span>
               <div>
-                <p className="text-[#1A1A2E] text-xs font-semibold">Auto Categorization</p>
-                <p className="text-[#6B7280] text-[10px] mt-0.5">Parses amount, merchant, and type instantly</p>
+                <p className="text-[var(--p-text)] text-xs font-semibold">Auto Categorization</p>
+                <p className="text-[var(--p-muted)] text-[10px] mt-0.5">Parses amount, merchant, and type instantly</p>
               </div>
             </div>
-            <div className="flex items-start gap-3 text-left bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-3">
+            <div className="flex items-start gap-3 text-left bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-3">
               <span className="text-lg mt-0.5">📊</span>
               <div>
-                <p className="text-[#1A1A2E] text-xs font-semibold">Budget Tracking</p>
-                <p className="text-[#6B7280] text-[10px] mt-0.5">Alerts when you approach spending limits</p>
+                <p className="text-[var(--p-text)] text-xs font-semibold">Budget Tracking</p>
+                <p className="text-[var(--p-muted)] text-[10px] mt-0.5">Alerts when you approach spending limits</p>
               </div>
             </div>
           </div>
@@ -2288,7 +2478,7 @@ export default function App() {
               <p className="text-emerald-400 text-xs mb-4 font-mono">Notifications enabled</p>
               <button
                 onClick={() => { localStorage.setItem('ft_onboarded', '1'); setShowOnboarding(false); }}
-                className="w-full bg-[#1B2CC1] text-black font-bold py-3.5 rounded-2xl text-sm tracking-wide"
+                className="w-full bg-[var(--p-acc)] text-black font-bold py-3.5 rounded-2xl text-sm tracking-wide"
               >
                 Get Started
               </button>
@@ -2311,20 +2501,20 @@ export default function App() {
                   localStorage.setItem('ft_onboarded', '1');
                   setShowOnboarding(false);
                 }}
-                className="w-full bg-[#1B2CC1] text-black font-bold py-3.5 rounded-2xl text-sm tracking-wide"
+                className="w-full bg-[var(--p-acc)] text-black font-bold py-3.5 rounded-2xl text-sm tracking-wide"
               >
                 Enable Notifications
               </button>
               <button
                 onClick={() => { localStorage.setItem('ft_onboarded', '1'); setShowOnboarding(false); }}
-                className="w-full text-[#6B7280] text-xs py-2"
+                className="w-full text-[var(--p-muted)] text-xs py-2"
               >
                 Skip for now
               </button>
             </div>
           )}
 
-          <p className="text-[#9CA3AF] text-[10px] mt-6 max-w-xs leading-relaxed">
+          <p className="text-[var(--p-muted2)] text-[10px] mt-6 max-w-xs leading-relaxed">
             Note: For automatic SMS reading, Android requires this app to be installed as a native APK and granted SMS/Notification Listener permission in device settings.
           </p>
         </div>
@@ -2362,7 +2552,7 @@ export default function App() {
 
       const cells: JSX.Element[] = [];
       for (let i = firstDay - 1; i >= 0; i--) {
-        cells.push(<div key={`p${i}`} className="aspect-square flex items-center justify-center text-[11px] text-[#9CA3AF]">{prevDays - i}</div>);
+        cells.push(<div key={`p${i}`} className="aspect-square flex items-center justify-center text-[11px] text-[var(--p-muted2)]">{prevDays - i}</div>);
       }
       for (let d = 1; d <= daysInMonth; d++) {
         const ds = `${calViewYear}-${String(calViewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -2373,10 +2563,10 @@ export default function App() {
         cells.push(
           <button key={ds} onClick={() => pickCalDay(ds)}
             className={`aspect-square flex items-center justify-center text-[12px] font-mono rounded-lg transition-all
-              ${isStart || isEnd ? 'bg-[#1B2CC1] text-black font-bold' :
-                isRange ? 'bg-[#1B2CC1]/15 text-[#1B2CC1]' :
-                isToday ? 'text-[#1B2CC1] font-bold border border-[#1B2CC1]/30' :
-                'text-[#6B7280] hover:bg-[#EEF0FA] hover:text-[#1A1A2E]'}`}>
+              ${isStart || isEnd ? 'bg-[var(--p-acc)] text-black font-bold' :
+                isRange ? 'bg-[var(--p-acc)]/15 text-[var(--p-acc)]' :
+                isToday ? 'text-[var(--p-acc)] font-bold border border-[var(--p-acc)]/30' :
+                'text-[var(--p-muted)] hover:bg-[var(--p-accdim)] hover:text-[var(--p-text)]'}`}>
             {d}
           </button>
         );
@@ -2384,16 +2574,16 @@ export default function App() {
 
       return (
         <div className="fixed inset-0 z-[150] bg-black/80 flex items-end justify-center" onClick={() => setCalOpen(false)}>
-          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-t-2xl p-4 w-full max-w-[420px] pb-8" onClick={e => e.stopPropagation()}>
+          <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-t-2xl p-4 w-full max-w-[420px] pb-8" onClick={e => e.stopPropagation()}>
 
             {/* Mode toggle */}
-            <div className="flex bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl overflow-hidden mb-4">
+            <div className="flex bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl overflow-hidden mb-4">
               <button onClick={() => { setCalMode('single'); setCalSel2(null); }}
-                className={`flex-1 py-2 text-[10px] font-mono uppercase tracking-wider transition-all ${calMode === 'single' ? 'bg-[#1B2CC1]/12 text-[#1B2CC1] font-bold' : 'text-[#6B7280]'}`}>
+                className={`flex-1 py-2 text-[10px] font-mono uppercase tracking-wider transition-all ${calMode === 'single' ? 'bg-[var(--p-acc)]/12 text-[var(--p-acc)] font-bold' : 'text-[var(--p-muted)]'}`}>
                 Single Day
               </button>
               <button onClick={() => setCalMode('range')}
-                className={`flex-1 py-2 text-[10px] font-mono uppercase tracking-wider transition-all ${calMode === 'range' ? 'bg-[#1B2CC1]/12 text-[#1B2CC1] font-bold' : 'text-[#6B7280]'}`}>
+                className={`flex-1 py-2 text-[10px] font-mono uppercase tracking-wider transition-all ${calMode === 'range' ? 'bg-[var(--p-acc)]/12 text-[var(--p-acc)] font-bold' : 'text-[var(--p-muted)]'}`}>
                 Date Range
               </button>
             </div>
@@ -2401,16 +2591,16 @@ export default function App() {
             {/* Month nav */}
             <div className="flex justify-between items-center mb-3">
               <button onClick={() => { if (calViewMonth === 0) { setCalViewMonth(11); setCalViewYear(y => y - 1); } else setCalViewMonth(m => m - 1); }}
-                className="w-8 h-8 flex items-center justify-center bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg text-[#1B2CC1] text-lg">‹</button>
-              <span className="font-serif text-[14px] text-[#1A1A2E]">{MN_FULL[calViewMonth]} {calViewYear}</span>
+                className="w-8 h-8 flex items-center justify-center bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg text-[var(--p-acc)] text-lg">‹</button>
+              <span className="font-serif text-[14px] text-[var(--p-text)]">{MN_FULL[calViewMonth]} {calViewYear}</span>
               <button onClick={() => { if (calViewMonth === 11) { setCalViewMonth(0); setCalViewYear(y => y + 1); } else setCalViewMonth(m => m + 1); }}
-                className="w-8 h-8 flex items-center justify-center bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg text-[#1B2CC1] text-lg">›</button>
+                className="w-8 h-8 flex items-center justify-center bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg text-[var(--p-acc)] text-lg">›</button>
             </div>
 
             {/* Weekday labels */}
             <div className="grid grid-cols-7 mb-1">
               {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
-                <div key={d} className="text-center text-[9px] text-[#9CA3AF] py-1">{d}</div>
+                <div key={d} className="text-center text-[9px] text-[var(--p-muted2)] py-1">{d}</div>
               ))}
             </div>
 
@@ -2418,23 +2608,23 @@ export default function App() {
             <div className="grid grid-cols-7 gap-0.5 mb-3">{cells}</div>
 
             {/* Selection info */}
-            <div className="bg-[#F5F5FA] border border-[#E0E0E0] rounded-xl px-3 py-2 flex justify-between items-center mb-3">
+            <div className="bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl px-3 py-2 flex justify-between items-center mb-3">
               <div>
-                <div className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider">{info.label}</div>
-                <div className="text-[11px] text-[#1B2CC1] font-mono mt-0.5">{info.value}</div>
+                <div className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider">{info.label}</div>
+                <div className="text-[11px] text-[var(--p-acc)] font-mono mt-0.5">{info.value}</div>
               </div>
               {(calSel1 || calSel2) && (
                 <button onClick={() => { setCalSel1(null); setCalSel2(null); }}
-                  className="text-[9px] font-mono text-[#6B7280] uppercase tracking-wider hover:text-[#1B2CC1]">Clear</button>
+                  className="text-[9px] font-mono text-[var(--p-muted)] uppercase tracking-wider hover:text-[var(--p-acc)]">Clear</button>
               )}
             </div>
 
             {/* Actions */}
             <div className="grid grid-cols-3 gap-2">
               <button onClick={() => setCalOpen(false)}
-                className="py-2.5 border border-[#C8C8D8] text-[#6B7280] font-mono text-[10px] uppercase rounded-xl hover:border-[#1B2CC1] hover:text-[#1B2CC1] transition-all">Cancel</button>
+                className="py-2.5 border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[10px] uppercase rounded-xl hover:border-[var(--p-acc)] hover:text-[var(--p-acc)] transition-all">Cancel</button>
               <button onClick={confirmCal} disabled={!info.ready}
-                className="col-span-2 py-2.5 bg-[#1B2CC1] text-white font-mono font-bold text-[10px] uppercase rounded-xl disabled:opacity-30 hover:opacity-90 transition-all">
+                className="col-span-2 py-2.5 bg-[var(--p-acc)] text-white font-mono font-bold text-[10px] uppercase rounded-xl disabled:opacity-30 hover:opacity-90 transition-all">
                 Apply Filter
               </button>
             </div>
@@ -2446,10 +2636,10 @@ export default function App() {
           {/* ── CSV Import Preview Modal ── */}
     {csvImportPreview && (
       <div className="fixed inset-0 z-[180] bg-black/85 flex items-end justify-center">
-        <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-t-2xl p-4 w-full max-w-[420px] pb-8 space-y-3 max-h-[80vh] overflow-y-auto">
+        <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-t-2xl p-4 w-full max-w-[420px] pb-8 space-y-3 max-h-[80vh] overflow-y-auto">
           <div className="flex justify-between items-center">
-            <span className="font-mono text-[10px] uppercase tracking-widest text-[#1B2CC1] font-semibold">Import Preview</span>
-            <button onClick={() => setCsvImportPreview(null)} className="text-[#6B7280] hover:text-[#1A1A2E] text-sm">✕</button>
+            <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Import Preview</span>
+            <button onClick={() => setCsvImportPreview(null)} className="text-[var(--p-muted)] hover:text-[var(--p-text)] text-sm">✕</button>
           </div>
 
           {csvImportPreview.errors.length > 0 && (
@@ -2466,11 +2656,11 @@ export default function App() {
 
           {csvImportPreview.rows.length > 0 ? (
             <>
-              <div className="bg-[#F5F5FA] border border-[#E0E0E0] rounded-xl p-3">
+              <div className="bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-3">
                 <p className="text-[10px] font-mono text-emerald-400 font-semibold">{csvImportPreview.rows.length} valid transaction{csvImportPreview.rows.length !== 1 ? 's' : ''} ready to import</p>
                 <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
                   {csvImportPreview.rows.slice(0, 5).map((t, i) => (
-                    <div key={i} className="flex justify-between text-[9px] font-mono text-[#6B7280]">
+                    <div key={i} className="flex justify-between text-[9px] font-mono text-[var(--p-muted)]">
                       <span>{t.date} · {t.category}</span>
                       <span className={t.type === 'expense' ? 'text-rose-400' : 'text-emerald-400'}>
                         {t.type === 'expense' ? '−' : '+'}₹{Math.round(t.amount).toLocaleString('en-IN')}
@@ -2478,13 +2668,13 @@ export default function App() {
                     </div>
                   ))}
                   {csvImportPreview.rows.length > 5 && (
-                    <p className="text-[9px] font-mono text-[#9CA3AF]">...and {csvImportPreview.rows.length - 5} more</p>
+                    <p className="text-[9px] font-mono text-[var(--p-muted2)]">...and {csvImportPreview.rows.length - 5} more</p>
                   )}
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <button onClick={() => applyCsvImport('add')}
-                  className="py-2.5 border border-[#1B2CC1]/40 text-[#1B2CC1] font-mono text-[9px] uppercase rounded-xl hover:bg-[#1B2CC1]/10 transition-all">
+                  className="py-2.5 border border-[var(--p-acc)]/40 text-[var(--p-acc)] font-mono text-[9px] uppercase rounded-xl hover:bg-[var(--p-acc)]/10 transition-all">
                   Add
                 </button>
                 <button onClick={() => applyCsvImport('merge')}
@@ -2496,14 +2686,14 @@ export default function App() {
                   Replace
                 </button>
               </div>
-              <div className="text-[8px] font-mono text-[#9CA3AF] space-y-0.5">
-                <p><span className="text-[#1B2CC1]">Add</span> — keeps existing + adds imported</p>
+              <div className="text-[8px] font-mono text-[var(--p-muted2)] space-y-0.5">
+                <p><span className="text-[var(--p-acc)]">Add</span> — keeps existing + adds imported</p>
                 <p><span className="text-[#9ab7d8]">Merge</span> — adds imported, skips duplicates</p>
                 <p><span className="text-red-400">Replace</span> — deletes all existing, imports fresh</p>
               </div>
             </>
           ) : (
-            <p className="text-[10px] font-mono text-[#6B7280] text-center py-4">No valid transactions found in file.</p>
+            <p className="text-[10px] font-mono text-[var(--p-muted)] text-center py-4">No valid transactions found in file.</p>
           )}
         </div>
       </div>
@@ -2512,54 +2702,54 @@ export default function App() {
           {/* ── Manage Category Merge Modal ── */}
     {mcModal === 'merge1' && (
       <div className="fixed inset-0 z-[200] bg-black/85 flex items-center justify-center p-5">
-        <div className="bg-[#FFFFFF] border border-[#1B2CC1] rounded-2xl p-5 w-full max-w-[360px] space-y-4">
+        <div className="bg-[var(--p-surf)] border border-[var(--p-acc)] rounded-2xl p-5 w-full max-w-[360px] space-y-4">
           <div className="text-center text-3xl">⇄</div>
-          <h3 className="font-serif text-[16px] text-[#1A1A2E] text-center">Merge Categories?</h3>
-          <p className="text-[11px] text-[#6B7280] text-center leading-relaxed">
-            All transactions in <span className="text-[#1B2CC1] font-bold">{mcEditSel}</span> will move to <span className="text-[#1B2CC1] font-bold">{mcMergeTarget}</span>.<br/><br/>
-            <span className="text-[#1B2CC1]">{mcEditSel}</span> will be permanently removed.<br/>
+          <h3 className="font-serif text-[16px] text-[var(--p-text)] text-center">Merge Categories?</h3>
+          <p className="text-[11px] text-[var(--p-muted)] text-center leading-relaxed">
+            All transactions in <span className="text-[var(--p-acc)] font-bold">{mcEditSel}</span> will move to <span className="text-[var(--p-acc)] font-bold">{mcMergeTarget}</span>.<br/><br/>
+            <span className="text-[var(--p-acc)]">{mcEditSel}</span> will be permanently removed.<br/>
             <span className="text-[#D96A55] text-[10px]">This cannot be undone.</span>
           </p>
           <button onClick={mcDoMerge} className="w-full border border-[#4a7090] bg-[#9ab7d8]/10 text-[#9ab7d8] font-mono font-bold text-[11px] uppercase py-3 rounded-xl">Merge Permanently</button>
-          <button onClick={() => setMcModal('none')} className="w-full border border-[#C8C8D8] text-[#6B7280] font-mono text-[10px] uppercase py-2.5 rounded-xl">Cancel</button>
+          <button onClick={() => setMcModal('none')} className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[10px] uppercase py-2.5 rounded-xl">Cancel</button>
         </div>
       </div>
     )}
 
           {/* ── Global Toast ── */}
     {toastMsg && (
-      <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[300] bg-[#FFFFFF] border border-[#1B2CC1]/40 rounded-xl px-4 py-2.5 shadow-xl animate-fade-in">
-        <p className="text-[11px] font-mono text-[#1B2CC1] whitespace-nowrap">{toastMsg}</p>
+      <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[300] bg-[var(--p-surf)] border border-[var(--p-acc)]/40 rounded-xl px-4 py-2.5 shadow-xl animate-fade-in">
+        <p className="text-[11px] font-mono text-[var(--p-acc)] whitespace-nowrap">{toastMsg}</p>
       </div>
     )}
 
           {/* Export Overdue Modal — shown on app open when backup is overdue */}
     {showExportModal && (
       <div className="fixed inset-0 z-[200] bg-black/85 flex items-center justify-center p-5 animate-fade-in">
-        <div className="bg-[#FFFFFF] border border-blue-700/50 rounded-2xl p-5 w-full max-w-[380px] shadow-2xl space-y-4">
+        <div className="bg-[var(--p-surf)] border border-blue-700/50 rounded-2xl p-5 w-full max-w-[380px] shadow-2xl space-y-4">
           <div className="flex items-center gap-3">
             <span className="text-3xl">⚠️</span>
             <div>
               <p className="text-blue-300 font-mono font-bold text-[13px]">Backup Overdue</p>
-              <p className="text-[#6B7280] text-[10px] font-mono mt-0.5">
+              <p className="text-[var(--p-muted)] text-[10px] font-mono mt-0.5">
                 {lastExportDate
                   ? `Last export: ${lastExportDate} · ${exportOverdueDays}d ago`
                   : 'You have never backed up your data'}
               </p>
             </div>
           </div>
-          <p className="text-[#6B7280] text-[11px] leading-relaxed">
+          <p className="text-[var(--p-muted)] text-[11px] leading-relaxed">
             Your data only lives on this device. If you uninstall or change phones, it's gone forever. Export now to keep a safe copy.
           </p>
           <button
             onClick={() => { handleCsvExport(); dismissExportModal(); }}
-            className="w-full bg-[#1B2CC1] text-white font-mono font-bold text-[11px] uppercase tracking-wider py-3 rounded-xl hover:opacity-90 transition-all"
+            className="w-full bg-[var(--p-acc)] text-white font-mono font-bold text-[11px] uppercase tracking-wider py-3 rounded-xl hover:opacity-90 transition-all"
           >
             Export Now
           </button>
           <button
             onClick={dismissExportModal}
-            className="w-full border border-[#C8C8D8] text-[#6B7280] font-mono text-[11px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#F5F5F5] transition-all"
+            className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[11px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[var(--p-bg)] transition-all"
           >
             Remind Me Tomorrow
           </button>
@@ -2570,16 +2760,16 @@ export default function App() {
           {/* Export Modal — visible from any tab. Lets user share, copy, or download CSV */}
     {exportTextModal && (
       <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4 animate-fade-in" onClick={() => setExportTextModal(null)}>
-        <div className="bg-[#F5F5FA] border border-[#1B2CC1]/40 rounded-2xl p-4 max-w-[420px] w-full max-h-[85vh] flex flex-col gap-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-          <div className="flex justify-between items-center border-b border-[#D5D5E0] pb-2">
+        <div className="bg-[var(--p-surf2)] border border-[var(--p-acc)]/40 rounded-2xl p-4 max-w-[420px] w-full max-h-[85vh] flex flex-col gap-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="flex justify-between items-center border-b border-[var(--p-border)] pb-2">
             <div>
-              <p className="text-[10px] font-mono text-[#1B2CC1] uppercase tracking-wider font-bold">Export Ready</p>
-              <p className="text-[9px] font-mono text-[#6B7280] truncate">{exportTextModal.filename}</p>
+              <p className="text-[10px] font-mono text-[var(--p-acc)] uppercase tracking-wider font-bold">Export Ready</p>
+              <p className="text-[9px] font-mono text-[var(--p-muted)] truncate">{exportTextModal.filename}</p>
             </div>
-            <button onClick={() => setExportTextModal(null)} className="text-[#6B7280] hover:text-[#1A1A2E] text-xl leading-none px-1">×</button>
+            <button onClick={() => setExportTextModal(null)} className="text-[var(--p-muted)] hover:text-[var(--p-text)] text-xl leading-none px-1">×</button>
           </div>
 
-          <p className="text-[10px] font-mono text-[#6B7280]">
+          <p className="text-[10px] font-mono text-[var(--p-muted)]">
             Pick a way to save your data. Share is the most reliable on phone.
           </p>
 
@@ -2644,7 +2834,7 @@ export default function App() {
               // 3) Last-resort message
               alert('Share not available on this device. Use Copy All Text instead and paste into Drive/Notes.');
             }}
-            className="w-full bg-[#1B2CC1] text-white font-mono font-bold text-[11px] uppercase tracking-wider py-3 rounded-xl hover:opacity-90 transition-all"
+            className="w-full bg-[var(--p-acc)] text-white font-mono font-bold text-[11px] uppercase tracking-wider py-3 rounded-xl hover:opacity-90 transition-all"
           >
             Share / Save to Drive
           </button>
@@ -2666,18 +2856,18 @@ export default function App() {
                 document.body.removeChild(ta);
               }
             }}
-            className="w-full border border-[#1B2CC1]/40 text-[#1B2CC1] font-mono text-[11px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#1B2CC1]/10 transition-all"
+            className="w-full border border-[var(--p-acc)]/40 text-[var(--p-acc)] font-mono text-[11px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[var(--p-acc)]/10 transition-all"
           >
             Copy All Text
           </button>
 
           {/* Preview / Manual copy */}
-          <details className="border border-[#E0E0E0] rounded-xl">
-            <summary className="cursor-pointer text-[10px] font-mono text-[#6B7280] px-3 py-2">View raw data</summary>
+          <details className="border border-[var(--p-border)] rounded-xl">
+            <summary className="cursor-pointer text-[10px] font-mono text-[var(--p-muted)] px-3 py-2">View raw data</summary>
             <textarea
               readOnly
               value={exportTextModal.content}
-              className="w-full bg-[#F5F5F5] border-t border-[#E0E0E0] text-[10px] font-mono text-[#4B5563] p-2 h-40 outline-none resize-none"
+              className="w-full bg-[var(--p-bg)] border-t border-[var(--p-border)] text-[10px] font-mono text-[var(--p-muted)] p-2 h-40 outline-none resize-none"
               onClick={e => (e.target as HTMLTextAreaElement).select()}
             />
           </details>
@@ -2687,8 +2877,8 @@ export default function App() {
 
           {/* Simulated App Banner Alert for push notifications */}
     {incomingSmsBanner && (
-      <div className="w-full max-w-[420px] bg-[#0c0c0c] border border-yellow-950/40 rounded-xl p-4 mb-4 shadow-2xl relative animate-bounce flex gap-3.5">
-        <div className="h-10 w-10 shrink-0 bg-yellow-950/30 border border-blue-900/30 rounded-full flex items-center justify-center text-[#1B2CC1]">
+      <div className="w-full max-w-[420px] bg-[var(--p-surf2)] border border-yellow-950/40 rounded-xl p-4 mb-4 shadow-2xl relative animate-bounce flex gap-3.5">
+        <div className="h-10 w-10 shrink-0 bg-yellow-950/30 border border-blue-900/30 rounded-full flex items-center justify-center text-[var(--p-acc)]">
           <Bell size={18} />
         </div>
         <div className="flex-1 min-w-0">
@@ -2696,19 +2886,19 @@ export default function App() {
             <span className="text-xs font-mono font-medium text-blue-500">Android System SMS Alert</span>
             <button 
               onClick={() => setIncomingSmsBanner(null)} 
-              className="text-[10px] font-mono text-[#9CA3AF] hover:text-[#1A1A2E]"
+              className="text-[10px] font-mono text-[var(--p-muted2)] hover:text-[var(--p-text)]"
             >
               Dismiss
             </button>
           </div>
-          <p className="text-[11px] text-[#4B5563] truncate font-sans italic">"{incomingSmsBanner.text}"</p>
+          <p className="text-[11px] text-[var(--p-muted)] truncate font-sans italic">"{incomingSmsBanner.text}"</p>
           <div className="mt-2 flex gap-3 text-[10px]">
             <button 
               onClick={() => {
                 setIncomingSmsBanner(null);
                 setNavTab('sms');
               }} 
-              className="text-[#1B2CC1] font-semibold tracking-wider hover:underline"
+              className="text-[var(--p-acc)] font-semibold tracking-wider hover:underline"
             >
               OPEN AI WORKFLOW
             </button>
@@ -2718,16 +2908,32 @@ export default function App() {
     )}
 
       <div className="flex-1 flex flex-col overflow-hidden" style={{
-        background: isRoyal ? '#F4F6FB' : '#050505',
-        '--accent': isRoyal ? '#1B2CC1' : '#d4af37',
-        '--surface': isRoyal ? '#FFFFFF' : '#0f0f0f',
-        '--border': isRoyal ? '#E2E8F0' : '#1a1a1a',
-        '--text': isRoyal ? '#1A1A2E' : '#e5e5e5',
-        '--muted': isRoyal ? '#64748B' : '#555555',
+        background: 'var(--p-bg)',
+        /* theme vars now in <style> block below */
       } as React.CSSProperties}>
 
+      {/* ── THEME CSS VARIABLES ── */}
+      <style>{`
+        :root {
+          --p-bg:        ${isRoyal ? '#F8FAFF' : '#050505'};
+          --p-surf:      ${isRoyal ? '#FFFFFF' : '#0f0f0f'};
+          --p-surf2:     ${isRoyal ? '#F2F4FA' : '#0a0a0a'};
+          --p-surf3:     ${isRoyal ? '#E8EBF5' : '#111111'};
+          --p-surf4:     ${isRoyal ? '#E4E8F5' : '#111111'};
+          --p-border:    ${isRoyal ? '#DDE3F0' : '#1a1a1a'};
+          --p-border2:   ${isRoyal ? '#C8D0E8' : '#2a2a2a'};
+          --p-acc:       ${isRoyal ? '#1B2CC1' : '#d4af37'};
+          --p-accdim:    ${isRoyal ? '#E8EAFB' : '#1a1500'};
+          --p-accdim2:   ${isRoyal ? '#D0D5F5' : '#2a1e00'};
+          --p-text:      ${isRoyal ? '#1A1A2E' : '#e5e5e5'};
+          --p-muted:     ${isRoyal ? '#64748B' : '#555555'};
+          --p-muted2:    ${isRoyal ? '#94A3B8' : '#888888'};
+          --p-acc-shadow:${isRoyal ? 'rgba(27,44,193,0.35)' : 'rgba(212,175,55,0.5)'};
+        }
+      `}</style>
+      
     {/* Simulated Screen Content - Dynamic Tab View Rendering */}
-    <div className="flex-1 overflow-y-auto px-4.5 py-4 custom-inner-screen" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)', background: isRoyal ? '#F4F6FB' : '#050505' }}>
+    <div className="flex-1 overflow-y-auto px-4.5 py-4 custom-inner-screen" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)', background: 'var(--p-bg)' }}>
       
       {/* --- TAB 1: DASHBOARD --- */}
       {navTab === 'dashboard' && (() => {
@@ -2772,13 +2978,13 @@ export default function App() {
           <div className="space-y-4 animate-fade-in pt-2">
             
             {/* Sub-tab navigation selector */}
-            <div className="grid grid-cols-2 gap-1.5 bg-[#F5F5FA] p-1 rounded-xl border border-[#E8E8F0]">
+            <div className="grid grid-cols-2 gap-1.5 bg-[var(--p-surf2)] p-1 rounded-xl border border-[var(--p-border)]">
               <button
                 onClick={() => setDashboardView('transactions')}
                 className={`py-1.5 text-[10px] font-semibold rounded-lg transition-all font-mono uppercase tracking-wider flex items-center justify-center gap-1 border ${
                   dashboardView === 'transactions'
-                    ? 'bg-[#151515] text-[#1B2CC1] border-[#1B2CC1]/20 shadow-md'
-                    : 'text-[#6B7280] border-transparent hover:text-[#4B5563]'
+                    ? 'bg-[var(--p-surf3)] text-[var(--p-acc)] border-[var(--p-acc)]/20 shadow-md'
+                    : 'text-[var(--p-muted)] border-transparent hover:text-[var(--p-muted)]'
                 }`}
               >
                 Overview
@@ -2787,8 +2993,8 @@ export default function App() {
                 onClick={() => setDashboardView('budgets')}
                 className={`py-1.5 text-[10px] font-semibold rounded-lg transition-all font-mono uppercase tracking-wider flex items-center justify-center gap-1 border ${
                   dashboardView === 'budgets'
-                    ? 'bg-[#151515] text-[#1B2CC1] border-[#1B2CC1]/20 shadow-md'
-                    : 'text-[#6B7280] border-transparent hover:text-[#4B5563]'
+                    ? 'bg-[var(--p-surf3)] text-[var(--p-acc)] border-[var(--p-acc)]/20 shadow-md'
+                    : 'text-[var(--p-muted)] border-transparent hover:text-[var(--p-muted)]'
                 }`}
               >
                 Budgets
@@ -2886,7 +3092,7 @@ export default function App() {
               const othersVal=catList.slice(5).reduce((s,x)=>s+x[1],0);
               const donutData=othersVal>0?[...top5,['Others',othersVal] as [string,number]]:top5;
               const donutTotal=donutData.reduce((s,x)=>s+x[1],0);
-              const palette=['#1B2CC1','#a8c5a0','#9ab7d8','#c9a4d4','#e8b4a0','#8a8272'];
+              const palette=['#d4af37','#a8c5a0','#9ab7d8','#c9a4d4','#e8b4a0','#8a8272'];
 
               const periodLabel = dashDay?dashDay:dashWeek?`W${dashWeek}·${selMonth}`:selMonth;
 
@@ -2894,18 +3100,18 @@ export default function App() {
               <div className="space-y-4">
 
                 {/* ── FILTER BAR ── */}
-                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-3 space-y-2.5">
+                <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-3 space-y-2.5">
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <select value={selMonth} onChange={e=>{setFilterMonth(e.target.value);setDashWeek(null);setDashDay(null);}}
-                        className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg py-2 px-3 pr-7 text-[11px] font-mono font-bold text-[#1A1A2E] appearance-none outline-none focus:border-[#1B2CC1] cursor-pointer">
+                        className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg py-2 px-3 pr-7 text-[11px] font-mono font-bold text-[var(--p-text)] appearance-none outline-none focus:border-[var(--p-acc)] cursor-pointer">
                         {availableMonths.map(m=><option key={m} value={m}>{m}</option>)}
                         {!availableMonths.includes(currentMonthLabel)&&<option value={currentMonthLabel}>{currentMonthLabel}</option>}
                       </select>
-                      <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#1B2CC1] pointer-events-none"/>
+                      <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--p-acc)] pointer-events-none"/>
                     </div>
                     <button onClick={() => openCal('home')}
-                      className={`flex-1 flex items-center gap-1.5 bg-[#F5F5F5] border rounded-lg py-2 px-2.5 text-[11px] font-mono outline-none transition-all ${dashDay ? 'border-[#1B2CC1] text-[#1B2CC1]' : 'border-[#D5D5E0] text-[#6B7280]'}`}>
+                      className={`flex-1 flex items-center gap-1.5 bg-[var(--p-bg)] border rounded-lg py-2 px-2.5 text-[11px] font-mono outline-none transition-all ${dashDay ? 'border-[var(--p-acc)] text-[var(--p-acc)]' : 'border-[var(--p-border)] text-[var(--p-muted)]'}`}>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                       <span className="truncate">{dashDay ? (dashDay.includes('|') ? dashDay.split('|')[0].split('-').slice(1).reverse().join(' ') + ' – ' + dashDay.split('|')[1].split('-').slice(1).reverse().join(' ') : dashDay.split('-').slice(1).reverse().join(' ')) : 'Pick date'}</span>
                     </button>
@@ -2913,50 +3119,50 @@ export default function App() {
                   <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{scrollbarWidth:'none'}}>
                     {categories.map(cat=>{const on=filterCategories.includes(cat);return(
                       <button key={cat} type="button" onClick={()=>setFilterCategories(prev=>on?prev.filter(x=>x!==cat):[...prev,cat])}
-                        className={`px-2.5 py-1 rounded-full text-[9px] font-mono border whitespace-nowrap shrink-0 transition-all ${on?'bg-[#1B2CC1]/20 border-[#1B2CC1] text-[#1B2CC1] font-bold':'bg-[#F5F5FA] border-[#D5D5E0] text-[#6B7280]'}`}>
+                        className={`px-2.5 py-1 rounded-full text-[9px] font-mono border whitespace-nowrap shrink-0 transition-all ${on?'bg-[var(--p-acc)]/20 border-[var(--p-acc)] text-[var(--p-acc)] font-bold':'bg-[var(--p-surf2)] border-[var(--p-border)] text-[var(--p-muted)]'}`}>
                         {cat}
                       </button>);
                     })}
                   </div>
                   {(dashDay||dashWeek||filterCategories.length>0||selMonth!==currentMonthLabel)&&(
                     <button onClick={()=>{setFilterMonth(currentMonthLabel);setDashWeek(null);setDashDay(null);setFilterCategories([]);}}
-                      className="text-[9px] text-[#1B2CC1] font-mono uppercase tracking-wider hover:underline">↺ Reset to {currentMonthLabel}</button>
+                      className="text-[9px] text-[var(--p-acc)] font-mono uppercase tracking-wider hover:underline">↺ Reset to {currentMonthLabel}</button>
                   )}
                 </div>
 
                 {/* ── INFLOW | OUTFLOW cards ── */}
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-[#F5F5FA] border border-[#E0E0E0] rounded-xl p-3">
+                  <div className="bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-3">
                     <div className="flex items-center gap-1 mb-1">
                       <TrendingUp size={11} className="text-emerald-400"/>
-                      <span className="text-[9px] font-mono uppercase tracking-widest text-[#6B7280]">Inflow</span>
+                      <span className="text-[9px] font-mono uppercase tracking-widest text-[var(--p-muted)]">Inflow</span>
                     </div>
                     <p className="text-xl font-mono font-semibold text-emerald-400">₹{Math.round(received).toLocaleString('en-IN')}</p>
-                    <p className="text-[8px] font-mono text-[#9CA3AF] mt-1">{periodLabel}</p>
+                    <p className="text-[8px] font-mono text-[var(--p-muted2)] mt-1">{periodLabel}</p>
                   </div>
-                  <div className="bg-[#F5F5FA] border border-[#E0E0E0] rounded-xl p-3">
+                  <div className="bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-3">
                     <div className="flex items-center gap-1 mb-1">
                       <TrendingDown size={11} className="text-rose-400"/>
-                      <span className="text-[9px] font-mono uppercase tracking-widest text-[#6B7280]">Outflow</span>
+                      <span className="text-[9px] font-mono uppercase tracking-widest text-[var(--p-muted)]">Outflow</span>
                     </div>
                     <p className="text-xl font-mono font-semibold text-rose-400">₹{Math.round(sent).toLocaleString('en-IN')}</p>
                     <div className="flex justify-between mt-1">
-                      {deltaPct!==null?<span className={`text-[9px] font-mono font-bold ${deltaPct>0?'text-rose-400':'text-emerald-400'}`}>{deltaPct>0?'▲':'▼'}{Math.abs(deltaPct)}% {deltaLabel}</span>:<span className="text-[9px] text-[#9CA3AF] font-mono">—</span>}
-                      <span className="text-[8px] font-mono text-[#6B7280]">₹{Math.round(avgDay).toLocaleString('en-IN')}/d</span>
+                      {deltaPct!==null?<span className={`text-[9px] font-mono font-bold ${deltaPct>0?'text-rose-400':'text-emerald-400'}`}>{deltaPct>0?'▲':'▼'}{Math.abs(deltaPct)}% {deltaLabel}</span>:<span className="text-[9px] text-[var(--p-muted2)] font-mono">—</span>}
+                      <span className="text-[8px] font-mono text-[var(--p-muted)]">₹{Math.round(avgDay).toLocaleString('en-IN')}/d</span>
                     </div>
                   </div>
                 </div>
 
                 {/* ── OPENING | CLOSING cards (collapsible via eye icon) ── */}
-                <div className="bg-[#F8F8FD] border border-[#E0E0E0] rounded-xl overflow-hidden">
+                <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl overflow-hidden">
                   <div className="flex justify-between items-center px-3 py-2.5">
                     <div>
-                      <span className="text-[9px] font-mono uppercase tracking-widest text-[#6B7280]">Balance · {selMonth}</span>
+                      <span className="text-[9px] font-mono uppercase tracking-widest text-[var(--p-muted)]">Balance · {selMonth}</span>
                       {!balanceVisible && curBal && (
-                        <span className="text-[9px] font-mono text-[#1B2CC1] ml-2">₹{Math.round(curBal.closing).toLocaleString('en-IN')}</span>
+                        <span className="text-[9px] font-mono text-[var(--p-acc)] ml-2">₹{Math.round(curBal.closing).toLocaleString('en-IN')}</span>
                       )}
                     </div>
-                    <button onClick={()=>setBalanceVisible(v=>!v)} className="text-[#6B7280] hover:text-[#1B2CC1] transition-colors p-0.5">
+                    <button onClick={()=>setBalanceVisible(v=>!v)} className="text-[var(--p-muted)] hover:text-[var(--p-acc)] transition-colors p-0.5">
                       {balanceVisible
                         ? <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/><line x1="3" y1="3" x2="21" y2="21"/></svg>
                         : <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.7" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -2964,29 +3170,29 @@ export default function App() {
                     </button>
                   </div>
                   {balanceVisible && (
-                    <div className="grid grid-cols-2 gap-2 px-3 pb-3 border-t border-[#E0E0E0] pt-2.5">
-                      <div className="bg-[#F5F5F5] rounded-lg p-2.5">
-                        <p className="text-[8px] font-mono text-[#6B7280] uppercase tracking-wider">Opening · 1 {selMn}</p>
+                    <div className="grid grid-cols-2 gap-2 px-3 pb-3 border-t border-[var(--p-border)] pt-2.5">
+                      <div className="bg-[var(--p-bg)] rounded-lg p-2.5">
+                        <p className="text-[8px] font-mono text-[var(--p-muted)] uppercase tracking-wider">Opening · 1 {selMn}</p>
                         {curBal
-                          ? <p className="text-[#1B2CC1] font-mono font-bold text-sm mt-0.5">₹{Math.round(curBal.opening).toLocaleString('en-IN')}</p>
+                          ? <p className="text-[var(--p-acc)] font-mono font-bold text-sm mt-0.5">₹{Math.round(curBal.opening).toLocaleString('en-IN')}</p>
                           : firstOpen===undefined
                             ? <div className="mt-1">
                                 <input type="number" inputMode="numeric" placeholder="Enter ₹"
-                                  className="w-full bg-[#F5F5FA] border border-[#C8C8D8] rounded-lg p-1.5 text-[11px] font-mono text-[#1A1A2E] outline-none focus:border-[#1B2CC1]"
+                                  className="w-full bg-[var(--p-surf2)] border border-[var(--p-border2)] rounded-lg p-1.5 text-[11px] font-mono text-[var(--p-text)] outline-none focus:border-[var(--p-acc)]"
                                   onBlur={e=>{if(e.target.value)setMonthBalance(selMonth,'opening',parseFloat(e.target.value));}}/>
-                                <p className="text-[7px] text-[#9CA3AF] font-mono mt-0.5">Enter once → all months auto-calculate</p>
+                                <p className="text-[7px] text-[var(--p-muted2)] font-mono mt-0.5">Enter once → all months auto-calculate</p>
                               </div>
-                            : <p className="text-[#9CA3AF] font-mono text-[11px] mt-0.5">before tracked period</p>
+                            : <p className="text-[var(--p-muted2)] font-mono text-[11px] mt-0.5">before tracked period</p>
                         }
                       </div>
-                      <div className="bg-[#F5F5F5] rounded-lg p-2.5">
-                        <p className="text-[8px] font-mono text-[#6B7280] uppercase tracking-wider">Closing · now</p>
+                      <div className="bg-[var(--p-bg)] rounded-lg p-2.5">
+                        <p className="text-[8px] font-mono text-[var(--p-muted)] uppercase tracking-wider">Closing · now</p>
                         {curBal
                           ? <>
                               <p className="text-emerald-400 font-mono font-bold text-sm mt-0.5">₹{Math.round(curBal.closing).toLocaleString('en-IN')}</p>
-                              <p className="text-[7px] text-[#9CA3AF] font-mono mt-0.5">estimated · check vs bank</p>
+                              <p className="text-[7px] text-[var(--p-muted2)] font-mono mt-0.5">estimated · check vs bank</p>
                             </>
-                          : <p className="text-[#9CA3AF] font-mono text-[11px] mt-0.5">enter opening first</p>
+                          : <p className="text-[var(--p-muted2)] font-mono text-[11px] mt-0.5">enter opening first</p>
                         }
                       </div>
                     </div>
@@ -2994,24 +3200,24 @@ export default function App() {
                 </div>
 
                 {/* ── EXPENDITURE BY CATEGORY (kept exactly as before) ── */}
-                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-4">
-                  <h3 className="font-serif text-[11px] tracking-wide text-[#1A1A2E] italic border-b border-[#D5D5E0] pb-1.5 mb-3 flex items-center gap-1.5">
-                    <BrandIcon size={11} className="text-[#1B2CC1]"/> Expenditure by Category
+                <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-4">
+                  <h3 className="font-serif text-[11px] tracking-wide text-[var(--p-text)] italic border-b border-[var(--p-border)] pb-1.5 mb-3 flex items-center gap-1.5">
+                    <BrandIcon size={11} className="text-[var(--p-acc)]"/> Expenditure by Category
                   </h3>
                   {categorySpendingList.length===0
-                    ? <p className="text-[10px] text-[#6B7280] italic text-center py-2 font-mono">No expenses in this period.</p>
+                    ? <p className="text-[10px] text-[var(--p-muted)] italic text-center py-2 font-mono">No expenses in this period.</p>
                     : <div className="space-y-2.5">
                         {categorySpendingList.slice(0,6).map(item =>(
                           <div key={item.category} className="w-full">
                             <div className="flex justify-between items-center text-[10px] mb-0.5 font-mono">
-                              <span className="text-[#6B7280] truncate flex items-center gap-1">
+                              <span className="text-[var(--p-muted)] truncate flex items-center gap-1">
                                 <span className="shrink-0">{categoryIcons[item.category]||'⭐'}</span>
                                 <span className="truncate">{item.category}</span>
                               </span>
-                              <span className="text-[#1A1A2E] whitespace-nowrap pl-2">₹{Math.round(item.amount).toLocaleString('en-IN')} ({item.percentage}%)</span>
+                              <span className="text-[var(--p-text)] whitespace-nowrap pl-2">₹{Math.round(item.amount).toLocaleString('en-IN')} ({item.percentage}%)</span>
                             </div>
-                            <div className="w-full h-1.5 bg-[#EEF0FA] rounded-full overflow-hidden">
-                              <div className="bg-[#1B2CC1] h-full transition-all duration-300" style={{width:`${Math.max(item.percentage,2)}%`}}/>
+                            <div className="w-full h-1.5 bg-[var(--p-accdim)] rounded-full overflow-hidden">
+                              <div className="bg-[var(--p-acc)] h-full transition-all duration-300" style={{width:`${Math.max(item.percentage,2)}%`}}/>
                             </div>
                           </div>
                         ))}
@@ -3020,73 +3226,73 @@ export default function App() {
                 </div>
 
                 {/* ── MONTH-ON-MONTH bar chart ── */}
-                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-4">
-                  <h3 className="font-serif text-[12px] tracking-wide text-[#1A1A2E] italic flex items-center gap-1.5 border-b border-[#D5D5E0] pb-1.5 mb-3">
-                    <BrandIcon size={12} className="text-[#1B2CC1]"/> Month vs Spending
+                <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-4">
+                  <h3 className="font-serif text-[12px] tracking-wide text-[var(--p-text)] italic flex items-center gap-1.5 border-b border-[var(--p-border)] pb-1.5 mb-3">
+                    <BrandIcon size={12} className="text-[var(--p-acc)]"/> Month vs Spending
                   </h3>
                   <div className="flex items-end justify-between gap-2 h-28">
                     {momBars.map(b=>{const on=b.key===selMonth;return(
                       <button key={b.key} onClick={()=>{setFilterMonth(b.key);setDashWeek(null);setDashDay(null);}}
                         className="flex flex-col items-center gap-1 flex-1 h-full justify-end group">
-                        <span className={`text-[8px] font-mono ${on?'text-[#1B2CC1] font-bold':'text-[#6B7280]'}`}>{b.val>0?`₹${(b.val/1000)}k`:'—'}</span>
-                        <div className={`w-full rounded-t transition-all ${on?'bg-[#1B2CC1]':'bg-[#DDE0F7] group-hover:bg-[#A5ABE8]'}`} style={{height:`${Math.max(b.val>0?4:1,(b.val/momMax)*70)}%`}}/>
-                        <span className={`text-[9px] font-mono ${on?'text-[#1B2CC1] font-bold':'text-[#6B7280]'}`}>{b.label}</span>
+                        <span className={`text-[8px] font-mono ${on?'text-[var(--p-acc)] font-bold':'text-[var(--p-muted)]'}`}>{b.val>0?`₹${(b.val/1000)}k`:'—'}</span>
+                        <div className={`w-full rounded-t transition-all ${on?'bg-[var(--p-acc)]':'bg-[var(--p-accdim2)] group-hover:bg-[var(--p-accdim)]'}`} style={{height:`${Math.max(b.val>0?4:1,(b.val/momMax)*70)}%`}}/>
+                        <span className={`text-[9px] font-mono ${on?'text-[var(--p-acc)] font-bold':'text-[var(--p-muted)]'}`}>{b.label}</span>
                       </button>);
                     })}
                   </div>
-                  <p className="text-[8px] text-[#9CA3AF] font-mono text-center mt-2">tap a month to switch</p>
+                  <p className="text-[8px] text-[var(--p-muted2)] font-mono text-center mt-2">tap a month to switch</p>
                 </div>
 
                 {/* ── WEEK-ON-WEEK ── */}
-                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-4">
-                  <h3 className="font-serif text-[12px] tracking-wide text-[#1A1A2E] italic flex items-center gap-1.5 border-b border-[#D5D5E0] pb-1.5 mb-3">
-                    <BrandIcon size={12} className="text-[#1B2CC1]"/> Week on Week · {selMonth}
+                <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-4">
+                  <h3 className="font-serif text-[12px] tracking-wide text-[var(--p-text)] italic flex items-center gap-1.5 border-b border-[var(--p-border)] pb-1.5 mb-3">
+                    <BrandIcon size={12} className="text-[var(--p-acc)]"/> Week on Week · {selMonth}
                   </h3>
                   <div className="flex items-end justify-between gap-2 h-24">
                     {wowBars.map(b=>{const on=dashWeek===b.w;return(
                       <button key={b.w} onClick={()=>{setDashDay(null);setDashWeek(on?null:b.w);}}
                         className="flex flex-col items-center gap-1 flex-1 h-full justify-end group">
-                        <span className={`text-[8px] font-mono ${on?'text-[#1B2CC1] font-bold':'text-[#6B7280]'}`}>{b.val>0?`₹${(b.val/1000)}k`:'—'}</span>
-                        <div className={`w-full rounded-t transition-all ${on?'bg-[#1B2CC1]':'bg-[#DDE0F7] group-hover:bg-[#A5ABE8]'}`} style={{height:`${Math.max(b.val>0?4:1,(b.val/wowMax)*65)}%`}}/>
-                        <span className={`text-[9px] font-mono ${on?'text-[#1B2CC1] font-bold':'text-[#6B7280]'}`}>W{b.w}</span>
+                        <span className={`text-[8px] font-mono ${on?'text-[var(--p-acc)] font-bold':'text-[var(--p-muted)]'}`}>{b.val>0?`₹${(b.val/1000)}k`:'—'}</span>
+                        <div className={`w-full rounded-t transition-all ${on?'bg-[var(--p-acc)]':'bg-[var(--p-accdim2)] group-hover:bg-[var(--p-accdim)]'}`} style={{height:`${Math.max(b.val>0?4:1,(b.val/wowMax)*65)}%`}}/>
+                        <span className={`text-[9px] font-mono ${on?'text-[var(--p-acc)] font-bold':'text-[var(--p-muted)]'}`}>W{b.w}</span>
                       </button>);
                     })}
                   </div>
                   {dashWeek&&(
-                    <div className="flex gap-1.5 mt-3 pt-3 border-t border-[#E0E0E0] overflow-x-auto">
+                    <div className="flex gap-1.5 mt-3 pt-3 border-t border-[var(--p-border)] overflow-x-auto">
                       {weekDays.map(d=>{const on=dashDay===d.ds;return(
                         <button key={d.ds} onClick={()=>setDashDay(on?null:d.ds)}
-                          className={`flex flex-col items-center px-2 py-1.5 rounded-lg border shrink-0 min-w-[42px] transition-all ${on?'bg-[#1B2CC1]/20 border-[#1B2CC1]':'bg-[#F5F5FA] border-[#D5D5E0]'}`}>
-                          <span className={`text-[10px] font-mono font-bold ${on?'text-[#1B2CC1]':'text-[#1A1A2E]'}`}>{d.dn}</span>
-                          <span className={`text-[7px] font-mono ${d.val>0?'text-[#6B7280]':'text-[#9CA3AF]'}`}>{d.val>0?`₹${Math.round(d.val>=1000?(d.val/1000)+'k':d.val)}`:'·'}</span>
+                          className={`flex flex-col items-center px-2 py-1.5 rounded-lg border shrink-0 min-w-[42px] transition-all ${on?'bg-[var(--p-acc)]/20 border-[var(--p-acc)]':'bg-[var(--p-surf2)] border-[var(--p-border)]'}`}>
+                          <span className={`text-[10px] font-mono font-bold ${on?'text-[var(--p-acc)]':'text-[var(--p-text)]'}`}>{d.dn}</span>
+                          <span className={`text-[7px] font-mono ${d.val>0?'text-[var(--p-muted)]':'text-[var(--p-muted2)]'}`}>{d.val>0?`₹${Math.round(d.val>=1000?(d.val/1000)+'k':d.val)}`:'·'}</span>
                         </button>);
                       })}
                     </div>
                   )}
-                  <p className="text-[8px] text-[#9CA3AF] font-mono text-center mt-2">tap week → tap day to drill down</p>
+                  <p className="text-[8px] text-[var(--p-muted2)] font-mono text-center mt-2">tap week → tap day to drill down</p>
                 </div>
 
                 {/* ── DONUT ── */}
-                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-4">
-                  <h3 className="font-serif text-[12px] tracking-wide text-[#1A1A2E] italic flex items-center gap-1.5 border-b border-[#D5D5E0] pb-1.5 mb-3">
-                    <BrandIcon size={12} className="text-[#1B2CC1]"/> Spend Share · {periodLabel}
+                <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-4">
+                  <h3 className="font-serif text-[12px] tracking-wide text-[var(--p-text)] italic flex items-center gap-1.5 border-b border-[var(--p-border)] pb-1.5 mb-3">
+                    <BrandIcon size={12} className="text-[var(--p-acc)]"/> Spend Share · {periodLabel}
                   </h3>
                   {donutTotal===0
-                    ? <p className="text-[10px] text-[#6B7280] italic text-center py-5 font-mono">No spending in this period.</p>
+                    ? <p className="text-[10px] text-[var(--p-muted)] italic text-center py-5 font-mono">No spending in this period.</p>
                     : <div className="flex items-center gap-4">
                         <svg viewBox="0 0 42 42" className="w-28 h-28 shrink-0">
                           {(()=>{let acc=0;return donutData.map(([name,val],i)=>{const pct=val/donutTotal*100;const el=(<circle key={String(name)} cx="21" cy="21" r="15.9155" fill="none" stroke={palette[i%palette.length]} strokeWidth="6" strokeDasharray={`${pct} ${100-pct}`} strokeDashoffset={-acc+25}/>);acc+=pct;return el;})})()}
-                          <text x="21" y="20" textAnchor="middle" fill="#1B2CC1" fontSize="4.8" fontFamily="monospace" fontWeight="bold">₹{sent>=1000?(sent/1000)+'k':sent}</text>
+                          <text x="21" y="20" textAnchor="middle" fill="var(--p-acc)" fontSize="4.8" fontFamily="monospace" fontWeight="bold">₹{sent>=1000?(sent/1000)+'k':sent}</text>
                           <text x="21" y="26" textAnchor="middle" fill="#9CA3AF" fontSize="2.8" fontFamily="monospace">SENT</text>
                         </svg>
                         <div className="flex-1 space-y-1.5 min-w-0">
                           {donutData.map(([name,val],i)=>(
                             <div key={String(name)} className="flex justify-between items-center text-[10px] font-mono">
-                              <span className="flex items-center gap-1.5 text-[#6B7280] truncate">
+                              <span className="flex items-center gap-1.5 text-[var(--p-muted)] truncate">
                                 <span className="w-2 h-2 rounded-sm shrink-0" style={{backgroundColor:palette[i%palette.length]}}/>
                                 <span className="truncate">{name}</span>
                               </span>
-                              <span className="text-[#1A1A2E] pl-2 whitespace-nowrap">₹{Math.round(Number(val)).toLocaleString('en-IN')} <span className="text-[#9CA3AF]">({Math.round(Number(val)/donutTotal*100)}%)</span></span>
+                              <span className="text-[var(--p-text)] pl-2 whitespace-nowrap">₹{Math.round(Number(val)).toLocaleString('en-IN')} <span className="text-[var(--p-muted2)]">({Math.round(Number(val)/donutTotal*100)}%)</span></span>
                             </div>
                           ))}
                         </div>
@@ -3110,76 +3316,76 @@ export default function App() {
                   const catLabel = filterCategories.length === 1 ? filterCategories[0]
                     : filterCategories.length > 1 ? 'selected categories' : periodLabel;
                   return (
-                    <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl overflow-hidden">
+                    <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl overflow-hidden">
                       {/* Collapsed header — always visible */}
-                      <div className="flex justify-between items-center px-3 py-2.5 cursor-pointer select-none active:bg-[#F5F5F5]"
+                      <div className="flex justify-between items-center px-3 py-2.5 cursor-pointer select-none active:bg-[var(--p-bg)]"
                         onClick={() => setTxTableOpen(o => !o)}>
                         <div className="flex items-center gap-1.5">
-                          <BrandIcon size={11} className="text-[#1B2CC1]"/>
-                          <span className="font-serif text-[12px] text-[#1A1A2E] italic">Transactions</span>
-                          <span className="text-[9px] font-mono text-[#1B2CC1] bg-[#1B2CC1]/10 border border-[#1B2CC1]/20 px-1.5 py-0.5 rounded-md">{periodLabel}</span>
+                          <BrandIcon size={11} className="text-[var(--p-acc)]"/>
+                          <span className="font-serif text-[12px] text-[var(--p-text)] italic">Transactions</span>
+                          <span className="text-[9px] font-mono text-[var(--p-acc)] bg-[var(--p-acc)]/10 border border-[var(--p-acc)]/20 px-1.5 py-0.5 rounded-md">{periodLabel}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-[9px] font-mono text-[#6B7280]">{allRows.length} {allRows.length===1?'entry':'entries'} · {sign}₹{Math.round(grandTotal).toLocaleString('en-IN')}</span>
-                          <span className="text-[#1B2CC1] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:txTableOpen?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+                          <span className="text-[9px] font-mono text-[var(--p-muted)]">{allRows.length} {allRows.length===1?'entry':'entries'} · {sign}₹{Math.round(grandTotal).toLocaleString('en-IN')}</span>
+                          <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:txTableOpen?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
                         </div>
                       </div>
                       {/* Expanded body */}
                       {txTableOpen && (<>
-                        <div className="px-3 py-2 border-t border-[#D5D5E0] flex justify-between items-center">
+                        <div className="px-3 py-2 border-t border-[var(--p-border)] flex justify-between items-center">
                           <div className="flex items-baseline gap-2">
                             <span className={`text-base font-mono font-bold ${amtCls}`}>{sign}₹{Math.round(grandTotal).toLocaleString('en-IN')}</span>
-                            <span className="text-[9px] font-mono text-[#6B7280]">{allRows.length} {allRows.length===1?'entry':'entries'} · all pages</span>
+                            <span className="text-[9px] font-mono text-[var(--p-muted)]">{allRows.length} {allRows.length===1?'entry':'entries'} · all pages</span>
                           </div>
-                          <div className="flex bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg overflow-hidden">
+                          <div className="flex bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg overflow-hidden">
                             <button onClick={e=>{e.stopPropagation();setTxTableView('sent');}}
-                              className={`px-3 py-1.5 text-[9px] font-mono transition-all ${!isSent?'text-[#6B7280]':'bg-rose-950/30 text-rose-400 font-bold'}`}>Sent</button>
+                              className={`px-3 py-1.5 text-[9px] font-mono transition-all ${!isSent?'text-[var(--p-muted)]':'bg-rose-950/30 text-rose-400 font-bold'}`}>Sent</button>
                             <button onClick={e=>{e.stopPropagation();setTxTableView('received');}}
-                              className={`px-3 py-1.5 text-[9px] font-mono transition-all border-l border-[#D5D5E0] ${isSent?'text-[#6B7280]':'bg-emerald-950/30 text-emerald-400 font-bold'}`}>Received</button>
+                              className={`px-3 py-1.5 text-[9px] font-mono transition-all border-l border-[var(--p-border)] ${isSent?'text-[var(--p-muted)]':'bg-emerald-950/30 text-emerald-400 font-bold'}`}>Received</button>
                           </div>
                         </div>
                         {allRows.length === 0
-                          ? <div className="py-8 text-center border-t border-[#E0E0E0]">
-                              <p className="text-[10px] font-mono text-[#6B7280] italic">{isSent?`No expenses in ${catLabel}`:`No income in ${catLabel} for this period`}</p>
-                              {!isSent&&filterCategories.length>0&&<p className="text-[9px] font-mono text-[#9CA3AF] mt-1">Received includes reimbursements in any category</p>}
+                          ? <div className="py-8 text-center border-t border-[var(--p-border)]">
+                              <p className="text-[10px] font-mono text-[var(--p-muted)] italic">{isSent?`No expenses in ${catLabel}`:`No income in ${catLabel} for this period`}</p>
+                              {!isSent&&filterCategories.length>0&&<p className="text-[9px] font-mono text-[var(--p-muted2)] mt-1">Received includes reimbursements in any category</p>}
                             </div>
                           : <>
-                              <table className="w-full border-collapse border-t border-[#E0E0E0]" style={{tableLayout:'fixed'}}>
+                              <table className="w-full border-collapse border-t border-[var(--p-border)]" style={{tableLayout:'fixed'}}>
                                 <colgroup><col style={{width:'52px'}}/><col style={{width:'100px'}}/><col/><col style={{width:'82px'}}/></colgroup>
                                 <thead>
-                                  <tr className="border-b border-[#E0E0E0]">
-                                    <th className="text-left py-2 px-2 text-[8px] font-mono text-[#9CA3AF] uppercase tracking-wider">Date</th>
-                                    <th className="text-left py-2 px-1 text-[8px] font-mono text-[#9CA3AF] uppercase tracking-wider">Category</th>
-                                    <th className="text-left py-2 px-1 text-[8px] font-mono text-[#9CA3AF] uppercase tracking-wider">Description</th>
-                                    <th className="text-right py-2 px-2 text-[8px] font-mono text-[#9CA3AF] uppercase tracking-wider">Amount</th>
+                                  <tr className="border-b border-[var(--p-border)]">
+                                    <th className="text-left py-2 px-2 text-[8px] font-mono text-[var(--p-muted2)] uppercase tracking-wider">Date</th>
+                                    <th className="text-left py-2 px-1 text-[8px] font-mono text-[var(--p-muted2)] uppercase tracking-wider">Category</th>
+                                    <th className="text-left py-2 px-1 text-[8px] font-mono text-[var(--p-muted2)] uppercase tracking-wider">Description</th>
+                                    <th className="text-right py-2 px-2 text-[8px] font-mono text-[var(--p-muted2)] uppercase tracking-wider">Amount</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {pageRows.map((t, i) => (
-                                    <tr key={t.id} className={`border-b border-[#0d0d0d] ${i%2!==0?'bg-[#F5F5FA]':''}`}>
-                                      <td className="py-2 px-2 text-[9px] font-mono text-[#6B7280] whitespace-nowrap overflow-hidden">{t.date.split('-').slice(1).reverse().join(' ')}</td>
-                                      <td className="py-2 px-1 overflow-hidden"><span className="text-[8px] font-mono bg-[#EEF0FA] border border-[#D5D5E0] rounded-full px-1.5 py-0.5 text-[#6B7280] block overflow-hidden text-ellipsis whitespace-nowrap">{categoryIcons[t.category]||'⭐'} {t.category}</span></td>
-                                      <td className="py-2 px-1 text-[10px] text-[#4B5563] overflow-hidden text-ellipsis whitespace-nowrap">{t.description||'—'}</td>
+                                    <tr key={t.id} className={`border-b border-[#0d0d0d] ${i%2!==0?'bg-[var(--p-surf2)]':''}`}>
+                                      <td className="py-2 px-2 text-[9px] font-mono text-[var(--p-muted)] whitespace-nowrap overflow-hidden">{t.date.split('-').slice(1).reverse().join(' ')}</td>
+                                      <td className="py-2 px-1 overflow-hidden"><span className="text-[8px] font-mono bg-[var(--p-accdim)] border border-[var(--p-border)] rounded-full px-1.5 py-0.5 text-[var(--p-muted)] block overflow-hidden text-ellipsis whitespace-nowrap">{categoryIcons[t.category]||'⭐'} {t.category}</span></td>
+                                      <td className="py-2 px-1 text-[10px] text-[var(--p-muted)] overflow-hidden text-ellipsis whitespace-nowrap">{t.description||'—'}</td>
                                       <td className={`py-2 px-2 text-[11px] font-mono font-bold text-right whitespace-nowrap ${amtCls}`}>{sign}₹{Math.round(t.amount).toLocaleString('en-IN')}</td>
                                     </tr>
                                   ))}
                                 </tbody>
                                 <tfoot>
-                                  <tr className="border-t border-[#D5D5E0] bg-[#F5F5FA]">
-                                    <td colSpan={3} className="py-2 px-2 text-[8px] font-mono text-[#6B7280] uppercase tracking-wider">Page {safePage} Total</td>
+                                  <tr className="border-t border-[var(--p-border)] bg-[var(--p-surf2)]">
+                                    <td colSpan={3} className="py-2 px-2 text-[8px] font-mono text-[var(--p-muted)] uppercase tracking-wider">Page {safePage} Total</td>
                                     <td className={`py-2 px-2 text-[11px] font-mono font-bold text-right whitespace-nowrap ${amtCls}`}>{sign}₹{Math.round(pageTotal).toLocaleString('en-IN')}</td>
                                   </tr>
                                 </tfoot>
                               </table>
                               {totalPages > 1 && (
-                                <div className="flex justify-between items-center px-3 py-2 border-t border-[#E0E0E0]">
-                                  <span className="text-[8px] font-mono text-[#6B7280]">{(safePage-1)*TX_PAGE_SIZE+1}–{Math.min(safePage*TX_PAGE_SIZE,allRows.length)} of {allRows.length}</span>
+                                <div className="flex justify-between items-center px-3 py-2 border-t border-[var(--p-border)]">
+                                  <span className="text-[8px] font-mono text-[var(--p-muted)]">{(safePage-1)*TX_PAGE_SIZE+1}–{Math.min(safePage*TX_PAGE_SIZE,allRows.length)} of {allRows.length}</span>
                                   <div className="flex gap-1">
-                                    <button onClick={()=>setTxTablePage(p=>Math.max(1,p-1))} disabled={safePage===1} className="px-2.5 py-1 text-[9px] font-mono border border-[#D5D5E0] bg-[#F5F5F5] text-[#6B7280] rounded-lg disabled:opacity-30 hover:border-[#1B2CC1] hover:text-[#1B2CC1] transition-all">←</button>
+                                    <button onClick={()=>setTxTablePage(p=>Math.max(1,p-1))} disabled={safePage===1} className="px-2.5 py-1 text-[9px] font-mono border border-[var(--p-border)] bg-[var(--p-bg)] text-[var(--p-muted)] rounded-lg disabled:opacity-30 hover:border-[var(--p-acc)] hover:text-[var(--p-acc)] transition-all">←</button>
                                     {Array.from({length:totalPages},(_,i)=>i+1).map(p=>(
-                                      <button key={p} onClick={()=>setTxTablePage(p)} className={`px-2.5 py-1 text-[9px] font-mono border rounded-lg transition-all ${p===safePage?'bg-[#1B2CC1]/15 border-[#1B2CC1] text-[#1B2CC1] font-bold':'border-[#D5D5E0] bg-[#F5F5F5] text-[#6B7280]'}`}>{p}</button>
+                                      <button key={p} onClick={()=>setTxTablePage(p)} className={`px-2.5 py-1 text-[9px] font-mono border rounded-lg transition-all ${p===safePage?'bg-[var(--p-acc)]/15 border-[var(--p-acc)] text-[var(--p-acc)] font-bold':'border-[var(--p-border)] bg-[var(--p-bg)] text-[var(--p-muted)]'}`}>{p}</button>
                                     ))}
-                                    <button onClick={()=>setTxTablePage(p=>Math.min(totalPages,p+1))} disabled={safePage===totalPages} className="px-2.5 py-1 text-[9px] font-mono border border-[#D5D5E0] bg-[#F5F5F5] text-[#6B7280] rounded-lg disabled:opacity-30 hover:border-[#1B2CC1] hover:text-[#1B2CC1] transition-all">→</button>
+                                    <button onClick={()=>setTxTablePage(p=>Math.min(totalPages,p+1))} disabled={safePage===totalPages} className="px-2.5 py-1 text-[9px] font-mono border border-[var(--p-border)] bg-[var(--p-bg)] text-[var(--p-muted)] rounded-lg disabled:opacity-30 hover:border-[var(--p-acc)] hover:text-[var(--p-acc)] transition-all">→</button>
                                   </div>
                                 </div>
                               )}
@@ -3198,25 +3404,25 @@ export default function App() {
               <div className="space-y-4">
                 
                 {/* Overall month overview + month dropdown */}
-                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-3 flex justify-between items-center">
+                <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-3 flex justify-between items-center">
                   <div className="flex flex-col">
-                    <span className="text-[8px] text-[#6B7280] font-mono">Calculated For</span>
+                    <span className="text-[8px] text-[var(--p-muted)] font-mono">Calculated For</span>
                     <div className="relative mt-0.5">
                       <select
                         value={smartAlertsMonth}
                         onChange={e => setSmartAlertsMonth(e.target.value)}
-                        className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg pl-2 pr-6 py-1 text-xs font-mono font-bold text-[#1A1A2E] uppercase outline-none focus:border-[#1B2CC1] cursor-pointer appearance-none"
+                        className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg pl-2 pr-6 py-1 text-xs font-mono font-bold text-[var(--p-text)] uppercase outline-none focus:border-[var(--p-acc)] cursor-pointer appearance-none"
                       >
                         {smartAlertsAvailableMonths.map(m => (
                           <option key={m} value={m}>{m}</option>
                         ))}
                       </select>
-                      <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[#1B2CC1] pointer-events-none" />
+                      <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[var(--p-acc)] pointer-events-none" />
                     </div>
                   </div>
                   <div className="text-right flex flex-col items-end">
-                    <span className="text-[8px] text-[#6B7280] font-mono">Active Limits Set</span>
-                    <span className="text-[#1B2CC1] text-xs font-mono font-bold">{monthBudgetsList.length} Categories</span>
+                    <span className="text-[8px] text-[var(--p-muted)] font-mono">Active Limits Set</span>
+                    <span className="text-[var(--p-acc)] text-xs font-mono font-bold">{monthBudgetsList.length} Categories</span>
                   </div>
                 </div>
 
@@ -3224,13 +3430,13 @@ export default function App() {
                 <BulletChart spent={overallSpentSum} limit={overallLimitSum} />
 
                 {/* Real-time configured month budget actual comparison list */}
-                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-4">
-                  <h3 className="font-serif text-[11px] tracking-wide text-[#1A1A2E] italic border-b border-[#D5D5E0] pb-1.5 mb-3 flex items-center gap-1.5">
-                    <BrandIcon size={11} className="text-[#1B2CC1]" /> Budget Alerts
+                <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-4">
+                  <h3 className="font-serif text-[11px] tracking-wide text-[var(--p-text)] italic border-b border-[var(--p-border)] pb-1.5 mb-3 flex items-center gap-1.5">
+                    <BrandIcon size={11} className="text-[var(--p-acc)]" /> Budget Alerts
                   </h3>
 
                   {monthBudgetsList.length === 0 ? (
-                    <p className="text-[10px] text-[#6B7280] italic text-center py-6 font-mono border border-dashed border-[#D5D5E0] rounded-lg">
+                    <p className="text-[10px] text-[var(--p-muted)] italic text-center py-6 font-mono border border-dashed border-[var(--p-border)] rounded-lg">
                       No budgets configured for {activeMonthKey}. Select 'Budgets' in the tab navigation to configure limits.
                     </p>
                   ) : (
@@ -3240,24 +3446,24 @@ export default function App() {
                         const isOver = b.spent > b.limit;
 
                         return (
-                          <div key={b.category} className="p-3 bg-[#F5F5F5] rounded-xl border border-[#E0E0E0]">
+                          <div key={b.category} className="p-3 bg-[var(--p-bg)] rounded-xl border border-[var(--p-border)]">
                             <div className="flex justify-between items-center text-[10px] font-mono leading-none mb-1">
-                              <span className="text-[#1A1A2E] font-medium truncate max-w-[110px]">{b.category}</span>
-                              <span className="text-[#6B7280] text-[9px]">
-                                Spent: <strong className="text-[#1A1A2E]">₹{b.spent}</strong> / <span className="text-[#1B2CC1] font-semibold">₹{b.limit}</span>
+                              <span className="text-[var(--p-text)] font-medium truncate max-w-[110px]">{b.category}</span>
+                              <span className="text-[var(--p-muted)] text-[9px]">
+                                Spent: <strong className="text-[var(--p-text)]">₹{b.spent}</strong> / <span className="text-[var(--p-acc)] font-semibold">₹{b.limit}</span>
                               </span>
                             </div>
 
                             {/* Visual Slider Meter */}
-                            <div className="w-full h-1 bg-[#EEF0FA] rounded-full overflow-hidden mt-1 bg-gray-900">
+                            <div className="w-full h-1 bg-[var(--p-accdim)] rounded-full overflow-hidden mt-1 bg-gray-900">
                               <div 
-                                className={`h-full transition-all duration-300 ${isOver ? 'bg-red-500' : 'bg-[#1B2CC1]'}`}
+                                className={`h-full transition-all duration-300 ${isOver ? 'bg-red-500' : 'bg-[var(--p-acc)]'}`}
                                 style={{ width: `${Math.min(100, percentage)}%` }}
                               />
                             </div>
 
                             <div className="flex justify-between items-center mt-1.5 text-[8px] font-mono">
-                              <span className={percentage >= 100 ? 'text-red-400 font-semibold' : percentage >= 80 ? 'text-blue-500' : 'text-[#6B7280]'}>
+                              <span className={percentage >= 100 ? 'text-red-400 font-semibold' : percentage >= 80 ? 'text-blue-500' : 'text-[var(--p-muted)]'}>
                                 {percentage}% utilized
                               </span>
                               {isOver ? (
@@ -3391,42 +3597,42 @@ export default function App() {
 
               // ── Empty state ──
               if (transactions.length === 0) return (
-                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-6 text-center">
-                  <p className="text-[#6B7280] text-[11px] font-mono italic">No transactions yet. Add entries or import a CSV to see the Ledger.</p>
+                <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-6 text-center">
+                  <p className="text-[var(--p-muted)] text-[11px] font-mono italic">No transactions yet. Add entries or import a CSV to see the Ledger.</p>
                 </div>
               );
 
               return (
-                <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl overflow-hidden">
+                <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl overflow-hidden">
                   {/* ── Header + controls ── */}
-                  <div className="flex justify-between items-center p-4 border-b border-[#D5D5E0]">
-                    <h3 className="font-serif text-[13px] tracking-wide text-[#1A1A2E] italic flex items-center gap-1.5">
-                      <BrandIcon size={13} className="text-[#1B2CC1]" /> Ledger
+                  <div className="flex justify-between items-center p-4 border-b border-[var(--p-border)]">
+                    <h3 className="font-serif text-[13px] tracking-wide text-[var(--p-text)] italic flex items-center gap-1.5">
+                      <BrandIcon size={13} className="text-[var(--p-acc)]" /> Ledger
                     </h3>
                     <div className="flex items-center gap-2">
                       {/* Period filter — 2 rows: years on top, duration on bottom */}
                       <div className="flex flex-col gap-1">
                         {/* Row 1: years */}
-                        <div className="flex bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg overflow-hidden text-[9px] font-mono">
+                        <div className="flex bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg overflow-hidden text-[9px] font-mono">
                           {yearOptions.map(yr => (
                             <button key={yr} onClick={() => setLedgerPeriod(String(yr))}
-                              className={`flex-1 px-2.5 py-1.5 transition-colors ${ledgerPeriod === String(yr) ? 'bg-[#1B2CC1]/20 text-[#1B2CC1] font-bold' : 'text-[#6B7280]'}`}>
+                              className={`flex-1 px-2.5 py-1.5 transition-colors ${ledgerPeriod === String(yr) ? 'bg-[var(--p-acc)]/20 text-[var(--p-acc)] font-bold' : 'text-[var(--p-muted)]'}`}>
                               {yr}
                             </button>
                           ))}
                         </div>
                         {/* Row 2: duration */}
-                        <div className="flex bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg overflow-hidden text-[9px] font-mono">
+                        <div className="flex bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg overflow-hidden text-[9px] font-mono">
                           {(['3m','6m','9m','12m'] as const).map(p => (
                             <button key={p} onClick={() => setLedgerPeriod(p)}
-                              className={`flex-1 py-1.5 transition-colors ${ledgerPeriod === p ? 'bg-[#1B2CC1]/20 text-[#1B2CC1] font-bold' : 'text-[#6B7280]'}`}>
+                              className={`flex-1 py-1.5 transition-colors ${ledgerPeriod === p ? 'bg-[var(--p-acc)]/20 text-[var(--p-acc)] font-bold' : 'text-[var(--p-muted)]'}`}>
                               {p.toUpperCase()}
                             </button>
                           ))}
                         </div>
                       </div>
                       <button onClick={() => setTableExpanded(e => !e)}
-                        className="text-[9px] font-mono text-[#1B2CC1] border border-[#1B2CC1]/30 px-2 py-1 rounded-lg hover:bg-[#1B2CC1]/10 transition-all shrink-0">
+                        className="text-[9px] font-mono text-[var(--p-acc)] border border-[var(--p-acc)]/30 px-2 py-1 rounded-lg hover:bg-[var(--p-acc)]/10 transition-all shrink-0">
                         {tableExpanded ? '⊠' : '⊞'}
                       </button>
                     </div>
@@ -3436,71 +3642,71 @@ export default function App() {
                   <div className="overflow-x-auto p-4 pt-3">
                     <table className="w-full border-collapse" style={{minWidth: `${months.length * 100 + 160}px`}}>
                       <thead>
-                        <tr className="border-b border-[#D5D5E0]">
-                          <th className="text-left py-2 pr-4 text-[10px] font-mono text-[#6B7280] uppercase tracking-wider whitespace-nowrap w-40">Category</th>
+                        <tr className="border-b border-[var(--p-border)]">
+                          <th className="text-left py-2 pr-4 text-[10px] font-mono text-[var(--p-muted)] uppercase tracking-wider whitespace-nowrap w-40">Category</th>
                           {months.map(m => (
-                            <th key={m} className={`${th} text-[#6B7280] uppercase tracking-wider`}>{m.split('-')[0]}</th>
+                            <th key={m} className={`${th} text-[var(--p-muted)] uppercase tracking-wider`}>{m.split('-')[0]}</th>
                           ))}
-                          <th className={`${th} text-[#1B2CC1]`}>Total</th>
+                          <th className={`${th} text-[var(--p-acc)]`}>Total</th>
                         </tr>
                       </thead>
                       <tbody>
 
                         {/* ── Opening Balance row ── */}
-                        <tr className="border-b-2 border-[#1B2CC1]/30 bg-[#F5F5FA]">
-                          <td className="py-2 pr-4 text-[#1B2CC1] font-bold text-[10px] font-mono whitespace-nowrap">Opening Balance</td>
+                        <tr className="border-b-2 border-[var(--p-acc)]/30 bg-[var(--p-surf2)]">
+                          <td className="py-2 pr-4 text-[var(--p-acc)] font-bold text-[10px] font-mono whitespace-nowrap">Opening Balance</td>
                           {months.map(m => {
                             const bc = balanceChain[m];
                             const hasEntry = bc?.opening !== undefined;
                             const isFirst = !firstMonth || m === firstMonth || (firstMonth && months.indexOf(m) === 0 && !balanceChain[m]);
                             return (
-                              <td key={m} className={`${td} text-[#1B2CC1] font-bold`}>
+                              <td key={m} className={`${td} text-[var(--p-acc)] font-bold`}>
                                 {hasEntry
                                   ? `₹${Math.round(bc!.opening!).toLocaleString('en-IN')}`
                                   : (firstOpen === undefined && (months.indexOf(m) === 0 || !firstMonth))
                                     ? <input type="number" inputMode="numeric" placeholder="Enter ₹"
-                                        className="w-20 bg-[#F5F5FA] border border-[#1B2CC1]/40 rounded p-1 text-[10px] font-mono text-[#1B2CC1] outline-none focus:border-[#1B2CC1] text-right"
+                                        className="w-20 bg-[var(--p-surf2)] border border-[var(--p-acc)]/40 rounded p-1 text-[10px] font-mono text-[var(--p-acc)] outline-none focus:border-[var(--p-acc)] text-right"
                                         onBlur={e => { if (e.target.value) setMonthBalance(m, 'opening', parseFloat(e.target.value)); }} />
-                                    : <span className="text-[#9CA3AF]">—</span>
+                                    : <span className="text-[var(--p-muted2)]">—</span>
                                 }
                               </td>
                             );
                           })}
-                          <td className={`${td} text-[#9CA3AF]`}>—</td>
+                          <td className={`${td} text-[var(--p-muted2)]`}>—</td>
                         </tr>
 
                         {/* ── Expense section ── */}
-                        <tr className="bg-[#F5F5F5] cursor-pointer" onClick={() => setLedgerExpenseExpanded(e => !e)}>
+                        <tr className="bg-[var(--p-bg)] cursor-pointer" onClick={() => setLedgerExpenseExpanded(e => !e)}>
                           <td colSpan={months.length + 2} className="py-2 px-2">
-                            <span className="text-[9px] font-mono text-[#6B7280] uppercase tracking-widest flex items-center gap-1.5">
-                              <span className="text-[#1B2CC1]">{ledgerExpenseExpanded ? '▾' : '▸'}</span>
+                            <span className="text-[9px] font-mono text-[var(--p-muted)] uppercase tracking-widest flex items-center gap-1.5">
+                              <span className="text-[var(--p-acc)]">{ledgerExpenseExpanded ? '▾' : '▸'}</span>
                               Expenses {ledgerExpenseExpanded ? '' : `(${expCats.length} categories)`}
                             </span>
                           </td>
                         </tr>
 
                         {ledgerExpenseExpanded && expCats.map((ct, idx) => (
-                          <tr key={'e-'+ct} className={`border-b border-[#E0E0E0] ${idx % 2 === 0 ? 'bg-[#F5F5FA]' : ''}`}>
-                            <td className="py-1.5 pr-4 text-[#1A1A2E] text-[10px] font-mono whitespace-nowrap truncate max-w-[140px]" title={ct}>{ct}</td>
-                            {months.map(m => <td key={m} className={`${td} ${(exp[m]?.[ct]||0) > 0 ? 'text-[#1A1A2E]' : 'text-[#9CA3AF]'}`}>{fmt2(exp[m]?.[ct]||0)}</td>)}
-                            <td className={`${td} text-[#1A1A2E] font-bold`}>{fmt2(months.reduce((s,m)=>s+(exp[m]?.[ct]||0),0))}</td>
+                          <tr key={'e-'+ct} className={`border-b border-[var(--p-border)] ${idx % 2 === 0 ? 'bg-[var(--p-surf2)]' : ''}`}>
+                            <td className="py-1.5 pr-4 text-[var(--p-text)] text-[10px] font-mono whitespace-nowrap truncate max-w-[140px]" title={ct}>{ct}</td>
+                            {months.map(m => <td key={m} className={`${td} ${(exp[m]?.[ct]||0) > 0 ? 'text-[var(--p-text)]' : 'text-[var(--p-muted2)]'}`}>{fmt2(exp[m]?.[ct]||0)}</td>)}
+                            <td className={`${td} text-[var(--p-text)] font-bold`}>{fmt2(months.reduce((s,m)=>s+(exp[m]?.[ct]||0),0))}</td>
                           </tr>
                         ))}
 
                         {/* ── Total Sent row ── */}
-                        <tr className="border-b-2 border-[#C8C8D8] bg-[#F5F5FA]">
-                          <td className="py-2 pr-4 text-[#1A1A2E] font-bold text-[10px] font-mono">Total Sent</td>
+                        <tr className="border-b-2 border-[var(--p-border2)] bg-[var(--p-surf2)]">
+                          <td className="py-2 pr-4 text-[var(--p-text)] font-bold text-[10px] font-mono">Total Sent</td>
                           {months.map(m => {
                             const v = monthSent(m);
-                            return <td key={m} className={`${td} text-[#1A1A2E] font-bold`}>{fmt2(v)}</td>;
+                            return <td key={m} className={`${td} text-[var(--p-text)] font-bold`}>{fmt2(v)}</td>;
                           })}
-                          <td className={`${td} text-[#1A1A2E] font-bold`}>{fmt2(months.reduce((s,m)=>s+monthSent(m),0))}</td>
+                          <td className={`${td} text-[var(--p-text)] font-bold`}>{fmt2(months.reduce((s,m)=>s+monthSent(m),0))}</td>
                         </tr>
 
                         {/* ── Income section ── */}
-                        <tr className="bg-[#F5F5F5] cursor-pointer" onClick={() => setLedgerIncomeExpanded(e => !e)}>
+                        <tr className="bg-[var(--p-bg)] cursor-pointer" onClick={() => setLedgerIncomeExpanded(e => !e)}>
                           <td colSpan={months.length + 2} className="py-2 px-2">
-                            <span className="text-[9px] font-mono text-[#6B7280] uppercase tracking-widest flex items-center gap-1.5">
+                            <span className="text-[9px] font-mono text-[var(--p-muted)] uppercase tracking-widest flex items-center gap-1.5">
                               <span className="text-emerald-400">{ledgerIncomeExpanded ? '▾' : '▸'}</span>
                               Income {ledgerIncomeExpanded ? '' : `(${incCats.length} categories)`}
                             </span>
@@ -3508,15 +3714,15 @@ export default function App() {
                         </tr>
 
                         {ledgerIncomeExpanded && incCats.map((ct, idx) => (
-                          <tr key={'i-'+ct} className={`border-b border-[#E0E0E0] ${idx % 2 === 0 ? 'bg-[#F5F5FA]' : ''}`}>
+                          <tr key={'i-'+ct} className={`border-b border-[var(--p-border)] ${idx % 2 === 0 ? 'bg-[var(--p-surf2)]' : ''}`}>
                             <td className="py-1.5 pr-4 text-emerald-400 text-[10px] font-mono whitespace-nowrap truncate max-w-[140px]" title={ct}>{ct}</td>
-                            {months.map(m => <td key={m} className={`${td} ${(inc[m]?.[ct]||0) > 0 ? 'text-emerald-400' : 'text-[#9CA3AF]'}`}>{fmt2(inc[m]?.[ct]||0)}</td>)}
+                            {months.map(m => <td key={m} className={`${td} ${(inc[m]?.[ct]||0) > 0 ? 'text-emerald-400' : 'text-[var(--p-muted2)]'}`}>{fmt2(inc[m]?.[ct]||0)}</td>)}
                             <td className={`${td} text-emerald-400 font-bold`}>{fmt2(months.reduce((s,m)=>s+(inc[m]?.[ct]||0),0))}</td>
                           </tr>
                         ))}
 
                         {/* ── Total Received row ── */}
-                        <tr className="border-b-2 border-[#C8C8D8] bg-[#F5F5FA]">
+                        <tr className="border-b-2 border-[var(--p-border2)] bg-[var(--p-surf2)]">
                           <td className="py-2 pr-4 text-emerald-400 font-bold text-[10px] font-mono">Total Received</td>
                           {months.map(m => {
                             const v = monthReceived(m);
@@ -3526,17 +3732,17 @@ export default function App() {
                         </tr>
 
                         {/* ── Closing Balance row ── */}
-                        <tr className="bg-[#F5F5FA]">
-                          <td className="py-2 pr-4 text-[#1B2CC1] font-bold text-[10px] font-mono whitespace-nowrap">Closing Balance</td>
+                        <tr className="bg-[var(--p-surf2)]">
+                          <td className="py-2 pr-4 text-[var(--p-acc)] font-bold text-[10px] font-mono whitespace-nowrap">Closing Balance</td>
                           {months.map(m => {
                             const bc = balanceChain[m];
                             return (
-                              <td key={m} className={`${td} text-[#1B2CC1] font-bold`}>
-                                {bc?.closing !== undefined ? `₹${Math.round(bc.closing).toLocaleString('en-IN')}` : <span className="text-[#9CA3AF]">—</span>}
+                              <td key={m} className={`${td} text-[var(--p-acc)] font-bold`}>
+                                {bc?.closing !== undefined ? `₹${Math.round(bc.closing).toLocaleString('en-IN')}` : <span className="text-[var(--p-muted2)]">—</span>}
                               </td>
                             );
                           })}
-                          <td className={`${td} text-[#9CA3AF]`}>—</td>
+                          <td className={`${td} text-[var(--p-muted2)]`}>—</td>
                         </tr>
 
                       </tbody>
@@ -3544,7 +3750,7 @@ export default function App() {
                   </div>
 
                   {!firstMonth && (
-                    <p className="text-[9px] font-mono text-[#9CA3AF] text-center pb-3">
+                    <p className="text-[9px] font-mono text-[var(--p-muted2)] text-center pb-3">
                       Enter an opening balance in the first month column to enable balance tracking
                     </p>
                   )}
@@ -3561,9 +3767,9 @@ export default function App() {
       {navTab === 'add' && (
         <div className="space-y-4 animate-fade-in pt-5 text-xs">
           
-          <div className="flex flex-col border-b border-[#E5E5F0] pb-3">
-            <span className="text-[9px] text-[#6B7280] font-mono tracking-widest uppercase font-bold">Input Module</span>
-            <h2 className="font-serif text-base text-[#1A1A2E]">Add Entry Record</h2>
+          <div className="flex flex-col border-b border-[var(--p-border)] pb-3">
+            <span className="text-[9px] text-[var(--p-muted)] font-mono tracking-widest uppercase font-bold">Input Module</span>
+            <h2 className="font-serif text-base text-[var(--p-text)]">Add Entry Record</h2>
           </div>
 
           {/* Success toast */}
@@ -3574,17 +3780,17 @@ export default function App() {
             </div>
           )}
 
-          <form onSubmit={handleAddNewManualEntry} className="space-y-4 bg-[#FFFFFF] border border-[#E0E0E0] rounded-2xl p-5">
+          <form onSubmit={handleAddNewManualEntry} className="space-y-4 bg-[var(--p-surf)] border border-[var(--p-border)] rounded-2xl p-5">
             
             {/* Income vs Expense Selection Tabs */}
-            <div className="grid grid-cols-2 gap-2 bg-[#F5F5F5] p-1 rounded-xl border border-[#D5D5E0]">
+            <div className="grid grid-cols-2 gap-2 bg-[var(--p-bg)] p-1 rounded-xl border border-[var(--p-border)]">
               <button
                 type="button"
                 onClick={() => setFormType('expense')}
                 className={`py-2 text-[10px] uppercase font-mono tracking-wider font-semibold rounded-lg transition-all ${
                   formType === 'expense' 
                     ? 'bg-rose-950/50 text-rose-400 border border-rose-900/30' 
-                    : 'text-[#6B7280]'
+                    : 'text-[var(--p-muted)]'
                 }`}
               >
                 Sent
@@ -3595,7 +3801,7 @@ export default function App() {
                 className={`py-2 text-[10px] uppercase font-mono tracking-wider font-semibold rounded-lg transition-all ${
                   formType === 'income' 
                     ? 'bg-emerald-950/50 text-emerald-400 border border-emerald-900/30' 
-                    : 'text-[#6B7280]'
+                    : 'text-[var(--p-muted)]'
                 }`}
               >
                 Received
@@ -3604,21 +3810,21 @@ export default function App() {
 
             {/* Date selection */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-[9px] text-[#6B7280] uppercase font-mono tracking-wider font-semibold">Date</label>
+              <label className="text-[9px] text-[var(--p-muted)] uppercase font-mono tracking-wider font-semibold">Date</label>
               <div className="relative">
                 <input
                   type="date"
                   required
                   value={formDate}
                   onChange={(e) => setFormDate(e.target.value)}
-                  className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3 text-xs text-[#1A1A2E] focus:outline-none focus:border-[#1B2CC1] appearance-none cursor-pointer"
+                  className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-3 text-xs text-[var(--p-text)] focus:outline-none focus:border-[var(--p-acc)] appearance-none cursor-pointer"
                 />
               </div>
             </div>
 
             {/* Amount Section with Mobile-Friendly touch arrows up/down */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-[9px] text-[#6B7280] uppercase font-mono tracking-wider">Amount (₹)</label>
+              <label className="text-[9px] text-[var(--p-muted)] uppercase font-mono tracking-wider">Amount (₹)</label>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -3627,7 +3833,7 @@ export default function App() {
                     setFormAmount(String(Math.max(0, curr - 100)));
                   }}
                   style={{ flexBasis: '15%' }}
-                  className="bg-[#121212] border border-[#D5D5E0] hover:border-gray-600 text-[#1B2CC1] font-mono font-extrabold h-11 rounded-xl flex items-center justify-center text-sm active:scale-95 transition-all shrink-0 select-none shadow-md"
+                  className="bg-[var(--p-surf3)] border border-[var(--p-border)] hover:border-gray-600 text-[var(--p-acc)] font-mono font-extrabold h-11 rounded-xl flex items-center justify-center text-sm active:scale-95 transition-all shrink-0 select-none shadow-md"
                 >
                   -100
                 </button>
@@ -3638,7 +3844,7 @@ export default function App() {
                     placeholder="e.g. 350"
                     value={formAmount}
                     onChange={(e) => setFormAmount(e.target.value)}
-                    className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3 text-center text-sm font-mono font-bold text-[#1A1A2E] placeholder-gray-800 focus:outline-none focus:border-[#1B2CC1] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-3 text-center text-sm font-mono font-bold text-[var(--p-text)] placeholder-gray-800 focus:outline-none focus:border-[var(--p-acc)] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 </div>
                 <button
@@ -3648,7 +3854,7 @@ export default function App() {
                     setFormAmount(String(curr + 100));
                   }}
                   style={{ flexBasis: '15%' }}
-                  className="bg-[#121212] border border-[#D5D5E0] hover:border-gray-600 text-[#1B2CC1] font-mono font-extrabold h-11 rounded-xl flex items-center justify-center text-sm active:scale-95 transition-all shrink-0 select-none shadow-md"
+                  className="bg-[var(--p-surf3)] border border-[var(--p-border)] hover:border-gray-600 text-[var(--p-acc)] font-mono font-extrabold h-11 rounded-xl flex items-center justify-center text-sm active:scale-95 transition-all shrink-0 select-none shadow-md"
                 >
                   +100
                 </button>
@@ -3663,7 +3869,7 @@ export default function App() {
                       const curr = parseFloat(formAmount) || 0;
                       setFormAmount(String(curr + val));
                     }}
-                    className="bg-[#F8F8FD] border border-[#D5D5E0] text-[#6B7280] font-mono hover:text-[#1A1A2E] text-[9px] py-1.5 rounded-lg active:scale-95 transition-colors text-center"
+                    className="bg-[var(--p-surf)] border border-[var(--p-border)] text-[var(--p-muted)] font-mono hover:text-[var(--p-text)] text-[9px] py-1.5 rounded-lg active:scale-95 transition-colors text-center"
                   >
                     +{val}
                   </button>
@@ -3674,39 +3880,39 @@ export default function App() {
             {/* Category list */}
             <div className="flex flex-col gap-1.5">
               <div className="flex justify-between items-center">
-                <label className="text-[9px] text-[#6B7280] uppercase font-mono tracking-wider font-semibold">Category</label>
+                <label className="text-[9px] text-[var(--p-muted)] uppercase font-mono tracking-wider font-semibold">Category</label>
               </div>
               <div className="relative">
                 <select
                   value={formCategory}
                   onChange={(e) => { setFormCategory(e.target.value); }}
-                  className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3 pr-10 text-xs text-[#1A1A2E] focus:outline-none focus:border-[#1B2CC1] appearance-none cursor-pointer"
+                  className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-3 pr-10 text-xs text-[var(--p-text)] focus:outline-none focus:border-[var(--p-acc)] appearance-none cursor-pointer"
                 >
                   {categories.map(category => (
                     <option key={category} value={category}>{categoryIcons[category] || '⭐'} {category}</option>
                   ))}
                 </select>
-                <ChevronDown size={14} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-[#6B7280] pointer-events-none" />
+                <ChevronDown size={14} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-[var(--p-muted)] pointer-events-none" />
               </div>
             </div>
 
             {/* Description */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-[9px] text-[#6B7280] uppercase font-mono tracking-wider">Description / Notes</label>
+              <label className="text-[9px] text-[var(--p-muted)] uppercase font-mono tracking-wider">Description / Notes</label>
               <input
                 type="text"
                 required
                 placeholder="e.g. Rice, Milk, Coffee details..."
                 value={formDescription}
                 onChange={(e) => setFormDescription(e.target.value)}
-                className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-3 text-xs text-[#1A1A2E] placeholder-gray-700 focus:outline-none focus:border-[#1B2CC1]"
+                className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-3 text-xs text-[var(--p-text)] placeholder-gray-700 focus:outline-none focus:border-[var(--p-acc)]"
               />
             </div>
 
             {/* Action save */}
             <button
               type="submit"
-              className="w-full bg-[#1B2CC1] text-black font-semibold text-xs py-3 px-4 rounded-xl mt-2 tracking-widest uppercase font-mono hover:opacity-90 transition-all cursor-pointer"
+              className="w-full bg-[var(--p-acc)] text-black font-semibold text-xs py-3 px-4 rounded-xl mt-2 tracking-widest uppercase font-mono hover:opacity-90 transition-all cursor-pointer"
             >
               Add Entry
             </button>
@@ -3750,14 +3956,14 @@ export default function App() {
               sms.status === 'confirmed'
                 ? 'bg-emerald-950/20 border-emerald-900/40 opacity-80'
                 : sms.status === 'skipped'
-                ? 'bg-[#FFFFFF] border-[#E0E0E0] opacity-60'
-                : 'bg-[#FFFFFF] border-l-4 border-l-[#1B2CC1] border-[#1e1a0a] shadow-lg'
+                ? 'bg-[var(--p-surf)] border-[var(--p-border)] opacity-60'
+                : 'bg-[var(--p-surf)] border-l-4 border-l-[var(--p-acc)] border-[var(--p-border)] shadow-lg'
             }`}>
               {/* Header */}
               <div className="flex justify-between items-start">
                 <div>
                   <span className="text-blue-400 font-bold font-mono text-[10px]">{sms.sender || 'BANK-SMS'}</span>
-                  <p className="text-[#6B7280] font-mono text-[9px] mt-0.5">
+                  <p className="text-[var(--p-muted)] font-mono text-[9px] mt-0.5">
                     {new Date(sms.timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                     {' '}
                     {new Date(sms.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -3765,36 +3971,36 @@ export default function App() {
                 </div>
                 <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full border font-bold ${
                   sms.status === 'confirmed' ? 'text-emerald-400 border-emerald-800 bg-emerald-950/30' :
-                  sms.status === 'skipped'   ? 'text-[#6B7280] border-gray-800 bg-[#F5F5F5]' :
+                  sms.status === 'skipped'   ? 'text-[var(--p-muted)] border-gray-800 bg-[var(--p-bg)]' :
                   'text-blue-400 border-blue-900 bg-yellow-950/20'
                 }`}>
                   {sms.status === 'confirmed' ? 'Confirmed' : sms.status === 'skipped' ? 'Skipped' : 'Pending'}
                 </span>
               </div>
 
-              <p className="text-[#4B5563] leading-relaxed">{sms.text}</p>
+              <p className="text-[var(--p-muted)] leading-relaxed">{sms.text}</p>
 
               {sms.parsedAmount ? (
                 <div className="flex gap-3 text-[10px] font-mono">
-                  <span className="text-[#6B7280]">Amount: <strong className={sms.parsedType === 'income' ? 'text-emerald-400' : 'text-red-400'}>
+                  <span className="text-[var(--p-muted)]">Amount: <strong className={sms.parsedType === 'income' ? 'text-emerald-400' : 'text-red-400'}>
                     {sms.parsedType === 'income' ? '+' : '-'}Rs.{Math.round(sms.parsedAmount).toLocaleString('en-IN')}
                   </strong></span>
-                  {sms.parsedBank && <span className="text-[#9CA3AF]">{sms.parsedBank}</span>}
+                  {sms.parsedBank && <span className="text-[var(--p-muted2)]">{sms.parsedBank}</span>}
                 </div>
               ) : null}
 
               {/* Actions — Pending */}
               {sms.status === 'pending' && (
-                <div className="flex gap-2 pt-1 border-t border-[#E0E0E0]">
+                <div className="flex gap-2 pt-1 border-t border-[var(--p-border)]">
                   <button
                     onClick={() => openInlineWizard(sms)}
-                    className="flex-1 bg-[#1B2CC1] hover:bg-[#c9a227] text-black font-mono font-bold text-[10px] uppercase tracking-wide py-2 rounded-lg transition-all"
+                    className="flex-1 bg-[var(--p-acc)] hover:bg-[#c9a227] text-black font-mono font-bold text-[10px] uppercase tracking-wide py-2 rounded-lg transition-all"
                   >
                     Confirm
                   </button>
                   <button
                     onClick={() => { setSmsMessages(prev => prev.map(s => s.id === sms.id ? { ...s, status: 'skipped' } : s)); setInlineWizardSmsId(null); if (parseWizard?.originalSmsId === sms.id) setParseWizard(null); }}
-                    className="flex-1 border border-[#C8C8D8] text-[#6B7280] hover:text-[#1A1A2E] font-mono text-[10px] uppercase tracking-wide py-2 rounded-lg transition-all"
+                    className="flex-1 border border-[var(--p-border2)] text-[var(--p-muted)] hover:text-[var(--p-text)] font-mono text-[10px] uppercase tracking-wide py-2 rounded-lg transition-all"
                   >
                     Skip
                   </button>
@@ -3803,10 +4009,10 @@ export default function App() {
 
               {/* Actions — Skipped: re-enter option + delete */}
               {sms.status === 'skipped' && (
-                <div className="flex gap-2 pt-1 border-t border-[#E0E0E0]">
+                <div className="flex gap-2 pt-1 border-t border-[var(--p-border)]">
                   <button
                     onClick={() => openInlineWizard(sms)}
-                    className="flex-1 border border-[#1B2CC1]/40 text-[#1B2CC1] hover:bg-[#1B2CC1]/10 font-mono text-[10px] uppercase py-2 rounded-lg transition-all"
+                    className="flex-1 border border-[var(--p-acc)]/40 text-[var(--p-acc)] hover:bg-[var(--p-acc)]/10 font-mono text-[10px] uppercase py-2 rounded-lg transition-all"
                   >
                     Re-enter
                   </button>
@@ -3821,7 +4027,7 @@ export default function App() {
 
               {/* Confirmed: no delete, just status label */}
               {sms.status === 'confirmed' && (
-                <div className="pt-1 border-t border-[#E0E0E0]">
+                <div className="pt-1 border-t border-[var(--p-border)]">
                   <span className="text-emerald-400 text-[10px] font-mono">Added to ledger · auto-removes in {settingRetentionDays}d</span>
                 </div>
               )}
@@ -3829,48 +4035,48 @@ export default function App() {
 
             {/* Inline wizard — renders directly below this card */}
             {inlineWizardSmsId === sms.id && parseWizard && (
-              <div className="bg-[#F5F5FA] border border-[#1B2CC1]/30 border-t-0 rounded-b-xl p-4 space-y-3 animate-fade-in">
+              <div className="bg-[var(--p-surf2)] border border-[var(--p-acc)]/30 border-t-0 rounded-b-xl p-4 space-y-3 animate-fade-in">
                 <div className="flex justify-between items-center">
-                  <span className="text-[9px] font-mono text-[#1B2CC1] uppercase tracking-wider font-semibold">Confirm Transaction</span>
-                  <button onClick={() => { setParseWizard(null); setInlineWizardSmsId(null); }} className="text-[#6B7280] hover:text-[#1A1A2E] text-xs">✕</button>
+                  <span className="text-[9px] font-mono text-[var(--p-acc)] uppercase tracking-wider font-semibold">Confirm Transaction</span>
+                  <button onClick={() => { setParseWizard(null); setInlineWizardSmsId(null); }} className="text-[var(--p-muted)] hover:text-[var(--p-text)] text-xs">✕</button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-[#121212] p-2 rounded-lg border border-[#E0E0E0]">
-                    <span className="text-[8px] text-[#6B7280] font-mono uppercase block">Amount</span>
-                    <span className="text-sm font-bold text-[#1A1A2E] font-mono">₹{parseWizard.amount}</span>
+                  <div className="bg-[var(--p-surf3)] p-2 rounded-lg border border-[var(--p-border)]">
+                    <span className="text-[8px] text-[var(--p-muted)] font-mono uppercase block">Amount</span>
+                    <span className="text-sm font-bold text-[var(--p-text)] font-mono">₹{parseWizard.amount}</span>
                   </div>
-                  <div className="bg-[#121212] p-2 rounded-lg border border-[#E0E0E0]">
-                    <span className="text-[8px] text-[#6B7280] font-mono uppercase block">Type</span>
+                  <div className="bg-[var(--p-surf3)] p-2 rounded-lg border border-[var(--p-border)]">
+                    <span className="text-[8px] text-[var(--p-muted)] font-mono uppercase block">Type</span>
                     <span className={`text-[11px] font-semibold uppercase ${parseWizard.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}`}>{parseWizard.type}</span>
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-[8px] text-[#1B2CC1] font-mono uppercase tracking-wider">Category</label>
+                  <label className="text-[8px] text-[var(--p-acc)] font-mono uppercase tracking-wider">Category</label>
                   <div className="relative">
                     <select value={parseWizard.proposedCategory} onChange={e => setParseWizard({ ...parseWizard, proposedCategory: e.target.value })}
-                      className="w-full bg-[#F5F5F5] p-2 pr-7 rounded-lg text-xs font-mono text-[#1A1A2E] border border-[#D5D5E0] focus:outline-none focus:border-[#1B2CC1] appearance-none cursor-pointer">
+                      className="w-full bg-[var(--p-bg)] p-2 pr-7 rounded-lg text-xs font-mono text-[var(--p-text)] border border-[var(--p-border)] focus:outline-none focus:border-[var(--p-acc)] appearance-none cursor-pointer">
                       {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                     </select>
-                    <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-[#6B7280] pointer-events-none" />
+                    <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--p-muted)] pointer-events-none" />
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-[8px] text-[#1B2CC1] font-mono uppercase tracking-wider">Description</label>
+                  <label className="text-[8px] text-[var(--p-acc)] font-mono uppercase tracking-wider">Description</label>
                   <input type="text" value={parseWizard.description} onChange={e => setParseWizard({ ...parseWizard, description: e.target.value })}
                     placeholder="Add a note..."
-                    className="w-full bg-[#F5F5F5] p-2 rounded-lg text-xs text-[#1A1A2E] border border-[#D5D5E0] focus:outline-none focus:border-[#1B2CC1]" />
+                    className="w-full bg-[var(--p-bg)] p-2 rounded-lg text-xs text-[var(--p-text)] border border-[var(--p-border)] focus:outline-none focus:border-[var(--p-acc)]" />
                 </div>
 
                 <div className="flex gap-2">
                   <button onClick={saveTransactionFromSmsWizard}
-                    className="flex-1 bg-[#1B2CC1] text-white font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:opacity-95 transition-all">
+                    className="flex-1 bg-[var(--p-acc)] text-white font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:opacity-95 transition-all">
                     Save to Ledger
                   </button>
                   <button onClick={() => { setParseWizard(null); setInlineWizardSmsId(null); }}
-                    className="px-4 border border-[#C8C8D8] text-[#6B7280] hover:text-[#1A1A2E] rounded-xl text-xs transition-all">
+                    className="px-4 border border-[var(--p-border2)] text-[var(--p-muted)] hover:text-[var(--p-text)] rounded-xl text-xs transition-all">
                     Cancel
                   </button>
                 </div>
@@ -3881,9 +4087,9 @@ export default function App() {
 
         return (
           <div className="space-y-3 animate-fade-in pt-5 text-xs">
-            <div className="flex justify-between items-center pb-3 border-b border-[#E5E5F0]">
+            <div className="flex justify-between items-center pb-3 border-b border-[var(--p-border)]">
               <div className="flex items-center gap-2">
-                <h2 className="font-serif text-base text-[#1A1A2E]">SMS Inbox</h2>
+                <h2 className="font-serif text-base text-[var(--p-text)]">SMS Inbox</h2>
                 <span className="text-[9px] bg-red-950/40 text-red-400 font-mono px-2 py-0.5 rounded-full border border-red-900/30">
                   {pendingSms.length} pending
                 </span>
@@ -3891,7 +4097,7 @@ export default function App() {
               {pendingSms.length > 0 && (
                 <button
                   onClick={() => { setSmsMessages(prev => prev.map(s => s.status === 'pending' ? { ...s, status: 'skipped' } : s)); setParseWizard(null); setInlineWizardSmsId(null); }}
-                  className="text-[9px] font-mono border border-[#C8C8D8] text-[#6B7280] hover:text-[#1A1A2E] px-2.5 py-1 rounded-lg transition-all"
+                  className="text-[9px] font-mono border border-[var(--p-border2)] text-[var(--p-muted)] hover:text-[var(--p-text)] px-2.5 py-1 rounded-lg transition-all"
                 >
                   Skip All
                 </button>
@@ -3899,10 +4105,10 @@ export default function App() {
             </div>
 
             {smsMessages.length === 0 ? (
-              <div className="text-center py-10 bg-[#FFFFFF] rounded-xl border border-[#E0E0E0]">
-                <MessageSquare className="mx-auto text-[#9CA3AF] mb-2.5" size={20} />
-                <p className="text-[#6B7280] text-[11px]">No SMS messages yet.</p>
-                <p className="text-[#9CA3AF] text-[10px] mt-1">Bank SMS will appear here automatically.</p>
+              <div className="text-center py-10 bg-[var(--p-surf)] rounded-xl border border-[var(--p-border)]">
+                <MessageSquare className="mx-auto text-[var(--p-muted2)] mb-2.5" size={20} />
+                <p className="text-[var(--p-muted)] text-[11px]">No SMS messages yet.</p>
+                <p className="text-[var(--p-muted2)] text-[10px] mt-1">Bank SMS will appear here automatically.</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -3923,7 +4129,7 @@ export default function App() {
                 {/* Section: Skipped */}
                 {skippedSms.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-[9px] font-mono text-[#6B7280] uppercase tracking-widest font-semibold px-1">Skipped ({skippedSms.length})</p>
+                    <p className="text-[9px] font-mono text-[var(--p-muted)] uppercase tracking-widest font-semibold px-1">Skipped ({skippedSms.length})</p>
                     {skippedSms.map(renderSmsCard)}
                   </div>
                 )}
@@ -3957,19 +4163,19 @@ export default function App() {
 
         return (
           <div className="space-y-4 animate-fade-in pt-2 text-xs">
-            <div className="flex flex-col border-b border-[#1a1a1a] pb-3">
-              <span className="text-[9px] text-[#555] font-mono tracking-widest uppercase font-bold">Budget</span>
-              <h2 className="font-serif text-base text-[#e5e5e5]">My Budgets</h2>
+            <div className="flex flex-col border-b border-[var(--p-border)] pb-3">
+              <span className="text-[9px] text-[var(--p-muted)] font-mono tracking-widest uppercase font-bold">Budget</span>
+              <h2 className="font-serif text-base text-[var(--p-text)]">My Budgets</h2>
             </div>
 
             {/* ── Add Budget Form ── */}
-            <div className="bg-[#0f0f0f] border border-[#d4af37] rounded-2xl p-4">
-              <p className="text-[10px] font-mono font-bold uppercase tracking-widest text-[#d4af37] text-center mb-4">+ Add Budget</p>
+            <div className="bg-[var(--p-surf)] border border-[var(--p-acc)] rounded-2xl p-4">
+              <p className="text-[10px] font-mono font-bold uppercase tracking-widest text-[var(--p-acc)] text-center mb-4">+ Add Budget</p>
 
               <div className="mb-3">
-                <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-[#555] block mb-1.5">Month</label>
+                <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-[var(--p-muted)] block mb-1.5">Month</label>
                 <select value={budgetMonth} onChange={e => setBudgetMonth(e.target.value)}
-                  className="w-full bg-[#050505] border border-[#1a1a1a] rounded-xl p-2.5 text-[12px] text-[#e5e5e5] outline-none focus:border-[#d4af37] font-mono appearance-none">
+                  className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-mono appearance-none">
                   <option value="Sep-2026">Sep 2026</option>
                   <option value="Oct-2026">Oct 2026</option>
                   <option value="Nov-2026">Nov 2026</option>
@@ -3980,9 +4186,9 @@ export default function App() {
               </div>
 
               <div className="mb-3">
-                <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-[#555] block mb-1.5">Category</label>
+                <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-[var(--p-muted)] block mb-1.5">Category</label>
                 <select value={budgetCategory} onChange={e => setBudgetCategory(e.target.value)}
-                  className="w-full bg-[#050505] border border-[#1a1a1a] rounded-xl p-2.5 text-[12px] text-[#e5e5e5] outline-none focus:border-[#d4af37] font-mono appearance-none">
+                  className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-mono appearance-none">
                   {categories.map(cat => (
                     <option key={cat} value={cat}>{categoryIcons[cat] || '⭐'} {cat}</option>
                   ))}
@@ -3990,16 +4196,16 @@ export default function App() {
               </div>
 
               <div className="mb-4">
-                <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-[#555] block mb-1.5">Amount (₹)</label>
+                <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-[var(--p-muted)] block mb-1.5">Amount (₹)</label>
                 <input type="number" value={budgetAmountInput} onChange={e => setBudgetAmountInput(e.target.value)}
                   placeholder="0"
-                  className="w-full bg-[#050505] border border-[#1a1a1a] rounded-xl p-2.5 text-[18px] font-bold text-[#e5e5e5] outline-none focus:border-[#d4af37] font-mono"
+                  className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-[18px] font-bold text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-mono"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <button onClick={() => { setBudgetAmountInput(''); setBudgetCategory(categories[0] || ''); }}
-                  className="border border-[#1a1a1a] text-[#555] font-mono text-[10px] font-bold uppercase tracking-wider py-3 rounded-xl">
+                  className="border border-[var(--p-border)] text-[var(--p-muted)] font-mono text-[10px] font-bold uppercase tracking-wider py-3 rounded-xl">
                   Cancel
                 </button>
                 <button onClick={() => {
@@ -4012,7 +4218,7 @@ export default function App() {
                   setBudgetAmountInput('');
                   showToast(`Budget added for ${budgetCategory}`);
                 }}
-                  className="bg-[#d4af37] text-black font-mono text-[10px] font-bold uppercase tracking-wider py-3 rounded-xl">
+                  className="bg-[var(--p-acc)] text-black font-mono text-[10px] font-bold uppercase tracking-wider py-3 rounded-xl">
                   Add
                 </button>
               </div>
@@ -4020,15 +4226,15 @@ export default function App() {
 
             {/* ── Divider ── */}
             <div className="flex items-center gap-2">
-              <div className="flex-1 border-t border-[#1a1a1a]"></div>
-              <span className="text-[9px] font-mono text-[#555] uppercase tracking-wider whitespace-nowrap">Budgets by Month</span>
-              <div className="flex-1 border-t border-[#1a1a1a]"></div>
+              <div className="flex-1 border-t border-[var(--p-border)]"></div>
+              <span className="text-[9px] font-mono text-[var(--p-muted)] uppercase tracking-wider whitespace-nowrap">Budgets by Month</span>
+              <div className="flex-1 border-t border-[var(--p-border)]"></div>
             </div>
 
             {/* ── Month accordion ── */}
             {sortedMonths.length === 0 ? (
-              <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl p-6 text-center">
-                <p className="text-[11px] font-mono text-[#555] italic">No budgets yet. Add one above.</p>
+              <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-6 text-center">
+                <p className="text-[11px] font-mono text-[var(--p-muted)] italic">No budgets yet. Add one above.</p>
               </div>
             ) : (
               sortedMonths.map(monthKey => {
@@ -4038,38 +4244,38 @@ export default function App() {
                 const isOpen = !!openMonths[monthKey];
 
                 return (
-                  <div key={monthKey} className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+                  <div key={monthKey} className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-2xl overflow-hidden">
                     {/* Month header */}
                     <div className="flex justify-between items-center px-4 py-3 cursor-pointer select-none"
                       onClick={() => toggleMonth(monthKey)}>
                       <div className="flex items-center gap-2">
-                        <span className="text-[#d4af37] text-[11px]"
+                        <span className="text-[var(--p-acc)] text-[11px]"
                           style={{display:'inline-block',transition:'transform .2s',transform:isOpen?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
-                        <span className="font-mono font-bold text-[12px] text-[#e5e5e5]">{monthKey.replace('-', ' ')}</span>
-                        {isCurrent && <span className="text-[8px] font-mono text-[#d4af37] px-1.5 py-0.5 bg-[#1a1500] rounded">● current</span>}
+                        <span className="font-mono font-bold text-[12px] text-[var(--p-text)]">{monthKey.replace('-', ' ')}</span>
+                        {isCurrent && <span className="text-[8px] font-mono text-[var(--p-acc)] px-1.5 py-0.5 bg-[var(--p-accdim)] rounded">● current</span>}
                       </div>
-                      <span className="font-mono font-bold text-[11px] text-[#d4af37]">₹{Math.round(total).toLocaleString('en-IN')}</span>
+                      <span className="font-mono font-bold text-[11px] text-[var(--p-acc)]">₹{Math.round(total).toLocaleString('en-IN')}</span>
                     </div>
 
                     {/* Month body — table */}
                     {isOpen && (
-                      <div className="border-t border-[#1a1a1a]">
+                      <div className="border-t border-[var(--p-border)]">
                         <table style={{width:'100%',borderCollapse:'collapse'}}>
                           <thead>
-                            <tr style={{background:'#0a0a0a'}}>
-                              <th style={{padding:'7px 14px',fontSize:'9px',fontWeight:800,textTransform:'uppercase',letterSpacing:'.08em',color:'#555',fontFamily:'monospace',textAlign:'left',borderBottom:'1px solid #1a1a1a'}}>Category</th>
-                              <th style={{padding:'7px 14px',fontSize:'9px',fontWeight:800,textTransform:'uppercase',letterSpacing:'.08em',color:'#555',fontFamily:'monospace',textAlign:'right',borderBottom:'1px solid #1a1a1a'}}>Amount</th>
-                              <th style={{padding:'7px 8px',width:'36px',borderBottom:'1px solid #1a1a1a'}}></th>
+                            <tr style={{background:'var(--p-surf2)'}}>
+                              <th style={{padding:'7px 14px',fontSize:'9px',fontWeight:800,textTransform:'uppercase',letterSpacing:'.08em',color:'var(--p-muted)',fontFamily:'monospace',textAlign:'left',borderBottom:'1px solid var(--p-border)'}}>Category</th>
+                              <th style={{padding:'7px 14px',fontSize:'9px',fontWeight:800,textTransform:'uppercase',letterSpacing:'.08em',color:'var(--p-muted)',fontFamily:'monospace',textAlign:'right',borderBottom:'1px solid var(--p-border)'}}>Amount</th>
+                              <th style={{padding:'7px 8px',width:'36px',borderBottom:'1px solid var(--p-border)'}}></th>
                             </tr>
                           </thead>
                           <tbody>
                             {entries.map((b, idx) => (
-                              <tr key={idx} style={{borderBottom: idx < entries.length - 1 ? '1px solid #1a1a1a' : 'none'}}>
-                                <td style={{padding:'9px 14px',fontSize:'11px',color:'#e5e5e5',fontWeight:600,display:'flex',alignItems:'center',gap:'7px'}}>
+                              <tr key={idx} style={{borderBottom: idx < entries.length - 1 ? '1px solid var(--p-border)' : 'none'}}>
+                                <td style={{padding:'9px 14px',fontSize:'11px',color:'var(--p-text)',fontWeight:600,display:'flex',alignItems:'center',gap:'7px'}}>
                                   <span>{categoryIcons[b.category] || '⭐'}</span>
                                   <span>{b.category}</span>
                                 </td>
-                                <td style={{padding:'9px 14px',fontSize:'12px',fontFamily:'monospace',fontWeight:700,color:'#d4af37',textAlign:'right'}}>
+                                <td style={{padding:'9px 14px',fontSize:'12px',fontFamily:'monospace',fontWeight:700,color:'var(--p-acc)',textAlign:'right'}}>
                                   ₹{Math.round(b.limit).toLocaleString('en-IN')}
                                 </td>
                                 <td style={{padding:'9px 8px',textAlign:'right'}}>
@@ -4079,17 +4285,17 @@ export default function App() {
                                     ));
                                     showToast('Budget entry deleted');
                                   }}
-                                    style={{background:'none',border:'none',cursor:'pointer',fontSize:'16px',color:'#555',lineHeight:1,padding:'2px 4px',transition:'color .15s'}}
+                                    style={{background:'none',border:'none',cursor:'pointer',fontSize:'16px',color:'var(--p-muted)',lineHeight:1,padding:'2px 4px',transition:'color .15s'}}
                                     onMouseOver={e => (e.target as HTMLElement).style.color='#dc2626'}
-                                    onMouseOut={e => (e.target as HTMLElement).style.color='#555'}>×</button>
+                                    onMouseOut={e => (e.target as HTMLElement).style.color='var(--p-muted)'}>×</button>
                                 </td>
                               </tr>
                             ))}
                           </tbody>
                           <tfoot>
-                            <tr style={{background:'#0a0a0a',borderTop:'2px solid #1a1a1a'}}>
-                              <td style={{padding:'8px 14px',fontSize:'10px',fontFamily:'monospace',fontWeight:800,color:'#d4af37'}}>Total</td>
-                              <td style={{padding:'8px 14px',fontSize:'10px',fontFamily:'monospace',fontWeight:800,color:'#d4af37',textAlign:'right'}}>₹{Math.round(total).toLocaleString('en-IN')}</td>
+                            <tr style={{background:'var(--p-surf2)',borderTop:'2px solid var(--p-border)'}}>
+                              <td style={{padding:'8px 14px',fontSize:'10px',fontFamily:'monospace',fontWeight:800,color:'var(--p-acc)'}}>Total</td>
+                              <td style={{padding:'8px 14px',fontSize:'10px',fontFamily:'monospace',fontWeight:800,color:'var(--p-acc)',textAlign:'right'}}>₹{Math.round(total).toLocaleString('en-IN')}</td>
                               <td></td>
                             </tr>
                           </tfoot>
@@ -4118,21 +4324,21 @@ export default function App() {
       {navTab === 'history' && (
         <div className="space-y-4 animate-fade-in pt-2 text-xs">
 
-          <div className="flex justify-between items-center pb-3 border-b border-[#E5E5F0]">
+          <div className="flex justify-between items-center pb-3 border-b border-[var(--p-border)]">
             <div>
-              <span className="text-[9px] text-[#6B7280] font-mono tracking-widest uppercase font-bold">Transaction Log</span>
-              <h2 className="font-serif text-base text-[#1A1A2E]">History</h2>
+              <span className="text-[9px] text-[var(--p-muted)] font-mono tracking-widest uppercase font-bold">Transaction Log</span>
+              <h2 className="font-serif text-base text-[var(--p-text)]">History</h2>
             </div>
             <div className="flex gap-2">
               <button
                 onClick={handleExportToExcelStyleCsv}
-                className="bg-[#F5F5F5] border border-[#D5D5E0] hover:border-[#1B2CC1] text-[#1B2CC1] py-1.5 px-3 rounded-xl flex items-center gap-1.5 transition-all font-mono text-[9px] uppercase tracking-wider"
+                className="bg-[var(--p-bg)] border border-[var(--p-border)] hover:border-[var(--p-acc)] text-[var(--p-acc)] py-1.5 px-3 rounded-xl flex items-center gap-1.5 transition-all font-mono text-[9px] uppercase tracking-wider"
               >
                 <Download size={12} /> Export
               </button>
               <button
                 onClick={() => setNavTab('settings')}
-                className="bg-[#F5F5F5] border border-[#D5D5E0] hover:border-[#1B2CC1] text-[#6B7280] hover:text-[#1B2CC1] p-1.5 rounded-xl transition-all"
+                className="bg-[var(--p-bg)] border border-[var(--p-border)] hover:border-[var(--p-acc)] text-[var(--p-muted)] hover:text-[var(--p-acc)] p-1.5 rounded-xl transition-all"
               >
                 <Info size={15} />
               </button>
@@ -4143,41 +4349,41 @@ export default function App() {
           {/* ── Edit Transaction Modal ── */}
           {editingTransaction && (
             <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4" onClick={() => setEditingTransaction(null)}>
-              <div className="bg-white border border-[#1B2CC1]/20 rounded-2xl shadow-2xl p-4 w-full max-w-[380px] space-y-3 shadow-2xl" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center border-b border-[#D5D5E0] pb-2">
-                  <span className="text-[10px] font-mono text-[#1B2CC1] uppercase tracking-wider font-semibold">Edit Transaction</span>
-                  <button onClick={() => setEditingTransaction(null)} className="text-[#6B7280] hover:text-[#1A1A2E] text-xs">✕</button>
+              <div className="bg-[var(--p-surf)] border border-[var(--p-acc)]/20 rounded-2xl shadow-2xl p-4 w-full max-w-[380px] space-y-3 shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center border-b border-[var(--p-border)] pb-2">
+                  <span className="text-[10px] font-mono text-[var(--p-acc)] uppercase tracking-wider font-semibold">Edit Transaction</span>
+                  <button onClick={() => setEditingTransaction(null)} className="text-[var(--p-muted)] hover:text-[var(--p-text)] text-xs">✕</button>
                 </div>
                 <div className="space-y-2.5">
                   <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider">Date</label>
+                    <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider">Date</label>
                     <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
-                      className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-2.5 text-xs text-[#1A1A2E] outline-none focus:border-[#1B2CC1] font-mono" />
+                      className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-xs text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-mono" />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider">Category</label>
+                    <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider">Category</label>
                     <div className="relative">
                       <select value={editCategory} onChange={e => setEditCategory(e.target.value)}
-                        className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-2.5 pr-8 text-xs text-[#1A1A2E] appearance-none outline-none focus:border-[#1B2CC1]">
+                        className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 pr-8 text-xs text-[var(--p-text)] appearance-none outline-none focus:border-[var(--p-acc)]">
                         {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                       </select>
-                      <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#6B7280] pointer-events-none" />
+                      <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--p-muted)] pointer-events-none" />
                     </div>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider">Description</label>
+                    <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider">Description</label>
                     <input type="text" value={editDescription} onChange={e => setEditDescription(e.target.value)}
-                      className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-2.5 text-xs text-[#1A1A2E] outline-none focus:border-[#1B2CC1]" />
+                      className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-xs text-[var(--p-text)] outline-none focus:border-[var(--p-acc)]" />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider">Amount (₹)</label>
+                    <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider">Amount (₹)</label>
                     <input type="number" value={editAmount} onChange={e => setEditAmount(e.target.value)}
-                      className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-xl p-2.5 text-xs text-[#1A1A2E] outline-none focus:border-[#1B2CC1] font-mono" />
+                      className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-xs text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-mono" />
                   </div>
                 </div>
                 <div className="flex gap-2 pt-1">
                   <button onClick={saveEditTransaction}
-                    className="flex-1 bg-[#1B2CC1] text-white font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:opacity-90 transition-all">
+                    className="flex-1 bg-[var(--p-acc)] text-white font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:opacity-90 transition-all">
                     Save Changes
                   </button>
                   <button onClick={() => { handleDeleteTransaction(editingTransaction.id); setEditingTransaction(null); }}
@@ -4190,32 +4396,32 @@ export default function App() {
           )}
 
           {/* Filters */}
-          <div className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-3 space-y-3">
+          <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-3 space-y-3">
             {/* Month filter row */}
             <div className="flex flex-col gap-1">
-              <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider">Month</label>
+              <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider">Month</label>
               <div className="relative">
                 <select value={historyMonthFilter} onChange={e => setHistoryMonthFilter(e.target.value)}
-                  className="w-full bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg py-1.5 px-2 pr-6 text-[10px] text-[#1A1A2E] appearance-none outline-none focus:border-[#1B2CC1]">
+                  className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg py-1.5 px-2 pr-6 text-[10px] text-[var(--p-text)] appearance-none outline-none focus:border-[var(--p-acc)]">
                   <option value="All">All Time</option>
                   {availableMonths.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
-                <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-[#6B7280] pointer-events-none" />
+                <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--p-muted)] pointer-events-none" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="flex flex-col gap-1">
-                <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider">Category</label>
+                <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider">Category</label>
                 <select value={historyFilterCategory} onChange={e => setHistoryFilterCategory(e.target.value)}
-                  className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg py-1.5 px-2 text-[10px] text-[#1A1A2E] appearance-none outline-none focus:border-[#1B2CC1]">
+                  className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg py-1.5 px-2 text-[10px] text-[var(--p-text)] appearance-none outline-none focus:border-[var(--p-acc)]">
                   <option value="All">All</option>
                   {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                 </select>
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[9px] text-[#6B7280] font-mono uppercase tracking-wider">Type</label>
+                <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider">Type</label>
                 <select value={historyFilterType} onChange={e => setHistoryFilterType(e.target.value)}
-                  className="bg-[#F5F5F5] border border-[#D5D5E0] rounded-lg py-1.5 px-2 text-[10px] text-[#1A1A2E] appearance-none outline-none focus:border-[#1B2CC1]">
+                  className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg py-1.5 px-2 text-[10px] text-[var(--p-text)] appearance-none outline-none focus:border-[var(--p-acc)]">
                   <option value="All">All</option>
                   <option value="income">Received</option>
                   <option value="expense">Sent</option>
@@ -4232,10 +4438,10 @@ export default function App() {
               return (
                 <div className="flex flex-col gap-1.5">
                   <button onClick={() => openCal('history')}
-                    className={`flex items-center gap-2 bg-[#F5F5F5] border rounded-lg py-2 px-3 text-[11px] font-mono outline-none transition-all w-full ${hasDateFilter ? 'border-[#1B2CC1] text-[#1B2CC1]' : 'border-[#D5D5E0] text-[#6B7280]'}`}>
+                    className={`flex items-center gap-2 bg-[var(--p-bg)] border rounded-lg py-2 px-3 text-[11px] font-mono outline-none transition-all w-full ${hasDateFilter ? 'border-[var(--p-acc)] text-[var(--p-acc)]' : 'border-[var(--p-border)] text-[var(--p-muted)]'}`}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                     <span className="truncate">{dateLabel}</span>
-                    {hasDateFilter && <button onClick={e => { e.stopPropagation(); setHistoryDateFrom(null); setHistoryDateTo(null); }} className="ml-auto text-[#6B7280] hover:text-[#1A1A2E] text-[10px]">×</button>}
+                    {hasDateFilter && <button onClick={e => { e.stopPropagation(); setHistoryDateFrom(null); setHistoryDateTo(null); }} className="ml-auto text-[var(--p-muted)] hover:text-[var(--p-text)] text-[10px]">×</button>}
                   </button>
                 </div>
               );
@@ -4249,7 +4455,7 @@ export default function App() {
                 setHistoryDateTo(null);
                 setHistoryDateTo(null);
               }}
-                className="text-[9px] text-[#1B2CC1] font-mono uppercase tracking-wider hover:underline">
+                className="text-[9px] text-[var(--p-acc)] font-mono uppercase tracking-wider hover:underline">
                 Reset to Current Month
               </button>
             )}
@@ -4275,7 +4481,7 @@ export default function App() {
               if (historyDateTo) list = list.filter(t => t.date <= historyDateTo!);
 
               if (list.length === 0) return (
-                <div className="text-center py-10 text-[#9CA3AF] font-mono text-[10px]">
+                <div className="text-center py-10 text-[var(--p-muted2)] font-mono text-[10px]">
                   No transactions for {historyMonthFilter === 'All' ? 'selected filters' : historyMonthFilter}.
                 </div>
               );
@@ -4284,13 +4490,13 @@ export default function App() {
                 <div
                   key={item.id}
                   onClick={() => startEditTransaction(item)}
-                  className="bg-[#FFFFFF] border border-[#E0E0E0] rounded-xl p-3 flex justify-between items-center cursor-pointer hover:border-[#1B2CC1]/30 hover:bg-[#F5F5F5] transition-all active:scale-[0.99]"
+                  className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-3 flex justify-between items-center cursor-pointer hover:border-[var(--p-acc)]/30 hover:bg-[var(--p-bg)] transition-all active:scale-[0.99]"
                 >
                   <div className="min-w-0 flex-1 pr-2">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] font-medium text-[#1A1A2E] truncate">{item.description}</span>
+                      <span className="text-[11px] font-medium text-[var(--p-text)] truncate">{item.description}</span>
                     </div>
-                    <div className="flex gap-1.5 text-[9px] text-[#6B7280] font-mono mt-0.5">
+                    <div className="flex gap-1.5 text-[9px] text-[var(--p-muted)] font-mono mt-0.5">
                       <span>{item.date}</span>
                       <span>•</span>
                       <span>{categoryIcons[item.category] || '⭐'} {item.category}</span>
@@ -4300,7 +4506,7 @@ export default function App() {
                     <p className={`text-[11px] font-bold font-mono ${item.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {item.type === 'income' ? '+' : '-'}₹{Math.round(item.amount).toLocaleString('en-IN')}
                     </p>
-                    <p className="text-[8px] text-[#9CA3AF] font-mono">{item.type === 'income' ? 'Received' : 'Sent'}</p>
+                    <p className="text-[8px] text-[var(--p-muted2)] font-mono">{item.type === 'income' ? 'Received' : 'Sent'}</p>
                   </div>
                 </div>
               ));
@@ -4315,70 +4521,87 @@ export default function App() {
         <div className="space-y-3 animate-fade-in text-xs p-1">
 
           {/* ── Google Drive Sync ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-2xl overflow-hidden">
             <div className="flex items-center gap-3 px-4 py-3">
-              <div className="w-7 h-7 rounded-lg bg-[#1a1500] flex items-center justify-center text-[14px] flex-shrink-0">☁️</div>
+              <div className="w-7 h-7 rounded-lg bg-[var(--p-accdim)] flex items-center justify-center text-[14px] flex-shrink-0">☁️</div>
               <div className="flex-1 min-w-0">
-                <p className="font-mono font-bold text-[12px] text-[#e5e5e5]">Google Drive Sync</p>
-                {googleUser && !isCapacitor ? (
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="w-[7px] h-[7px] rounded-full bg-emerald-400 flex-shrink-0 inline-block"
-                      style={{animation: syncStatus === 'syncing' ? 'pulse 1s infinite' : 'none'}}/>
-                    <span className="font-mono text-[9px] text-[#555] truncate">
-                      {syncStatus === 'syncing' ? 'Syncing...' : syncStatus === 'error' ? 'Sync failed' : `Auto-syncing · ${googleUser.email}`}
-                    </span>
+                <p className="font-mono font-bold text-[12px] text-[var(--p-text)]">Google Drive Sync</p>
+                {googleUser ? (
+                  <div className="mt-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`w-[7px] h-[7px] rounded-full flex-shrink-0 inline-block ${
+                        syncStatus === 'syncing' ? 'bg-yellow-400' :
+                        syncStatus === 'error'   ? 'bg-red-400' :
+                        syncStatus === 'synced'  ? 'bg-emerald-400' : 'bg-[var(--p-muted)]'
+                      }`}/>
+                      <span className="font-mono text-[9px] text-[var(--p-muted)] truncate">
+                        {syncStatus === 'syncing' ? 'Syncing...' :
+                         syncStatus === 'error'   ? (syncError || 'Sync failed') :
+                         syncStatus === 'synced'  ? `Synced · ${googleUser.email}` :
+                         googleUser.email}
+                      </span>
+                    </div>
+                    {syncStatus === 'error' && syncError && (
+                      <p className="text-[9px] font-mono text-red-400 mt-0.5 truncate">{syncError}</p>
+                    )}
                   </div>
                 ) : (
-                  <p className="font-mono text-[9px] text-[#555] mt-0.5">Not connected</p>
+                  <p className="font-mono text-[9px] text-[var(--p-muted)] mt-0.5">Not connected</p>
                 )}
               </div>
-              {googleUser && !isCapacitor ? (
+              {googleUser ? (
                 <button onClick={signOut}
                   className="px-3 py-1.5 rounded-lg border border-[#dc2626] text-[#dc2626] font-mono text-[9px] font-bold uppercase flex-shrink-0">
                   Sign Out
                 </button>
-              ) : !isCapacitor ? (
-                <button onClick={signInWithGoogle}
-                  className="px-3 py-1.5 rounded-lg border border-[#d4af37] text-[#d4af37] bg-[#1a1500] font-mono text-[9px] font-bold uppercase flex-shrink-0">
-                  Sign In
-                </button>
               ) : (
-                <span className="font-mono text-[9px] text-[#555]">APK mode</span>
+                <button onClick={signInWithGoogle} disabled={authLoading}
+                  className="px-3 py-1.5 rounded-lg border border-[var(--p-acc)] text-[var(--p-acc)] bg-[var(--p-accdim)] font-mono text-[9px] font-bold uppercase flex-shrink-0 disabled:opacity-50">
+                  {authLoading ? '...' : 'Sign In'}
+                </button>
               )}
             </div>
+            {syncStatus === 'error' && googleUser && (
+              <div className="px-4 pb-3">
+                <button onClick={() => saveToDrive()}
+                  className="w-full border border-[var(--p-acc)]/30 text-[var(--p-acc)] font-mono text-[9px] uppercase py-2 rounded-lg">
+                  Retry Sync
+                </button>
+              </div>
+            )}
           </div>
 
           {/* ── Appearance ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('appearance')}>
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-[#1a1500] flex items-center justify-center text-[14px]">🎨</div>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Appearance</span>
+                <div className="w-7 h-7 rounded-lg bg-[var(--p-accdim)] flex items-center justify-center text-[14px]">🎨</div>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Appearance</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('appearance')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('appearance')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('appearance') && (
-              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3">
+              <div className="px-4 pb-4 border-t border-[var(--p-border)] pt-3">
                 <div className="flex gap-2">
                   {/* Aurelius option */}
                   <button onClick={() => setTheme('aurelius')}
-                    className={`flex-1 flex items-center gap-2 border-2 rounded-xl p-2.5 transition-all ${!isRoyal ? 'border-[#d4af37] bg-[#1a1500]' : 'border-[#1a1a1a] bg-transparent'}`}>
-                    <div className="w-7 h-7 rounded-lg bg-[#050505] border-2 border-[#d4af37] flex items-center justify-center text-[13px] flex-shrink-0">★</div>
+                    className={`flex-1 flex items-center gap-2 border-2 rounded-xl p-2.5 transition-all ${!isRoyal ? 'border-[#d4af37] bg-[#1a1500]' : 'border-[var(--p-border)] bg-transparent'}`}>
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[13px] flex-shrink-0" style={{background:'#050505',border:'2px solid #d4af37',color:'#d4af37'}}>★</div>
                     <div className="text-left">
-                      <p className={`font-mono text-[11px] font-bold ${!isRoyal ? 'text-[#d4af37]' : 'text-[#555]'}`}>Aurelius</p>
-                      <p className="font-mono text-[9px] text-[#555]">Dark · Gold</p>
+                      <p className={`font-mono text-[11px] font-bold ${!isRoyal ? 'text-[#d4af37]' : 'text-[var(--p-muted)]'}`}>Aurelius</p>
+                      <p className="font-mono text-[9px] text-[var(--p-muted)]">Dark · Gold</p>
                     </div>
-                    {!isRoyal && <div className="w-[6px] h-[6px] rounded-full bg-[#d4af37] ml-auto flex-shrink-0"/>}
+                    {!isRoyal && <div className="w-[6px] h-[6px] rounded-full ml-auto flex-shrink-0" style={{background:'#d4af37'}}/>}
                   </button>
                   {/* Royal option */}
                   <button onClick={() => setTheme('royal')}
-                    className={`flex-1 flex items-center gap-2 border-2 rounded-xl p-2.5 transition-all ${isRoyal ? 'border-[#d4af37] bg-[#1a1500]' : 'border-[#1a1a1a] bg-transparent'}`}>
-                    <div className="w-7 h-7 rounded-lg bg-[#F4F6FB] border-2 border-[#d4af37] flex items-center justify-center text-[13px] flex-shrink-0" style={{color:'#1B2CC1'}}>◆</div>
+                    className={`flex-1 flex items-center gap-2 border-2 rounded-xl p-2.5 transition-all ${isRoyal ? 'border-[#1B2CC1] bg-[#E8EAFB]' : 'border-[var(--p-border)] bg-transparent'}`}>
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[13px] flex-shrink-0" style={{background:'#F8FAFF',border:'2px solid #1B2CC1',color:'#1B2CC1'}}>◆</div>
                     <div className="text-left">
-                      <p className={`font-mono text-[11px] font-bold ${isRoyal ? 'text-[#d4af37]' : 'text-[#555]'}`}>Royal</p>
-                      <p className="font-mono text-[9px] text-[#555]">Light · Blue</p>
+                      <p className={`font-mono text-[11px] font-bold ${isRoyal ? 'text-[#1B2CC1]' : 'text-[var(--p-muted)]'}`}>Royal</p>
+                      <p className="font-mono text-[9px] text-[var(--p-muted)]">Light · Blue</p>
                     </div>
-                    {isRoyal && <div className="w-[6px] h-[6px] rounded-full bg-[#1B2CC1] ml-auto flex-shrink-0"/>}
+                    {isRoyal && <div className="w-[6px] h-[6px] rounded-full ml-auto flex-shrink-0" style={{background:'#1B2CC1'}}/>}
                   </button>
                 </div>
               </div>
@@ -4386,16 +4609,16 @@ export default function App() {
           </div>
 
           {/* ── Data Management ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('data-mgmt')}>
               <div className="flex items-center gap-2">
-                <Download size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Data Management</span>
+                <Download size={14} className="text-[var(--p-acc)]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Data Management</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('data-mgmt')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('data-mgmt')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('data-mgmt') && (
-              <div className="px-4 pb-4 space-y-3 border-t border-[#1a1a1a]">
+              <div className="px-4 pb-4 space-y-3 border-t border-[var(--p-border)]">
                 {/* Load from Drive — signed in only */}
                 {googleUser && !isCapacitor && (
                   <button onClick={() => { if(window.confirm('Load from Drive? This will replace all current app data.')) loadFromDrive(accessToken!); }}
@@ -4403,20 +4626,20 @@ export default function App() {
                     <Download size={12}/> Load from Drive
                   </button>
                 )}
-                <button onClick={handleCsvExport} className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#d4af37]/10 transition-all flex items-center justify-center gap-2 mt-3">
+                <button onClick={handleCsvExport} className="w-full border border-[var(--p-acc)]/40 text-[var(--p-acc)] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[var(--p-acc)]/10 transition-all flex items-center justify-center gap-2 mt-3">
                   <Download size={12}/> Export Transactions (CSV)
                 </button>
-                <button onClick={handleLedgerExport} className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#d4af37]/10 transition-all flex items-center justify-center gap-2">
+                <button onClick={handleLedgerExport} className="w-full border border-[var(--p-acc)]/40 text-[var(--p-acc)] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[var(--p-acc)]/10 transition-all flex items-center justify-center gap-2">
                   <Download size={12}/> Export Ledger (CSV)
                 </button>
                 <label className="block">
                   <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleCsvImportFile(f); e.target.value = ''; }}/>
-                  <span className="w-full border border-[#555] text-[#555] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#1a1a1a] transition-all flex items-center justify-center gap-2 cursor-pointer">
+                  <span className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#1a1a1a] transition-all flex items-center justify-center gap-2 cursor-pointer">
                     <Upload size={12}/> Import CSV
                   </span>
                 </label>
-                <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3 text-[9px] font-mono text-[#555] leading-relaxed">
-                  <p className="font-semibold text-[#555] mb-1">Import accepts two formats:</p>
+                <div className="bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-3 text-[9px] font-mono text-[var(--p-muted)] leading-relaxed">
+                  <p className="font-semibold text-[var(--p-muted)] mb-1">Import accepts two formats:</p>
                   <p>• Export format: Date, Category, Description, Amount In, Amount Out</p>
                   <p>• Template format: Date, Type, Amount, Category, Description</p>
                 </div>
@@ -4425,16 +4648,16 @@ export default function App() {
           </div>
 
           {/* ── SMS & Notifications ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('sms-notif')}>
               <div className="flex items-center gap-2">
-                <MessageSquare size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">SMS & Notifications</span>
+                <MessageSquare size={14} className="text-[var(--p-acc)]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">SMS & Notifications</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('sms-notif')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('sms-notif')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('sms-notif') && (
-              <div className="px-4 pb-4 space-y-3 border-t border-[#1a1a1a] pt-3">
+              <div className="px-4 pb-4 space-y-3 border-t border-[var(--p-border)] pt-3">
                 {[
                   { key: 'ft_setting_sms_reader', label: 'SMS Reader', desc: 'Auto-detect bank SMS messages', state: settingSmsReader, set: setSettingSmsReader },
                   { key: 'ft_setting_tx_notif', label: 'Transaction Notifications', desc: 'Notify when new SMS is detected', state: settingTxNotif, set: setSettingTxNotif },
@@ -4442,12 +4665,12 @@ export default function App() {
                 ].map(item => (
                   <div key={item.key} className="flex items-center justify-between">
                     <div>
-                      <p className="text-[#e5e5e5] text-[11px] font-mono font-semibold">{item.label}</p>
-                      <p className="text-[#555] text-[9px] font-mono mt-0.5">{item.desc}</p>
+                      <p className="text-[var(--p-text)] text-[11px] font-mono font-semibold">{item.label}</p>
+                      <p className="text-[var(--p-muted)] text-[9px] font-mono mt-0.5">{item.desc}</p>
                     </div>
                     <button onClick={() => item.set(!item.state)}
-                      className={`relative w-10 h-5 rounded-full transition-all ${item.state ? 'bg-[#1B2CC1]' : 'bg-[#DDE0F7]'}`}>
-                      <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${item.state ? 'left-5' : 'left-0.5'}`}/>
+                      className={`relative w-10 h-5 rounded-full transition-all ${item.state ? 'bg-[var(--p-acc)]' : 'bg-[var(--p-accdim2)]'}`}>
+                      <span className={`absolute top-0.5 w-4 h-4 bg-[var(--p-surf)] rounded-full shadow transition-all ${item.state ? 'left-5' : 'left-0.5'}`}/>
                     </button>
                   </div>
                 ))}
@@ -4456,104 +4679,104 @@ export default function App() {
           </div>
 
           {/* ── Retention Period ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('retention')}>
               <div className="flex items-center gap-2">
-                <Calendar size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Retention Period</span>
+                <Calendar size={14} className="text-[var(--p-acc)]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Retention Period</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('retention')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('retention')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('retention') && (
-              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3">
-                <p className="text-[#555] text-[9px] font-mono mb-3">Keep SMS messages for this many days before auto-deleting confirmed/skipped ones.</p>
-                <div className="flex items-center justify-between bg-[#F5F5F5] border border-[#1a1a1a] rounded-xl p-3">
-                  <button onClick={() => setSettingRetentionDays(d => Math.max(7, d - 7))} className="text-[#d4af37] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#d4af37]/10">−</button>
+              <div className="px-4 pb-4 border-t border-[var(--p-border)] pt-3">
+                <p className="text-[var(--p-muted)] text-[9px] font-mono mb-3">Keep SMS messages for this many days before auto-deleting confirmed/skipped ones.</p>
+                <div className="flex items-center justify-between bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-3">
+                  <button onClick={() => setSettingRetentionDays(d => Math.max(7, d - 7))} className="text-[var(--p-acc)] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--p-acc)]/10">−</button>
                   <div className="text-center">
-                    <span className="text-[#e5e5e5] font-mono font-bold text-base">{settingRetentionDays}</span>
-                    <span className="text-[#555] font-mono text-[9px] ml-1">days</span>
+                    <span className="text-[var(--p-text)] font-mono font-bold text-base">{settingRetentionDays}</span>
+                    <span className="text-[var(--p-muted)] font-mono text-[9px] ml-1">days</span>
                   </div>
-                  <button onClick={() => setSettingRetentionDays(d => Math.min(365, d + 7))} className="text-[#d4af37] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#d4af37]/10">+</button>
+                  <button onClick={() => setSettingRetentionDays(d => Math.min(365, d + 7))} className="text-[var(--p-acc)] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--p-acc)]/10">+</button>
                 </div>
               </div>
             )}
           </div>
 
           {/* ── Export Reminder ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('export-reminder')}>
               <div className="flex items-center gap-2">
-                <Download size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Export Reminder</span>
+                <Download size={14} className="text-[var(--p-acc)]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Export Reminder</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('export-reminder')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('export-reminder')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('export-reminder') && (
-              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
-                <p className="text-[#555] text-[9px] font-mono">Remind you to export if you haven't backed up in this many days.</p>
-                <div className="flex items-center justify-between bg-[#F5F5F5] border border-[#1a1a1a] rounded-xl p-3">
-                  <button onClick={() => setSettingExportReminderDays(d => Math.max(1, d - 1))} className="text-[#d4af37] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#d4af37]/10">−</button>
+              <div className="px-4 pb-4 border-t border-[var(--p-border)] pt-3 space-y-3">
+                <p className="text-[var(--p-muted)] text-[9px] font-mono">Remind you to export if you haven't backed up in this many days.</p>
+                <div className="flex items-center justify-between bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-3">
+                  <button onClick={() => setSettingExportReminderDays(d => Math.max(1, d - 1))} className="text-[var(--p-acc)] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--p-acc)]/10">−</button>
                   <div className="text-center">
-                    <span className="text-[#e5e5e5] font-mono font-bold text-base">{settingExportReminderDays}</span>
-                    <span className="text-[#555] font-mono text-[9px] ml-1">days</span>
+                    <span className="text-[var(--p-text)] font-mono font-bold text-base">{settingExportReminderDays}</span>
+                    <span className="text-[var(--p-muted)] font-mono text-[9px] ml-1">days</span>
                   </div>
-                  <button onClick={() => setSettingExportReminderDays(d => Math.min(90, d + 1))} className="text-[#d4af37] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#d4af37]/10">+</button>
+                  <button onClick={() => setSettingExportReminderDays(d => Math.min(90, d + 1))} className="text-[var(--p-acc)] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--p-acc)]/10">+</button>
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   {[3,7,14,30].map(d => (
                     <button key={d} onClick={() => setSettingExportReminderDays(d)}
-                      className={`px-3 py-1.5 rounded-lg border text-[9px] font-mono transition-all ${settingExportReminderDays === d ? 'border-[#d4af37] text-[#d4af37] bg-[#d4af37]/10' : 'border-[#1a1a1a] text-[#555]'}`}>
+                      className={`px-3 py-1.5 rounded-lg border text-[9px] font-mono transition-all ${settingExportReminderDays === d ? 'border-[var(--p-acc)] text-[var(--p-acc)] bg-[var(--p-acc)]/10' : 'border-[var(--p-border)] text-[var(--p-muted)]'}`}>
                       {d}d
                     </button>
                   ))}
                 </div>
                 {lastExportDate && (
-                  <p className="text-[9px] font-mono text-[#555]">Last export: <span className="text-[#d4af37]">{lastExportDate}</span></p>
+                  <p className="text-[9px] font-mono text-[var(--p-muted)]">Last export: <span className="text-[var(--p-acc)]">{lastExportDate}</span></p>
                 )}
               </div>
             )}
           </div>
 
           {/* ── Manage Category ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('manage-cat')}>
               <div className="flex items-center gap-2">
-                <BrandIcon size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Manage Category</span>
+                <BrandIcon size={14} className="text-[var(--p-acc)]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Manage Category</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('manage-cat')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('manage-cat')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('manage-cat') && (
-              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
+              <div className="px-4 pb-4 border-t border-[var(--p-border)] pt-3 space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={() => { setMcPanel(mcPanel === 'add' ? 'none' : 'add'); setMcEditSel(''); setMcAction('none'); }}
-                    className={`py-2.5 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'add' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#1a1a1a] bg-[#F5F5F5] text-[#555]'}`}>
+                    className={`py-2.5 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'add' ? 'border-[var(--p-acc)] bg-[var(--p-acc)]/10 text-[var(--p-acc)]' : 'border-[var(--p-border)] bg-[var(--p-bg)] text-[var(--p-muted)]'}`}>
                     + Add
                   </button>
                   <button onClick={() => { setMcPanel(mcPanel === 'edit' ? 'none' : 'edit'); setMcEditSel(''); setMcAction('none'); }}
-                    className={`py-2.5 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'edit' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#1a1a1a] bg-[#F5F5F5] text-[#555]'}`}>
+                    className={`py-2.5 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'edit' ? 'border-[var(--p-acc)] bg-[var(--p-acc)]/10 text-[var(--p-acc)]' : 'border-[var(--p-border)] bg-[var(--p-bg)] text-[var(--p-muted)]'}`}>
                     ✏ Edit
                   </button>
                 </div>
 
                 {mcPanel === 'add' && (
-                  <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3 space-y-2">
-                    <label className="text-[9px] text-[#555] font-mono uppercase tracking-wider block">Icon</label>
+                  <div className="bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-3 space-y-2">
+                    <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider block">Icon</label>
                     <input type="text" value={mcAddIcon} onChange={e => setMcAddIcon(e.target.value)} maxLength={4} placeholder="⭐"
-                      className="w-16 text-center text-[18px] bg-[#F5F5F5] border border-[#1a1a1a] rounded-lg p-2 outline-none focus:border-[#d4af37] text-[#e5e5e5]"/>
-                    <label className="text-[9px] text-[#555] font-mono uppercase tracking-wider block mt-2">Category Name</label>
+                      className="w-16 text-center text-[18px] bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg p-2 outline-none focus:border-[var(--p-acc)] text-[var(--p-text)]"/>
+                    <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider block mt-2">Category Name</label>
                     <input type="text" value={mcAddName} onChange={e => setMcAddName(e.target.value)} placeholder="e.g. Cooking"
-                      className="w-full bg-[#F5F5F5] border border-[#1a1a1a] rounded-xl p-2.5 text-[12px] text-[#e5e5e5] outline-none focus:border-[#d4af37] font-mono"/>
-                    <button onClick={mcDoAdd} className="w-full bg-[#1B2CC1] text-white font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl mt-1">Save Category</button>
-                    <button onClick={mcReset} className="w-full border border-[#C8C8D8] text-[#555] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                      className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-mono"/>
+                    <button onClick={mcDoAdd} className="w-full bg-[var(--p-acc)] text-white font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl mt-1">Save Category</button>
+                    <button onClick={mcReset} className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                   </div>
                 )}
 
                 {mcPanel === 'edit' && (
-                  <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-3 space-y-2">
-                    <label className="text-[9px] text-[#555] font-mono uppercase tracking-wider block">Select Category</label>
+                  <div className="bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-3 space-y-2">
+                    <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider block">Select Category</label>
                     <select value={mcEditSel} onChange={e => { setMcEditSel(e.target.value); setMcAction('none'); setMcMergeTarget(''); }}
-                      className="w-full bg-[#F5F5F5] border border-[#1a1a1a] rounded-xl p-2.5 text-[12px] text-[#e5e5e5] outline-none focus:border-[#d4af37] font-mono appearance-none">
+                      className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-mono appearance-none">
                       <option value="">— choose a category —</option>
                       {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                     </select>
@@ -4561,7 +4784,7 @@ export default function App() {
                     {mcEditSel && (
                       <div className="grid grid-cols-3 gap-1.5 pt-1">
                         <button onClick={() => { setMcAction('rename'); setMcRenameIcon(categoryIcons[mcEditSel] || '⭐'); setMcRenameName(mcEditSel); }}
-                          className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'rename' ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37]' : 'border-[#d4af37]/40 text-[#d4af37]'}`}>✏ Rename</button>
+                          className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'rename' ? 'border-[var(--p-acc)] bg-[var(--p-acc)]/10 text-[var(--p-acc)]' : 'border-[var(--p-acc)]/40 text-[var(--p-acc)]'}`}>✏ Rename</button>
                         <button onClick={() => { setMcAction('merge'); setMcMergeTarget(''); }}
                           className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'merge' ? 'border-[#9ab7d8] bg-[#9ab7d8]/10 text-[#9ab7d8]' : 'border-[#4a7090] text-[#9ab7d8]'}`}>⇄ Merge</button>
                         <button onClick={() => setMcAction('delete')}
@@ -4571,12 +4794,12 @@ export default function App() {
 
                     {/* ── Change Icon Only ── */}
                     {mcEditSel && mcAction === 'none' && (
-                      <div className="bg-[#F5F5F5] border border-[#1a1a1a] rounded-xl p-3 mt-1">
-                        <label className="text-[9px] text-[#555] font-mono uppercase block mb-2">Change Icon</label>
+                      <div className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-3 mt-1">
+                        <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase block mb-2">Change Icon</label>
                         <div className="flex items-center gap-3">
                           <input type="text" value={mcRenameIcon || categoryIcons[mcEditSel] || '⭐'}
                             onChange={e => setMcRenameIcon(e.target.value)}
-                            className="w-16 text-center text-[20px] bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg p-2 outline-none focus:border-[#d4af37] text-[#e5e5e5]"
+                            className="w-16 text-center text-[20px] bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-lg p-2 outline-none focus:border-[var(--p-acc)] text-[var(--p-text)]"
                             placeholder="⭐"/>
                           <button onClick={() => {
                             const icon = (mcRenameIcon || categoryIcons[mcEditSel] || '⭐').trim();
@@ -4585,54 +4808,54 @@ export default function App() {
                             localStorage.setItem('aurelius_category_icons', JSON.stringify(ni));
                             showToast(`Icon updated for "${mcEditSel}"`);
                             setMcRenameIcon('');
-                          }} className="flex-1 bg-[#1B2CC1] text-white font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">
+                          }} className="flex-1 bg-[var(--p-acc)] text-white font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">
                             Save Icon
                           </button>
                         </div>
-                        <p className="text-[8px] text-[#555] font-mono mt-1.5">Tap the box, type or paste an emoji, then Save.</p>
+                        <p className="text-[8px] text-[var(--p-muted)] font-mono mt-1.5">Tap the box, type or paste an emoji, then Save.</p>
                       </div>
                     )}
 
                     {mcAction === 'rename' && (
-                      <div className="bg-[#F5F5F5] border border-[#1a1a1a] rounded-xl p-3 space-y-2 mt-1">
-                        <label className="text-[9px] text-[#555] font-mono uppercase block">Icon</label>
+                      <div className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-3 space-y-2 mt-1">
+                        <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase block">Icon</label>
                         <input type="text" value={mcRenameIcon} onChange={e => setMcRenameIcon(e.target.value)} maxLength={4}
-                          className="w-16 text-center text-[18px] bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg p-2 outline-none focus:border-[#d4af37] text-[#e5e5e5]"/>
-                        <label className="text-[9px] text-[#555] font-mono uppercase block mt-2">New Name</label>
+                          className="w-16 text-center text-[18px] bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-lg p-2 outline-none focus:border-[var(--p-acc)] text-[var(--p-text)]"/>
+                        <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase block mt-2">New Name</label>
                         <input type="text" value={mcRenameName} onChange={e => setMcRenameName(e.target.value)}
-                          className="w-full bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-2.5 text-[12px] text-[#e5e5e5] outline-none focus:border-[#d4af37] font-mono"/>
-                        <p className="text-[8px] text-[#555] font-mono">All transactions update to the new name automatically.</p>
-                        <button onClick={mcDoRename} className="w-full bg-[#1B2CC1] text-white font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Save Rename</button>
-                        <button onClick={() => setMcAction('none')} className="w-full border border-[#C8C8D8] text-[#555] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                          className="w-full bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-mono"/>
+                        <p className="text-[8px] text-[var(--p-muted)] font-mono">All transactions update to the new name automatically.</p>
+                        <button onClick={mcDoRename} className="w-full bg-[var(--p-acc)] text-white font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Save Rename</button>
+                        <button onClick={() => setMcAction('none')} className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                       </div>
                     )}
 
                     {mcAction === 'merge' && (
-                      <div className="bg-[#F5F5F5] border border-[#1a1a1a] rounded-xl p-3 space-y-2 mt-1">
-                        <label className="text-[9px] text-[#555] font-mono uppercase block">Move all transactions into</label>
+                      <div className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-3 space-y-2 mt-1">
+                        <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase block">Move all transactions into</label>
                         <select value={mcMergeTarget} onChange={e => setMcMergeTarget(e.target.value)}
-                          className="w-full bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-2.5 text-[12px] text-[#e5e5e5] outline-none focus:border-[#9ab7d8] font-mono appearance-none">
+                          className="w-full bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[#9ab7d8] font-mono appearance-none">
                           <option value="">— choose target —</option>
                           {categories.filter(c => c !== mcEditSel).map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                         </select>
-                        <p className="text-[8px] text-[#555] font-mono">"{mcEditSel}" will be removed. Target name survives.</p>
+                        <p className="text-[8px] text-[var(--p-muted)] font-mono">"{mcEditSel}" will be removed. Target name survives.</p>
                         <button onClick={() => { if (!mcMergeTarget) { alert('Select a target'); return; } setMcModal('merge1'); }}
                           className="w-full border border-[#4a7090] text-[#9ab7d8] font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Done</button>
-                        <button onClick={() => setMcAction('none')} className="w-full border border-[#C8C8D8] text-[#555] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                        <button onClick={() => setMcAction('none')} className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                       </div>
                     )}
 
                     {mcAction === 'delete' && (
-                      <div className="bg-[#F5F5F5] border border-[#7a3020]/50 rounded-xl p-3 space-y-2 mt-1">
-                        <p className="text-[10px] font-mono text-[#555] leading-relaxed">
-                          Every transaction in <span className="text-[#d4af37]">{mcEditSel}</span> will move to <span className="text-[#d4af37]">Uncategorized 📂</span>. You can re-categorize them later.
+                      <div className="bg-[var(--p-bg)] border border-[#7a3020]/50 rounded-xl p-3 space-y-2 mt-1">
+                        <p className="text-[10px] font-mono text-[var(--p-muted)] leading-relaxed">
+                          Every transaction in <span className="text-[var(--p-acc)]">{mcEditSel}</span> will move to <span className="text-[var(--p-acc)]">Uncategorized 📂</span>. You can re-categorize them later.
                         </p>
                         <button onClick={mcDoDelete} className="w-full border border-[#D96A55] text-[#D96A55] font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Delete Category</button>
-                        <button onClick={() => setMcAction('none')} className="w-full border border-[#C8C8D8] text-[#555] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                        <button onClick={() => setMcAction('none')} className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                       </div>
                     )}
 
-                    <button onClick={mcReset} className="w-full border border-[#1a1a1a] text-[#555] font-mono text-[9px] uppercase py-2 rounded-xl mt-1">Close</button>
+                    <button onClick={mcReset} className="w-full border border-[var(--p-border)] text-[var(--p-muted)] font-mono text-[9px] uppercase py-2 rounded-xl mt-1">Close</button>
                   </div>
                 )}
               </div>
@@ -4640,23 +4863,23 @@ export default function App() {
           </div>
 
           {/* ── Excluded from Analysis ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('excl-analysis')}>
               <div className="flex items-center gap-2">
-                <BrandIcon size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Excluded from Analysis</span>
+                <BrandIcon size={14} className="text-[var(--p-acc)]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Excluded from Analysis</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('excl-analysis')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('excl-analysis')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('excl-analysis') && (
-              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
-                <p className="text-[#555] text-[9px] font-mono leading-relaxed">Excluded categories are hidden from: Expenditure by Category, Month vs Spending, Week on Week, and Spend Share. Still appear in Ledger, History and Budget.</p>
+              <div className="px-4 pb-4 border-t border-[var(--p-border)] pt-3 space-y-3">
+                <p className="text-[var(--p-muted)] text-[9px] font-mono leading-relaxed">Excluded categories are hidden from: Expenditure by Category, Month vs Spending, Week on Week, and Spend Share. Still appear in Ledger, History and Budget.</p>
                 <div className="flex flex-wrap gap-2">
                   {categories.map(cat => {
                     const excluded = excludedCategories.includes(cat);
                     return (
                       <button key={cat} onClick={() => toggleExcluded(cat)}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[#F5F5F5] border-[#1a1a1a] text-[#555] hover:border-gray-500'}`}>
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[var(--p-bg)] border-[var(--p-border)] text-[var(--p-muted)] hover:border-gray-500'}`}>
                         {categoryIcons[cat] || '⭐'} {cat}
                         {excluded && <span className="text-red-500 ml-0.5">×</span>}
                       </button>
@@ -4664,31 +4887,31 @@ export default function App() {
                   })}
                 </div>
                 {excludedCategories.length > 0
-                  ? <button onClick={() => setExcludedCategories([])} className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">Clear all</button>
-                  : <p className="text-[8px] text-[#555] font-mono italic">Tap any category to exclude from charts</p>
+                  ? <button onClick={() => setExcludedCategories([])} className="text-[9px] text-[var(--p-acc)] font-mono uppercase tracking-wider hover:underline">Clear all</button>
+                  : <p className="text-[8px] text-[var(--p-muted)] font-mono italic">Tap any category to exclude from charts</p>
                 }
               </div>
             )}
           </div>
 
           {/* ── Excluded from Ledger ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('excl-ledger')}>
               <div className="flex items-center gap-2">
-                <BrandIcon size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">Excluded from Ledger</span>
+                <BrandIcon size={14} className="text-[var(--p-acc)]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Excluded from Ledger</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('excl-ledger')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('excl-ledger')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('excl-ledger') && (
-              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-3">
-                <p className="text-[#555] text-[9px] font-mono leading-relaxed">Categories excluded here are completely hidden from the Ledger table — no rows, no totals, no effect on Opening/Closing balance.</p>
+              <div className="px-4 pb-4 border-t border-[var(--p-border)] pt-3 space-y-3">
+                <p className="text-[var(--p-muted)] text-[9px] font-mono leading-relaxed">Categories excluded here are completely hidden from the Ledger table — no rows, no totals, no effect on Opening/Closing balance.</p>
                 <div className="flex flex-wrap gap-2">
                   {categories.map(cat => {
                     const excluded = excludedLedgerCategories.includes(cat);
                     return (
                       <button key={cat} onClick={() => toggleExcludedLedger(cat)}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[#F5F5F5] border-[#1a1a1a] text-[#555] hover:border-gray-500'}`}>
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[var(--p-bg)] border-[var(--p-border)] text-[var(--p-muted)] hover:border-gray-500'}`}>
                         {categoryIcons[cat] || '⭐'} {cat}
                         {excluded && <span className="text-red-500 ml-0.5">×</span>}
                       </button>
@@ -4696,15 +4919,15 @@ export default function App() {
                   })}
                 </div>
                 {excludedLedgerCategories.length > 0
-                  ? <button onClick={() => setExcludedLedgerCategories([])} className="text-[9px] text-[#d4af37] font-mono uppercase tracking-wider hover:underline">Clear all</button>
-                  : <p className="text-[8px] text-[#555] font-mono italic">Tap any category to exclude from Ledger</p>
+                  ? <button onClick={() => setExcludedLedgerCategories([])} className="text-[9px] text-[var(--p-acc)] font-mono uppercase tracking-wider hover:underline">Clear all</button>
+                  : <p className="text-[8px] text-[var(--p-muted)] font-mono italic">Tap any category to exclude from Ledger</p>
                 }
               </div>
             )}
           </div>
 
           {/* ── Danger Zone ── */}
-          <div className="bg-[#0f0f0f] border border-red-900/50 rounded-2xl overflow-hidden">
+          <div className="bg-[var(--p-surf)] border border-red-900/50 rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('danger')}>
               <div className="flex items-center gap-2">
                 <span className="text-red-500 text-[14px]">⚠</span>
@@ -4714,7 +4937,7 @@ export default function App() {
             </button>
             {isSettingsOpen('danger') && (
               <div className="px-4 pb-4 border-t border-red-900/30 pt-3 space-y-3">
-                <p className="text-[#555] text-[9px] font-mono leading-relaxed">Permanently delete all transactions, SMS messages, and budgets. This cannot be undone.</p>
+                <p className="text-[var(--p-muted)] text-[9px] font-mono leading-relaxed">Permanently delete all transactions, SMS messages, and budgets. This cannot be undone.</p>
                 {!dangerConfirm ? (
                   <button onClick={() => setDangerConfirm(true)} className="w-full border border-red-900/50 text-red-400 font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-red-950/30 transition-all">
                     Delete All Data
@@ -4723,24 +4946,24 @@ export default function App() {
                   <div className="space-y-2">
                     <p className="text-red-400 text-[10px] font-mono text-center font-bold">Are you absolutely sure?</p>
                     <div className="grid grid-cols-2 gap-2">
-                      <button onClick={() => setDangerConfirm(false)} className="border border-[#333] text-[#555] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                      <button onClick={() => setDangerConfirm(false)} className="border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                       <button onClick={() => { setTransactions([]); setSmsMessages([]); setBudgets([]); setDangerConfirm(false); showToast('All data deleted permanently.'); }} className="border border-red-700 bg-red-950/40 text-red-400 font-mono text-[10px] uppercase py-2 rounded-xl font-bold">Delete Forever</button>
                     </div>
                   </div>
                 )}
                 {/* Delete Drive Backup — signed in only */}
                 {googleUser && !isCapacitor && (
-                  <div className="mt-3 pt-3 border-t border-[#1a1a1a]">
+                  <div className="mt-3 pt-3 border-t border-[var(--p-border)]">
                     {!lastExportDate ? (
                       <div className="space-y-2">
-                        <p className="text-[9px] font-mono text-[#555] leading-relaxed">⚠ Export your data first before deleting the Drive backup.</p>
+                        <p className="text-[9px] font-mono text-[var(--p-muted)] leading-relaxed">⚠ Export your data first before deleting the Drive backup.</p>
                         <button onClick={handleCsvExport}
-                          className="w-full border border-[#d4af37]/40 text-[#d4af37] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl flex items-center justify-center gap-2">
+                          className="w-full border border-[var(--p-acc)]/40 text-[var(--p-acc)] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl flex items-center justify-center gap-2">
                           <Download size={12}/> Export First
                         </button>
                       </div>
                     ) : (
-                      <button onClick={() => { if(window.confirm('Permanently delete your Google Drive backup? Your local app data stays untouched.')) deleteDriveBackup(); }}
+                      <button onClick={() => { if(window.confirm('Permanently delete your Google Drive backup? Your local app data stays untouched.')) deleteDriveBackup().catch(e => showToast('Delete failed: ' + e.message)); }}
                         className="w-full border border-red-900/50 text-red-400 font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-red-950/30 transition-all">
                         🗑 Delete Drive Backup
                       </button>
@@ -4752,18 +4975,18 @@ export default function App() {
           </div>
 
           {/* ── About ── */}
-          <div className="bg-[#0f0f0f] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+          <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-2xl overflow-hidden">
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('about')}>
               <div className="flex items-center gap-2">
-                <Info size={14} className="text-[#d4af37]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[#d4af37] font-semibold">About</span>
+                <Info size={14} className="text-[var(--p-acc)]"/>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">About</span>
               </div>
-              <span className="text-[#d4af37] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('about')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
+              <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('about')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('about') && (
-              <div className="px-4 pb-4 border-t border-[#1a1a1a] pt-3 space-y-1.5">
-                <p className="text-[#555] text-[10px] font-mono">Paypathz v1.0.0</p>
-                <p className="text-[#555] text-[9px] font-mono leading-relaxed">Built with React + Capacitor. Your data stays on your device — never sent to any server.</p>
+              <div className="px-4 pb-4 border-t border-[var(--p-border)] pt-3 space-y-1.5">
+                <p className="text-[var(--p-muted)] text-[10px] font-mono">Paypathz v1.0.0</p>
+                <p className="text-[var(--p-muted)] text-[9px] font-mono leading-relaxed">Built with React + Capacitor. Your data stays on your device — never sent to any server.</p>
               </div>
             )}
           </div>
@@ -4776,20 +4999,20 @@ export default function App() {
     </div>
 
     {/* Bottom Navigation Bar - PhonePe style with prominent Add */}
-    <div className="bg-[#0f0f0f] border-t border-[#141414] px-2 flex justify-between items-center text-[#555] select-none shrink-0 relative" style={{ height: 'calc(5rem + env(safe-area-inset-bottom, 0px))', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+    <div className="bg-[var(--p-surf)] border-t border-[var(--p-border)] px-2 flex justify-between items-center text-[var(--p-muted)] select-none shrink-0 relative" style={{ height: 'calc(5rem + env(safe-area-inset-bottom, 0px))', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
 
       {/* Dashboard */}
-      <button onClick={() => setNavTab('dashboard')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'dashboard' ? 'text-[#d4af37]' : 'text-[#555]'}`}>
+      <button onClick={() => setNavTab('dashboard')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'dashboard' ? 'text-[var(--p-acc)]' : 'text-[var(--p-muted)]'}`}>
         <TrendingUp size={20} />
         <span className="text-[9px] font-mono tracking-wide">Home</span>
       </button>
 
       {/* SMS */}
-      <button onClick={() => setNavTab('sms')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full relative transition-all ${navTab === 'sms' ? 'text-[#d4af37]' : 'text-[#555]'}`}>
+      <button onClick={() => setNavTab('sms')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full relative transition-all ${navTab === 'sms' ? 'text-[var(--p-acc)]' : 'text-[var(--p-muted)]'}`}>
         <div className="relative">
           <MessageSquare size={20} />
           {smsMessages.filter(s => s.status === 'pending').length > 0 && (
-            <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 rounded-full flex items-center justify-center text-[#e5e5e5] text-[8px] font-bold">
+            <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 rounded-full flex items-center justify-center text-[var(--p-text)] text-[8px] font-bold">
               {smsMessages.filter(s => s.status === 'pending').length}
             </span>
           )}
@@ -4801,31 +5024,31 @@ export default function App() {
       <button onClick={() => setNavTab('add')} className="flex flex-col items-center justify-center gap-1 flex-1 h-full transition-all -mt-6">
         <div className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all ${
           navTab === 'add'
-            ? 'shadow-[0_0_20px_rgba(212,175,55,0.5)]'
+            ? 'shadow-[0_0_20px_var(--p-acc-shadow)]'
             : 'shadow-[0_4px_15px_rgba(0,0,0,0.5)]'
         }`}>
           <svg viewBox="0 0 56 56" className="w-full h-full">
             {/* Outer gold ring */}
-            <circle cx="28" cy="28" r="27" fill="#1B2CC1" stroke="#b8962a" strokeWidth="2"/>
+            <circle cx="28" cy="28" r="27" fill="var(--p-acc)" stroke="#b8962a" strokeWidth="2"/>
             <circle cx="28" cy="28" r="24" fill="none" stroke="#a07d20" strokeWidth="0.6" opacity="0.5"/>
             {/* Central square cutout — coin hole */}
-            <rect x="18" y="18" width="20" height="20" fill="#050505" stroke="#a07d20" strokeWidth="1"/>
+            <rect x="18" y="18" width="20" height="20" fill="var(--p-bg)" stroke="#a07d20" strokeWidth="1"/>
             {/* Plus inside the square */}
-            <line x1="28" y1="22" x2="28" y2="34" stroke="#1B2CC1" strokeWidth="3" strokeLinecap="round"/>
-            <line x1="22" y1="28" x2="34" y2="28" stroke="#1B2CC1" strokeWidth="3" strokeLinecap="round"/>
+            <line x1="28" y1="22" x2="28" y2="34" stroke="var(--p-acc)" strokeWidth="3" strokeLinecap="round"/>
+            <line x1="22" y1="28" x2="34" y2="28" stroke="var(--p-acc)" strokeWidth="3" strokeLinecap="round"/>
           </svg>
         </div>
-        <span className={`text-[9px] font-mono tracking-wide ${navTab === 'add' ? 'text-[#d4af37]' : 'text-[#555]'}`}>Add</span>
+        <span className={`text-[9px] font-mono tracking-wide ${navTab === 'add' ? 'text-[var(--p-acc)]' : 'text-[var(--p-muted)]'}`}>Add</span>
       </button>
 
       {/* Budgets */}
-      <button onClick={() => setNavTab('budgets')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'budgets' ? 'text-[#d4af37]' : 'text-[#555]'}`}>
+      <button onClick={() => setNavTab('budgets')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'budgets' ? 'text-[var(--p-acc)]' : 'text-[var(--p-muted)]'}`}>
         <AlertCircle size={20} />
         <span className="text-[9px] font-mono tracking-wide">Budget</span>
       </button>
 
       {/* History */}
-      <button onClick={() => setNavTab('history')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'history' ? 'text-[#d4af37]' : 'text-[#555]'}`}>
+      <button onClick={() => setNavTab('history')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'history' ? 'text-[var(--p-acc)]' : 'text-[var(--p-muted)]'}`}>
         <FileText size={20} />
         <span className="text-[9px] font-mono tracking-wide">History</span>
       </button>
