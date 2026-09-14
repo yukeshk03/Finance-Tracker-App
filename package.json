@@ -16,8 +16,8 @@
   },
   "dependencies": {
     "@capacitor/android": "^7.0.0",
-    "@capacitor/app": "^8.1.1",
-    "@capacitor/browser": "^8.0.4",
+    "@capacitor/app": "7.1.2",
+    "@capacitor/browser": "7.0.5",
     "@capacitor/cli": "^7.0.0",
     "@capacitor/core": "^7.0.0",
     "@google/genai": "^2.4.0",
