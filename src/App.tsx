@@ -950,14 +950,32 @@ export default function App() {
   };
 
   // ── Theme ─────────────────────────────────────────────────────────────
-  const [appTheme, setAppTheme] = useState<'aurelius' | 'royal'>(() =>
-    (localStorage.getItem('ft_theme') as 'aurelius' | 'royal') || 'aurelius'
+  const [appTheme, setAppTheme] = useState<'aurelius' | 'royal' | 'banklight' | 'midnightpro' | 'indigosaas'>(() =>
+    (localStorage.getItem('ft_theme') as 'aurelius' | 'royal' | 'banklight' | 'midnightpro' | 'indigosaas') || 'aurelius'
   );
-  const setTheme = (t: 'aurelius' | 'royal') => {
+  const setTheme = (t: 'aurelius' | 'royal' | 'banklight' | 'midnightpro' | 'indigosaas') => {
     setAppTheme(t);
     localStorage.setItem('ft_theme', t);
   };
   const isRoyal = appTheme === 'royal';
+  const isBankLight = appTheme === 'banklight';
+  const isMidnight = appTheme === 'midnightpro';
+  const isIndigoSaaS = appTheme === 'indigosaas';
+  const isNewTheme = isBankLight || isMidnight || isIndigoSaaS;
+
+  // ── Apply CSS custom properties for all 5 themes ──────────────────
+  useEffect(() => {
+    const THEMES: Record<string, Record<string, string>> = {
+      aurelius:   {'--p-bg':'#050505','--p-surf':'#0f0f0f','--p-surf2':'#0a0a0a','--p-surf3':'#111111','--p-surf4':'#111111','--p-border':'#1a1a1a','--p-border2':'#2a2a2a','--p-acc':'#d4af37','--p-accdim':'#1a1500','--p-accdim2':'#2a1e00','--p-text':'#e5e5e5','--p-muted':'#555555','--p-muted2':'#888888','--p-acc-shadow':'rgba(212,175,55,0.5)','--p-header':'#0f0f0f','--p-header-txt':'#e5e5e5','--p-header-lbl':'#888888','--p-nav':'#090909','--p-nav-bdr':'#1a1a1a','--p-divider':'#1a1a1a','--p-tab-bg':'#0f0f0f','--p-tab-act-bg':'#1a1500','--p-tab-act-txt':'#d4af37','--p-chart-act':'#d4af37','--p-chart-inact':'#1a1500'},
+      royal:      {'--p-bg':'#F8FAFF','--p-surf':'#FFFFFF','--p-surf2':'#F2F4FA','--p-surf3':'#E8EBF5','--p-surf4':'#E4E8F5','--p-border':'#DDE3F0','--p-border2':'#C8D0E8','--p-acc':'#1B2CC1','--p-accdim':'#E8EAFB','--p-accdim2':'#D0D5F5','--p-text':'#1A1A2E','--p-muted':'#64748B','--p-muted2':'#94A3B8','--p-acc-shadow':'rgba(27,44,193,0.35)','--p-header':'#1A1A2E','--p-header-txt':'#FFFFFF','--p-header-lbl':'#9BA3C8','--p-nav':'#FFFFFF','--p-nav-bdr':'#DDE3F0','--p-divider':'#DDE3F0','--p-tab-bg':'#FFFFFF','--p-tab-act-bg':'#E8EAFB','--p-tab-act-txt':'#1B2CC1','--p-chart-act':'#1B2CC1','--p-chart-inact':'#E8EAFB'},
+      banklight:  {'--p-bg':'#F8FAFC','--p-surf':'#FFFFFF','--p-surf2':'#F1F5F9','--p-surf3':'#E2E8F0','--p-surf4':'#E2E8F0','--p-border':'#E2E8F0','--p-border2':'#CBD5E1','--p-acc':'#2563EB','--p-accdim':'#DBEAFE','--p-accdim2':'#BFDBFE','--p-text':'#0F172A','--p-muted':'#64748B','--p-muted2':'#94A3B8','--p-acc-shadow':'rgba(37,99,235,0.35)','--p-header':'#2563EB','--p-header-txt':'#FFFFFF','--p-header-lbl':'#BFDBFE','--p-nav':'#FFFFFF','--p-nav-bdr':'#E2E8F0','--p-divider':'#F1F5F9','--p-tab-bg':'#FFFFFF','--p-tab-act-bg':'#EFF6FF','--p-tab-act-txt':'#2563EB','--p-chart-act':'#2563EB','--p-chart-inact':'#DBEAFE'},
+      midnightpro:{'--p-bg':'#0B1120','--p-surf':'#111827','--p-surf2':'#0D1526','--p-surf3':'#0B1120','--p-surf4':'#0B1120','--p-border':'#1E293B','--p-border2':'#293548','--p-acc':'#3B82F6','--p-accdim':'#1E3A5F','--p-accdim2':'#172D4D','--p-text':'#F8FAFC','--p-muted':'#64748B','--p-muted2':'#475569','--p-acc-shadow':'rgba(59,130,246,0.4)','--p-header':'#0B1120','--p-header-txt':'#F8FAFC','--p-header-lbl':'#475569','--p-nav':'#0B1120','--p-nav-bdr':'#1E293B','--p-divider':'#1E293B','--p-tab-bg':'#111827','--p-tab-act-bg':'#1E3A5F','--p-tab-act-txt':'#60A5FA','--p-chart-act':'#3B82F6','--p-chart-inact':'#1E3A5F'},
+      indigosaas: {'--p-bg':'#F8FAFC','--p-surf':'#FFFFFF','--p-surf2':'#EEF2FF','--p-surf3':'#E0E7FF','--p-surf4':'#E0E7FF','--p-border':'#E0E7FF','--p-border2':'#C7D2FE','--p-acc':'#4338CA','--p-accdim':'#E0E7FF','--p-accdim2':'#C7D2FE','--p-text':'#111827','--p-muted':'#6B7280','--p-muted2':'#9CA3AF','--p-acc-shadow':'rgba(67,56,202,0.35)','--p-header':'#312E81','--p-header-txt':'#FFFFFF','--p-header-lbl':'#C7D2FE','--p-nav':'#FFFFFF','--p-nav-bdr':'#E0E7FF','--p-divider':'#EEF2FF','--p-tab-bg':'#EEF2FF','--p-tab-act-bg':'#FFFFFF','--p-tab-act-txt':'#4338CA','--p-chart-act':'#4338CA','--p-chart-inact':'#E0E7FF'},
+    };
+    const vars = THEMES[appTheme] || THEMES.aurelius;
+    const root = document.documentElement.style;
+    Object.entries(vars).forEach(([k, v]) => root.setProperty(k, v));
+  }, [appTheme]);
 
   // ── Excluded categories from Ledger table ─────────────────────────────
   const [excludedLedgerCategories, setExcludedLedgerCategories] = useState<string[]>(() => {
@@ -4590,26 +4608,55 @@ export default function App() {
             </button>
             {isSettingsOpen('appearance') && (
               <div className="px-4 pb-4 border-t border-[var(--p-border)] pt-3">
-                <div className="flex gap-2">
-                  {/* Aurelius option */}
+                {/* Row 1: Aurelius + Royal (unchanged) */}
+                <div className="flex gap-2 mb-2">
                   <button onClick={() => setTheme('aurelius')}
-                    className={`flex-1 flex items-center gap-2 border-2 rounded-xl p-2.5 transition-all ${!isRoyal ? 'border-[#d4af37] bg-[#1a1500]' : 'border-[var(--p-border)] bg-transparent'}`}>
-                    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[13px] flex-shrink-0" style={{background:'#050505',border:'2px solid #d4af37',color:'#d4af37'}}>★</div>
-                    <div className="text-left">
-                      <p className={`font-mono text-[11px] font-bold ${!isRoyal ? 'text-[#d4af37]' : 'text-[var(--p-muted)]'}`}>Aurelius</p>
-                      <p className="font-mono text-[9px] text-[var(--p-muted)]">Dark · Gold</p>
+                    className={`flex-1 flex items-center gap-2 border-2 rounded-xl p-2.5 transition-all ${appTheme==='aurelius' ? 'border-[#d4af37] bg-[#1a1500]' : 'border-[var(--p-border)] bg-transparent'}`}>
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[12px] flex-shrink-0" style={{background:'#050505',border:'2px solid #d4af37',color:'#d4af37'}}>★</div>
+                    <div className="text-left min-w-0">
+                      <p className={`font-mono text-[10px] font-bold ${appTheme==='aurelius' ? 'text-[#d4af37]' : 'text-[var(--p-muted)]'}`}>Aurelius</p>
+                      <p className="font-mono text-[8px] text-[var(--p-muted2)]">Dark · Gold</p>
                     </div>
-                    {!isRoyal && <div className="w-[6px] h-[6px] rounded-full ml-auto flex-shrink-0" style={{background:'#d4af37'}}/>}
+                    {appTheme==='aurelius' && <div className="w-[5px] h-[5px] rounded-full ml-auto flex-shrink-0" style={{background:'#d4af37'}}/>}
                   </button>
-                  {/* Royal option */}
                   <button onClick={() => setTheme('royal')}
-                    className={`flex-1 flex items-center gap-2 border-2 rounded-xl p-2.5 transition-all ${isRoyal ? 'border-[#1B2CC1] bg-[#E8EAFB]' : 'border-[var(--p-border)] bg-transparent'}`}>
-                    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[13px] flex-shrink-0" style={{background:'#F8FAFF',border:'2px solid #1B2CC1',color:'#1B2CC1'}}>◆</div>
-                    <div className="text-left">
-                      <p className={`font-mono text-[11px] font-bold ${isRoyal ? 'text-[#1B2CC1]' : 'text-[var(--p-muted)]'}`}>Royal</p>
-                      <p className="font-mono text-[9px] text-[var(--p-muted)]">Light · Blue</p>
+                    className={`flex-1 flex items-center gap-2 border-2 rounded-xl p-2.5 transition-all ${appTheme==='royal' ? 'border-[#1B2CC1] bg-[#E8EAFB]' : 'border-[var(--p-border)] bg-transparent'}`}>
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[12px] flex-shrink-0" style={{background:'#F8FAFF',border:'2px solid #1B2CC1',color:'#1B2CC1'}}>◆</div>
+                    <div className="text-left min-w-0">
+                      <p className={`font-mono text-[10px] font-bold ${appTheme==='royal' ? 'text-[#1B2CC1]' : 'text-[var(--p-muted)]'}`}>Royal</p>
+                      <p className="font-mono text-[8px] text-[var(--p-muted2)]">Light · Blue</p>
                     </div>
-                    {isRoyal && <div className="w-[6px] h-[6px] rounded-full ml-auto flex-shrink-0" style={{background:'#1B2CC1'}}/>}
+                    {appTheme==='royal' && <div className="w-[5px] h-[5px] rounded-full ml-auto flex-shrink-0" style={{background:'#1B2CC1'}}/>}
+                  </button>
+                </div>
+                {/* Row 2: BankLight + MidnightPro + IndigoSaaS (new) */}
+                <div className="flex gap-2">
+                  <button onClick={() => setTheme('banklight')}
+                    className={`flex-1 flex items-center gap-1.5 border-2 rounded-xl p-2 transition-all ${appTheme==='banklight' ? 'border-[#2563EB] bg-[#DBEAFE]' : 'border-[var(--p-border)] bg-transparent'}`}>
+                    <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0" style={{background:'#F8FAFC',border:'2px solid #2563EB',color:'#2563EB'}}>B</div>
+                    <div className="text-left min-w-0">
+                      <p className={`font-mono text-[9px] font-bold truncate ${appTheme==='banklight' ? 'text-[#2563EB]' : 'text-[var(--p-muted)]'}`}>BankLight</p>
+                      <p className="font-mono text-[7px] text-[var(--p-muted2)]">White·Blue</p>
+                    </div>
+                    {appTheme==='banklight' && <div className="w-[4px] h-[4px] rounded-full ml-auto flex-shrink-0" style={{background:'#2563EB'}}/>}
+                  </button>
+                  <button onClick={() => setTheme('midnightpro')}
+                    className={`flex-1 flex items-center gap-1.5 border-2 rounded-xl p-2 transition-all ${appTheme==='midnightpro' ? 'border-[#3B82F6] bg-[#1E3A5F]' : 'border-[var(--p-border)] bg-transparent'}`}>
+                    <div className="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold flex-shrink-0" style={{background:'#0B1120',border:'2px solid #3B82F6',color:'#3B82F6'}}>M</div>
+                    <div className="text-left min-w-0">
+                      <p className={`font-mono text-[9px] font-bold truncate ${appTheme==='midnightpro' ? 'text-[#3B82F6]' : 'text-[var(--p-muted)]'}`}>Midnight</p>
+                      <p className="font-mono text-[7px] text-[var(--p-muted2)]">Dark·Blue</p>
+                    </div>
+                    {appTheme==='midnightpro' && <div className="w-[4px] h-[4px] rounded-full ml-auto flex-shrink-0" style={{background:'#3B82F6'}}/>}
+                  </button>
+                  <button onClick={() => setTheme('indigosaas')}
+                    className={`flex-1 flex items-center gap-1.5 border-2 rounded-xl p-2 transition-all ${appTheme==='indigosaas' ? 'border-[#4338CA] bg-[#E0E7FF]' : 'border-[var(--p-border)] bg-transparent'}`}>
+                    <div className="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold flex-shrink-0" style={{background:'#F8FAFC',border:'2px solid #4338CA',color:'#4338CA'}}>I</div>
+                    <div className="text-left min-w-0">
+                      <p className={`font-mono text-[9px] font-bold truncate ${appTheme==='indigosaas' ? 'text-[#4338CA]' : 'text-[var(--p-muted)]'}`}>Indigo</p>
+                      <p className="font-mono text-[7px] text-[var(--p-muted2)]">White·Indigo</p>
+                    </div>
+                    {appTheme==='indigosaas' && <div className="w-[4px] h-[4px] rounded-full ml-auto flex-shrink-0" style={{background:'#4338CA'}}/>}
                   </button>
                 </div>
               </div>
