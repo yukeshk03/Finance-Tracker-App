@@ -967,10 +967,10 @@ export default function App() {
   useEffect(() => {
     const THEMES: Record<string, Record<string, string>> = {
       aurelius:   {'--p-bg':'#050505','--p-surf':'#0f0f0f','--p-surf2':'#0a0a0a','--p-surf3':'#111111','--p-surf4':'#111111','--p-border':'#1a1a1a','--p-border2':'#2a2a2a','--p-acc':'#d4af37','--p-accdim':'#1a1500','--p-accdim2':'#2a1e00','--p-text':'#e5e5e5','--p-muted':'#555555','--p-muted2':'#888888','--p-acc-shadow':'rgba(212,175,55,0.5)','--p-header':'#0f0f0f','--p-header-txt':'#e5e5e5','--p-header-lbl':'#888888','--p-nav':'#090909','--p-nav-bdr':'#1a1a1a','--p-divider':'#1a1a1a','--p-tab-bg':'#0f0f0f','--p-tab-act-bg':'#1a1500','--p-tab-act-txt':'#d4af37','--p-chart-act':'#d4af37','--p-chart-inact':'#1a1500'},
-      royal:      {'--p-bg':'#F8FAFF','--p-surf':'#FFFFFF','--p-surf2':'#F2F4FA','--p-surf3':'#E8EBF5','--p-surf4':'#E4E8F5','--p-border':'#DDE3F0','--p-border2':'#C8D0E8','--p-acc':'#1B2CC1','--p-accdim':'#E8EAFB','--p-accdim2':'#D0D5F5','--p-text':'#1A1A2E','--p-muted':'#64748B','--p-muted2':'#94A3B8','--p-acc-shadow':'rgba(27,44,193,0.35)','--p-header':'#1A1A2E','--p-header-txt':'#FFFFFF','--p-header-lbl':'#9BA3C8','--p-nav':'#FFFFFF','--p-nav-bdr':'#DDE3F0','--p-divider':'#DDE3F0','--p-tab-bg':'#FFFFFF','--p-tab-act-bg':'#E8EAFB','--p-tab-act-txt':'#1B2CC1','--p-chart-act':'#1B2CC1','--p-chart-inact':'#E8EAFB'},
-      banklight:  {'--p-bg':'#F8FAFC','--p-surf':'#FFFFFF','--p-surf2':'#F1F5F9','--p-surf3':'#E2E8F0','--p-surf4':'#E2E8F0','--p-border':'#E2E8F0','--p-border2':'#CBD5E1','--p-acc':'#2563EB','--p-accdim':'#DBEAFE','--p-accdim2':'#BFDBFE','--p-text':'#0F172A','--p-muted':'#64748B','--p-muted2':'#94A3B8','--p-acc-shadow':'rgba(37,99,235,0.35)','--p-header':'#2563EB','--p-header-txt':'#FFFFFF','--p-header-lbl':'#BFDBFE','--p-nav':'#FFFFFF','--p-nav-bdr':'#E2E8F0','--p-divider':'#F1F5F9','--p-tab-bg':'#FFFFFF','--p-tab-act-bg':'#EFF6FF','--p-tab-act-txt':'#2563EB','--p-chart-act':'#2563EB','--p-chart-inact':'#DBEAFE'},
-      midnightpro:{'--p-bg':'#0B1120','--p-surf':'#111827','--p-surf2':'#0D1526','--p-surf3':'#0B1120','--p-surf4':'#0B1120','--p-border':'#1E293B','--p-border2':'#293548','--p-acc':'#3B82F6','--p-accdim':'#1E3A5F','--p-accdim2':'#172D4D','--p-text':'#F8FAFC','--p-muted':'#64748B','--p-muted2':'#475569','--p-acc-shadow':'rgba(59,130,246,0.4)','--p-header':'#0B1120','--p-header-txt':'#F8FAFC','--p-header-lbl':'#475569','--p-nav':'#0B1120','--p-nav-bdr':'#1E293B','--p-divider':'#1E293B','--p-tab-bg':'#111827','--p-tab-act-bg':'#1E3A5F','--p-tab-act-txt':'#60A5FA','--p-chart-act':'#3B82F6','--p-chart-inact':'#1E3A5F'},
-      indigosaas: {'--p-bg':'#F8FAFC','--p-surf':'#FFFFFF','--p-surf2':'#EEF2FF','--p-surf3':'#E0E7FF','--p-surf4':'#E0E7FF','--p-border':'#E0E7FF','--p-border2':'#C7D2FE','--p-acc':'#4338CA','--p-accdim':'#E0E7FF','--p-accdim2':'#C7D2FE','--p-text':'#111827','--p-muted':'#6B7280','--p-muted2':'#9CA3AF','--p-acc-shadow':'rgba(67,56,202,0.35)','--p-header':'#312E81','--p-header-txt':'#FFFFFF','--p-header-lbl':'#C7D2FE','--p-nav':'#FFFFFF','--p-nav-bdr':'#E0E7FF','--p-divider':'#EEF2FF','--p-tab-bg':'#EEF2FF','--p-tab-act-bg':'#FFFFFF','--p-tab-act-txt':'#4338CA','--p-chart-act':'#4338CA','--p-chart-inact':'#E0E7FF'},
+      royal:      {'--p-bg':'#F4F6FB','--p-surf':'#FFFFFF','--p-surf2':'#EEF1F8','--p-surf3':'#E4E8F3','--p-surf4':'#DDE3F0','--p-border':'#CBD5E1','--p-border2':'#B0BCE8','--p-acc':'#1B2CC1','--p-accdim':'#E8EAFB','--p-accdim2':'#D0D5F5','--p-text':'#1A1A2E','--p-muted':'#64748B','--p-muted2':'#94A3B8','--p-acc-shadow':'rgba(27,44,193,0.35)','--p-header':'#1A1A2E','--p-header-txt':'#FFFFFF','--p-header-lbl':'#9BA3C8','--p-nav':'#FFFFFF','--p-nav-bdr':'#CBD5E1','--p-divider':'#D1D5DB','--p-tab-bg':'#FFFFFF','--p-tab-act-bg':'#E8EAFB','--p-tab-act-txt':'#1B2CC1','--p-chart-act':'#1B2CC1','--p-chart-inact':'#E8EAFB'},
+      banklight:  {'--p-bg':'#F8FAFC','--p-surf':'#FFFFFF','--p-surf2':'#F1F5F9','--p-surf3':'#E8EDF4','--p-surf4':'#E2E8F0','--p-border':'#CBD5E1','--p-border2':'#94A3B8','--p-acc':'#2563EB','--p-accdim':'#DBEAFE','--p-accdim2':'#BFDBFE','--p-text':'#0F172A','--p-muted':'#475569','--p-muted2':'#94A3B8','--p-acc-shadow':'rgba(37,99,235,0.35)','--p-header':'#2563EB','--p-header-txt':'#FFFFFF','--p-header-lbl':'#BFDBFE','--p-nav':'#FFFFFF','--p-nav-bdr':'#CBD5E1','--p-divider':'#D1D5DB','--p-tab-bg':'#FFFFFF','--p-tab-act-bg':'#EFF6FF','--p-tab-act-txt':'#2563EB','--p-chart-act':'#2563EB','--p-chart-inact':'#DBEAFE'},
+      midnightpro:{'--p-bg':'#0B1120','--p-surf':'#111827','--p-surf2':'#0D1526','--p-surf3':'#0B1120','--p-surf4':'#0B1120','--p-border':'#2D3748','--p-border2':'#374151','--p-acc':'#3B82F6','--p-accdim':'#1E3A5F','--p-accdim2':'#172D4D','--p-text':'#F8FAFC','--p-muted':'#94A3B8','--p-muted2':'#64748B','--p-acc-shadow':'rgba(59,130,246,0.4)','--p-header':'#0B1120','--p-header-txt':'#F8FAFC','--p-header-lbl':'#64748B','--p-nav':'#0B1120','--p-nav-bdr':'#2D3748','--p-divider':'#2D3748','--p-tab-bg':'#111827','--p-tab-act-bg':'#1E3A5F','--p-tab-act-txt':'#60A5FA','--p-chart-act':'#3B82F6','--p-chart-inact':'#1E3A5F'},
+      indigosaas: {'--p-bg':'#F8FAFC','--p-surf':'#FFFFFF','--p-surf2':'#EEF2FF','--p-surf3':'#E5E8FF','--p-surf4':'#DDE0FF','--p-border':'#CBD5E1','--p-border2':'#A5B4FC','--p-acc':'#4338CA','--p-accdim':'#E0E7FF','--p-accdim2':'#C7D2FE','--p-text':'#111827','--p-muted':'#475569','--p-muted2':'#9CA3AF','--p-acc-shadow':'rgba(67,56,202,0.35)','--p-header':'#312E81','--p-header-txt':'#FFFFFF','--p-header-lbl':'#C7D2FE','--p-nav':'#FFFFFF','--p-nav-bdr':'#CBD5E1','--p-divider':'#D1D5DB','--p-tab-bg':'#EEF2FF','--p-tab-act-bg':'#FFFFFF','--p-tab-act-txt':'#4338CA','--p-chart-act':'#4338CA','--p-chart-inact':'#E0E7FF'},
     };
     const vars = THEMES[appTheme] || THEMES.aurelius;
     const root = document.documentElement.style;
@@ -3229,7 +3229,7 @@ export default function App() {
                     <BrandIcon size={11} className="text-[var(--p-acc)]"/> Expenditure by Category
                   </h3>
                   {categorySpendingList.length===0
-                    ? <p className="text-[10px] text-[var(--p-muted)] italic text-center py-2 font-mono">No expenses in this period.</p>
+                    ? <p className="text-[10px] text-[var(--p-muted)] italic text-center py-2 font-sans">No expenses in this period.</p>
                     : <div className="space-y-2.5">
                         {categorySpendingList.slice(0,6).map(item =>(
                           <div key={item.category} className="w-full">
@@ -3258,13 +3258,13 @@ export default function App() {
                     {momBars.map(b=>{const on=b.key===selMonth;return(
                       <button key={b.key} onClick={()=>{setFilterMonth(b.key);setDashWeek(null);setDashDay(null);}}
                         className="flex flex-col items-center gap-1 flex-1 h-full justify-end group">
-                        <span className={`text-[8px] font-mono ${on?'text-[var(--p-acc)] font-bold':'text-[var(--p-muted)]'}`}>{b.val>0?`₹${(b.val/1000)}k`:'—'}</span>
+                        <span className={`text-[8px] font-sans ${on?'text-[var(--p-acc)] font-semibold':'text-[var(--p-muted)]'}`}>{b.val>0?`₹${(b.val/1000)}k`:'—'}</span>
                         <div className={`w-full rounded-t transition-all ${on?'bg-[var(--p-acc)]':'bg-[var(--p-accdim2)] group-hover:bg-[var(--p-accdim)]'}`} style={{height:`${Math.max(b.val>0?4:1,(b.val/momMax)*70)}%`}}/>
-                        <span className={`text-[9px] font-mono ${on?'text-[var(--p-acc)] font-bold':'text-[var(--p-muted)]'}`}>{b.label}</span>
+                        <span className={`text-[9px] font-sans ${on?'text-[var(--p-acc)] font-semibold':'text-[var(--p-muted)]'}`}>{b.label}</span>
                       </button>);
                     })}
                   </div>
-                  <p className="text-[8px] text-[var(--p-muted2)] font-mono text-center mt-2">tap a month to switch</p>
+                  <p className="text-[8px] text-[var(--p-muted2)] text-center mt-2 font-sans">tap a month to switch</p>
                 </div>
 
                 {/* ── WEEK-ON-WEEK ── */}
@@ -3276,9 +3276,9 @@ export default function App() {
                     {wowBars.map(b=>{const on=dashWeek===b.w;return(
                       <button key={b.w} onClick={()=>{setDashDay(null);setDashWeek(on?null:b.w);}}
                         className="flex flex-col items-center gap-1 flex-1 h-full justify-end group">
-                        <span className={`text-[8px] font-mono ${on?'text-[var(--p-acc)] font-bold':'text-[var(--p-muted)]'}`}>{b.val>0?`₹${(b.val/1000)}k`:'—'}</span>
+                        <span className={`text-[8px] font-sans ${on?'text-[var(--p-acc)] font-semibold':'text-[var(--p-muted)]'}`}>{b.val>0?`₹${(b.val/1000)}k`:'—'}</span>
                         <div className={`w-full rounded-t transition-all ${on?'bg-[var(--p-acc)]':'bg-[var(--p-accdim2)] group-hover:bg-[var(--p-accdim)]'}`} style={{height:`${Math.max(b.val>0?4:1,(b.val/wowMax)*65)}%`}}/>
-                        <span className={`text-[9px] font-mono ${on?'text-[var(--p-acc)] font-bold':'text-[var(--p-muted)]'}`}>W{b.w}</span>
+                        <span className={`text-[9px] font-sans ${on?'text-[var(--p-acc)] font-semibold':'text-[var(--p-muted)]'}`}>W{b.w}</span>
                       </button>);
                     })}
                   </div>
@@ -3287,13 +3287,13 @@ export default function App() {
                       {weekDays.map(d=>{const on=dashDay===d.ds;return(
                         <button key={d.ds} onClick={()=>setDashDay(on?null:d.ds)}
                           className={`flex flex-col items-center px-2 py-1.5 rounded-lg border shrink-0 min-w-[42px] transition-all ${on?'bg-[var(--p-acc)]/20 border-[var(--p-acc)]':'bg-[var(--p-surf2)] border-[var(--p-border)]'}`}>
-                          <span className={`text-[10px] font-mono font-bold ${on?'text-[var(--p-acc)]':'text-[var(--p-text)]'}`}>{d.dn}</span>
-                          <span className={`text-[7px] font-mono ${d.val>0?'text-[var(--p-muted)]':'text-[var(--p-muted2)]'}`}>{d.val>0?`₹${Math.round(d.val>=1000?(d.val/1000)+'k':d.val)}`:'·'}</span>
+                          <span className={`text-[10px] font-semibold ${on?'text-[var(--p-acc)]':'text-[var(--p-text)]'}`}>{d.dn}</span>
+                          <span className={`text-[7px] font-sans ${d.val>0?'text-[var(--p-muted)]':'text-[var(--p-muted2)]'}`}>{d.val>0?`₹${Math.round(d.val>=1000?(d.val/1000)+'k':d.val)}`:'·'}</span>
                         </button>);
                       })}
                     </div>
                   )}
-                  <p className="text-[8px] text-[var(--p-muted2)] font-mono text-center mt-2">tap week → tap day to drill down</p>
+                  <p className="text-[8px] text-[var(--p-muted2)] text-center mt-2 font-sans">tap week → tap day to drill down</p>
                 </div>
 
                 {/* ── DONUT ── */}
@@ -3302,7 +3302,7 @@ export default function App() {
                     <BrandIcon size={12} className="text-[var(--p-acc)]"/> Spend Share · {periodLabel}
                   </h3>
                   {donutTotal===0
-                    ? <p className="text-[10px] text-[var(--p-muted)] italic text-center py-5 font-mono">No spending in this period.</p>
+                    ? <p className="text-[10px] text-[var(--p-muted)] italic text-center py-5 font-sans">No spending in this period.</p>
                     : <div className="flex items-center gap-4">
                         <svg viewBox="0 0 42 42" className="w-28 h-28 shrink-0">
                           {(()=>{let acc=0;return donutData.map(([name,val],i)=>{const pct=val/donutTotal*100;const el=(<circle key={String(name)} cx="21" cy="21" r="15.9155" fill="none" stroke={palette[i%palette.length]} strokeWidth="6" strokeDasharray={`${pct} ${100-pct}`} strokeDashoffset={-acc+25}/>);acc+=pct;return el;})})()}
@@ -3370,7 +3370,7 @@ export default function App() {
                         </div>
                         {allRows.length === 0
                           ? <div className="py-8 text-center border-t border-[var(--p-border)]">
-                              <p className="text-[10px] font-mono text-[var(--p-muted)] italic">{isSent?`No expenses in ${catLabel}`:`No income in ${catLabel} for this period`}</p>
+                              <p className="text-[10px] text-[var(--p-muted)] italic font-sans">{isSent?`No expenses in ${catLabel}`:`No income in ${catLabel} for this period`}</p>
                               {!isSent&&filterCategories.length>0&&<p className="text-[9px] font-mono text-[var(--p-muted2)] mt-1">Received includes reimbursements in any category</p>}
                             </div>
                           : <>
