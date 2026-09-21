@@ -305,7 +305,7 @@ const RadarChart = ({ data }: { data: { category: string; spent: number; limit: 
   const polygonPath = points.map(p => `${p.x},${p.y}`).join(' ');
 
   return (
-    <div className="flex flex-col items-center bg-[var(--p-surf2)] rounded-2xl border border-[var(--p-border)] p-4 font-mono">
+    <div className="flex flex-col items-center bg-[var(--p-surf2)] rounded-2xl border border-[var(--p-border)] p-4 font-['Lexend']">
       <div className="flex items-center gap-1.5 self-start mb-2 border-b border-[var(--p-border)] w-full pb-1.5">
         <span className="text-[var(--p-acc)] text-xs">◇</span>
         <h4 className="text-[10px] uppercase tracking-wider text-[var(--p-acc)] font-semibold">Category Budget Radar</h4>
@@ -383,7 +383,7 @@ const RadarChart = ({ data }: { data: { category: string; spent: number; limit: 
                 fontSize="7.5"
                 textAnchor="middle"
                 dominantBaseline="central"
-                className="font-mono bg-[var(--p-bg)] px-1 text-[7px]"
+                className="font-['Lexend'] bg-[var(--p-bg)] px-1 text-[7px]"
               >
                 {shortName}
               </text>
@@ -400,7 +400,7 @@ const BulletChart = ({ spent, limit }: { spent: number; limit: number }) => {
   const percent = limit > 0 ? Math.round((spent / limit) * 100) : 0;
 
   return (
-    <div className="bg-[var(--p-surf2)] rounded-2xl border border-[var(--p-border)] p-4 font-mono">
+    <div className="bg-[var(--p-surf2)] rounded-2xl border border-[var(--p-border)] p-4 font-['Lexend']">
       <div className="flex items-center gap-1.5 mb-2 border-b border-[var(--p-border)] pb-1.5">
         <h4 className="text-[10px] uppercase tracking-wider text-[var(--p-acc)] font-semibold">Budget Overview</h4>
       </div>
@@ -2401,7 +2401,7 @@ export default function App() {
             </div>
             <div className="text-center">
               <h1 className="text-[var(--p-text)] font-bold text-2xl tracking-tight">Paypathz</h1>
-              <p className="text-[var(--p-muted)] text-sm mt-1 font-mono">Personal Finance · Dusk</p>
+              <p className="text-[var(--p-muted)] text-sm mt-1 font-['Lexend']">Personal Finance · Dusk</p>
             </div>
           </div>
 
@@ -2414,7 +2414,7 @@ export default function App() {
             ].map((f, i) => (
               <div key={i} className="flex items-center gap-3 bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl px-4 py-3">
                 <span className="text-lg">{f.icon}</span>
-                <p className="text-[var(--p-muted)] text-[11px] font-mono leading-relaxed">{f.text}</p>
+                <p className="text-[var(--p-muted)] text-[11px] font-['Lexend'] leading-relaxed">{f.text}</p>
               </div>
             ))}
           </div>
@@ -2422,7 +2422,7 @@ export default function App() {
           {/* Error message */}
           {syncError ? (
             <div className="w-full bg-red-950/40 border border-red-800/50 rounded-xl px-4 py-3">
-              <p className="text-red-400 text-[11px] font-mono text-center">{syncError}</p>
+              <p className="text-red-400 text-[11px] font-['Lexend'] text-center">{syncError}</p>
             </div>
           ) : null}
 
@@ -2430,7 +2430,7 @@ export default function App() {
           <button onClick={signInWithGoogle} disabled={authLoading}
             className="w-full flex items-center justify-center gap-3 bg-[var(--p-surf)] border border-[var(--p-acc)]/30 font-bold text-sm py-4 px-6 rounded-2xl shadow-lg active:scale-95 transition-all disabled:opacity-60">
             {authLoading ? (
-              <span className="text-[var(--p-acc)] font-mono text-sm">Opening sign-in...</span>
+              <span className="text-[var(--p-acc)] font-['Lexend'] text-sm">Opening sign-in...</span>
             ) : (
               <>
                 <svg width="20" height="20" viewBox="0 0 48 48">
@@ -2446,11 +2446,11 @@ export default function App() {
 
           {/* Guest button */}
           <button onClick={continueAsGuest}
-            className="w-full flex items-center justify-center gap-2 border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[11px] font-bold uppercase tracking-wider py-3 px-6 rounded-2xl active:scale-95 transition-all">
+            className="w-full flex items-center justify-center gap-2 border border-[var(--p-border2)] text-[var(--p-muted)] font-['Lexend'] text-[11px] font-bold uppercase tracking-wider py-3 px-6 rounded-2xl active:scale-95 transition-all">
             👤 Continue as Guest
           </button>
 
-          <p className="text-[#333] text-[10px] font-mono text-center leading-relaxed">
+          <p className="text-[#333] text-[10px] font-['Lexend'] text-center leading-relaxed">
             Sign in to sync data via Google Drive. Guest mode keeps data on this device only.
           </p>
         </div>
@@ -2459,7 +2459,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen w-screen flex flex-col overflow-hidden font-sans bg-[var(--p-bg)] text-[var(--p-text)]">
+    <div className="h-screen w-screen flex flex-col overflow-hidden font-['Lexend'] bg-[var(--p-bg)] text-[var(--p-text)]">
 
 
 
@@ -2478,7 +2478,7 @@ export default function App() {
               <text x="50" y="76" textAnchor="middle" fill="var(--p-acc)" fontSize="10" fontWeight="bold">机</text>
             </svg>
           </div>
-          <h1 className="text-2xl font-serif text-[var(--p-text)] mb-2">Paypathz</h1>
+          <h1 className="text-2xl font-['Lexend'] text-[var(--p-text)] mb-2">Paypathz</h1>
           <p className="text-[var(--p-muted)] text-sm mb-8 leading-relaxed max-w-xs">
             Automatically detects bank SMS and UPI transactions. Enable notifications so you never miss a transaction.
           </p>
@@ -2509,7 +2509,7 @@ export default function App() {
 
           {notifPermission === 'granted' ? (
             <div className="w-full max-w-xs">
-              <p className="text-emerald-400 text-xs mb-4 font-mono">Notifications enabled</p>
+              <p className="text-emerald-400 text-xs mb-4 font-['Lexend']">Notifications enabled</p>
               <button
                 onClick={() => { localStorage.setItem('ft_onboarded', '1'); setShowOnboarding(false); }}
                 className="w-full bg-[var(--p-acc)] text-black font-bold py-3.5 rounded-2xl text-sm tracking-wide"
@@ -2596,7 +2596,7 @@ export default function App() {
         const isRange = inRange(ds);
         cells.push(
           <button key={ds} onClick={() => pickCalDay(ds)}
-            className={`aspect-square flex items-center justify-center text-[12px] font-mono rounded-lg transition-all
+            className={`aspect-square flex items-center justify-center text-[12px] font-['Lexend'] font-normal rounded-lg transition-all
               ${isStart || isEnd ? 'bg-[var(--p-acc)] text-black font-bold' :
                 isRange ? 'bg-[var(--p-acc)]/15 text-[var(--p-acc)]' :
                 isToday ? 'text-[var(--p-acc)] font-bold border border-[var(--p-acc)]/30' :
@@ -2613,11 +2613,11 @@ export default function App() {
             {/* Mode toggle */}
             <div className="flex bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl overflow-hidden mb-4">
               <button onClick={() => { setCalMode('single'); setCalSel2(null); }}
-                className={`flex-1 py-2 text-[10px] font-mono uppercase tracking-wider transition-all ${calMode === 'single' ? 'bg-[var(--p-acc)]/12 text-[var(--p-acc)] font-bold' : 'text-[var(--p-muted)]'}`}>
+                className={`flex-1 py-2 text-[10px] font-['Lexend'] font-normal uppercase tracking-wider transition-all ${calMode === 'single' ? 'bg-[var(--p-acc)]/12 text-[var(--p-acc)] font-bold' : 'text-[var(--p-muted)]'}`}>
                 Single Day
               </button>
               <button onClick={() => setCalMode('range')}
-                className={`flex-1 py-2 text-[10px] font-mono uppercase tracking-wider transition-all ${calMode === 'range' ? 'bg-[var(--p-acc)]/12 text-[var(--p-acc)] font-bold' : 'text-[var(--p-muted)]'}`}>
+                className={`flex-1 py-2 text-[10px] font-['Lexend'] font-normal uppercase tracking-wider transition-all ${calMode === 'range' ? 'bg-[var(--p-acc)]/12 text-[var(--p-acc)] font-bold' : 'text-[var(--p-muted)]'}`}>
                 Date Range
               </button>
             </div>
@@ -2626,7 +2626,7 @@ export default function App() {
             <div className="flex justify-between items-center mb-3">
               <button onClick={() => { if (calViewMonth === 0) { setCalViewMonth(11); setCalViewYear(y => y - 1); } else setCalViewMonth(m => m - 1); }}
                 className="w-8 h-8 flex items-center justify-center bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg text-[var(--p-acc)] text-lg">‹</button>
-              <span className="font-serif text-[14px] text-[var(--p-text)]">{MN_FULL[calViewMonth]} {calViewYear}</span>
+              <span className="font-['Lexend'] text-[14px] font-normal text-[var(--p-text)]">{MN_FULL[calViewMonth]} {calViewYear}</span>
               <button onClick={() => { if (calViewMonth === 11) { setCalViewMonth(0); setCalViewYear(y => y + 1); } else setCalViewMonth(m => m + 1); }}
                 className="w-8 h-8 flex items-center justify-center bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg text-[var(--p-acc)] text-lg">›</button>
             </div>
@@ -2644,21 +2644,21 @@ export default function App() {
             {/* Selection info */}
             <div className="bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl px-3 py-2 flex justify-between items-center mb-3">
               <div>
-                <div className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider">{info.label}</div>
-                <div className="text-[11px] text-[var(--p-acc)] font-mono mt-0.5">{info.value}</div>
+                <div className="text-[9px] text-[var(--p-muted)] font-['Lexend'] font-normal uppercase tracking-wider">{info.label}</div>
+                <div className="text-[11px] text-[var(--p-acc)] font-['Lexend'] font-normal mt-0.5">{info.value}</div>
               </div>
               {(calSel1 || calSel2) && (
                 <button onClick={() => { setCalSel1(null); setCalSel2(null); }}
-                  className="text-[9px] font-mono text-[var(--p-muted)] uppercase tracking-wider hover:text-[var(--p-acc)]">Clear</button>
+                  className="text-[9px] font-['Lexend'] text-[var(--p-muted)] uppercase tracking-wider hover:text-[var(--p-acc)]">Clear</button>
               )}
             </div>
 
             {/* Actions */}
             <div className="grid grid-cols-3 gap-2">
               <button onClick={() => setCalOpen(false)}
-                className="py-2.5 border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[10px] uppercase rounded-xl hover:border-[var(--p-acc)] hover:text-[var(--p-acc)] transition-all">Cancel</button>
+                className="py-2.5 border border-[var(--p-border2)] text-[var(--p-muted)] font-['Lexend'] font-normal text-[10px] uppercase rounded-xl hover:border-[var(--p-acc)] hover:text-[var(--p-acc)] transition-all">Cancel</button>
               <button onClick={confirmCal} disabled={!info.ready}
-                className="col-span-2 py-2.5 bg-[var(--p-acc)] text-white font-mono font-bold text-[10px] uppercase rounded-xl disabled:opacity-30 hover:opacity-90 transition-all">
+                className="col-span-2 py-2.5 bg-[var(--p-acc)] text-white font-['Lexend'] font-medium text-[10px] uppercase rounded-xl disabled:opacity-30 hover:opacity-90 transition-all">
                 Apply Filter
               </button>
             </div>
@@ -2672,18 +2672,18 @@ export default function App() {
       <div className="fixed inset-0 z-[180] bg-black/85 flex items-end justify-center">
         <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-t-2xl p-4 w-full max-w-[420px] pb-8 space-y-3 max-h-[80vh] overflow-y-auto">
           <div className="flex justify-between items-center">
-            <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Import Preview</span>
+            <span className="font-['Lexend'] text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Import Preview</span>
             <button onClick={() => setCsvImportPreview(null)} className="text-[var(--p-muted)] hover:text-[var(--p-text)] text-sm">✕</button>
           </div>
 
           {csvImportPreview.errors.length > 0 && (
             <div className="bg-red-950/30 border border-red-800/50 rounded-xl p-3">
-              <p className="text-[9px] font-mono text-red-400 font-semibold mb-1">{csvImportPreview.errors.length} error{csvImportPreview.errors.length !== 1 ? 's' : ''}:</p>
+              <p className="text-[9px] font-['Lexend'] text-red-400 font-semibold mb-1">{csvImportPreview.errors.length} error{csvImportPreview.errors.length !== 1 ? 's' : ''}:</p>
               {csvImportPreview.errors.slice(0, 5).map((e, i) => (
-                <p key={i} className="text-[9px] font-mono text-red-300">• {e}</p>
+                <p key={i} className="text-[9px] font-['Lexend'] text-red-300">• {e}</p>
               ))}
               {csvImportPreview.errors.length > 5 && (
-                <p className="text-[9px] font-mono text-red-400">...and {csvImportPreview.errors.length - 5} more</p>
+                <p className="text-[9px] font-['Lexend'] text-red-400">...and {csvImportPreview.errors.length - 5} more</p>
               )}
             </div>
           )}
@@ -2691,10 +2691,10 @@ export default function App() {
           {csvImportPreview.rows.length > 0 ? (
             <>
               <div className="bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-3">
-                <p className="text-[10px] font-mono text-emerald-400 font-semibold">{csvImportPreview.rows.length} valid transaction{csvImportPreview.rows.length !== 1 ? 's' : ''} ready to import</p>
+                <p className="text-[10px] font-['Lexend'] text-emerald-400 font-semibold">{csvImportPreview.rows.length} valid transaction{csvImportPreview.rows.length !== 1 ? 's' : ''} ready to import</p>
                 <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
                   {csvImportPreview.rows.slice(0, 5).map((t, i) => (
-                    <div key={i} className="flex justify-between text-[9px] font-mono text-[var(--p-muted)]">
+                    <div key={i} className="flex justify-between text-[9px] font-['Lexend'] text-[var(--p-muted)]">
                       <span>{t.date} · {t.category}</span>
                       <span className={t.type === 'expense' ? 'text-rose-400' : 'text-emerald-400'}>
                         {t.type === 'expense' ? '−' : '+'}₹{Math.round(t.amount).toLocaleString('en-IN')}
@@ -2702,32 +2702,32 @@ export default function App() {
                     </div>
                   ))}
                   {csvImportPreview.rows.length > 5 && (
-                    <p className="text-[9px] font-mono text-[var(--p-muted2)]">...and {csvImportPreview.rows.length - 5} more</p>
+                    <p className="text-[9px] font-['Lexend'] text-[var(--p-muted2)]">...and {csvImportPreview.rows.length - 5} more</p>
                   )}
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <button onClick={() => applyCsvImport('add')}
-                  className="py-2.5 border border-[var(--p-acc)]/40 text-[var(--p-acc)] font-mono text-[9px] uppercase rounded-xl hover:bg-[var(--p-acc)]/10 transition-all">
+                  className="py-2.5 border border-[var(--p-acc)]/40 text-[var(--p-acc)] font-['Lexend'] text-[9px] uppercase rounded-xl hover:bg-[var(--p-acc)]/10 transition-all">
                   Add
                 </button>
                 <button onClick={() => applyCsvImport('merge')}
-                  className="py-2.5 border border-[#9ab7d8]/40 text-[#9ab7d8] font-mono text-[9px] uppercase rounded-xl hover:bg-[#9ab7d8]/10 transition-all">
+                  className="py-2.5 border border-[#9ab7d8]/40 text-[#9ab7d8] font-['Lexend'] text-[9px] uppercase rounded-xl hover:bg-[#9ab7d8]/10 transition-all">
                   Merge
                 </button>
                 <button onClick={() => applyCsvImport('replace')}
-                  className="py-2.5 border border-red-800/50 text-red-400 font-mono text-[9px] uppercase rounded-xl hover:bg-red-950/30 transition-all">
+                  className="py-2.5 border border-red-800/50 text-red-400 font-['Lexend'] text-[9px] uppercase rounded-xl hover:bg-red-950/30 transition-all">
                   Replace
                 </button>
               </div>
-              <div className="text-[8px] font-mono text-[var(--p-muted2)] space-y-0.5">
+              <div className="text-[8px] font-['Lexend'] text-[var(--p-muted2)] space-y-0.5">
                 <p><span className="text-[var(--p-acc)]">Add</span> — keeps existing + adds imported</p>
                 <p><span className="text-[#9ab7d8]">Merge</span> — adds imported, skips duplicates</p>
                 <p><span className="text-red-400">Replace</span> — deletes all existing, imports fresh</p>
               </div>
             </>
           ) : (
-            <p className="text-[10px] font-mono text-[var(--p-muted)] text-center py-4">No valid transactions found in file.</p>
+            <p className="text-[10px] font-['Lexend'] text-[var(--p-muted)] text-center py-4">No valid transactions found in file.</p>
           )}
         </div>
       </div>
@@ -2738,14 +2738,14 @@ export default function App() {
       <div className="fixed inset-0 z-[200] bg-black/85 flex items-center justify-center p-5">
         <div className="bg-[var(--p-surf)] border border-[var(--p-acc)] rounded-2xl p-5 w-full max-w-[360px] space-y-4">
           <div className="text-center text-3xl">⇄</div>
-          <h3 className="font-serif text-[16px] text-[var(--p-text)] text-center">Merge Categories?</h3>
+          <h3 className="font-['Lexend'] text-[13px] font-normal text-[var(--p-text)] text-center">Merge Categories?</h3>
           <p className="text-[11px] text-[var(--p-muted)] text-center leading-relaxed">
             All transactions in <span className="text-[var(--p-acc)] font-bold">{mcEditSel}</span> will move to <span className="text-[var(--p-acc)] font-bold">{mcMergeTarget}</span>.<br/><br/>
             <span className="text-[var(--p-acc)]">{mcEditSel}</span> will be permanently removed.<br/>
             <span className="text-[#D96A55] text-[10px]">This cannot be undone.</span>
           </p>
-          <button onClick={mcDoMerge} className="w-full border border-[#4a7090] bg-[#9ab7d8]/10 text-[#9ab7d8] font-mono font-bold text-[11px] uppercase py-3 rounded-xl">Merge Permanently</button>
-          <button onClick={() => setMcModal('none')} className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[10px] uppercase py-2.5 rounded-xl">Cancel</button>
+          <button onClick={mcDoMerge} className="w-full border border-[#4a7090] bg-[#9ab7d8]/10 text-[#9ab7d8] font-['Lexend'] font-bold text-[11px] uppercase py-3 rounded-xl">Merge Permanently</button>
+          <button onClick={() => setMcModal('none')} className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-['Lexend'] text-[10px] uppercase py-2.5 rounded-xl">Cancel</button>
         </div>
       </div>
     )}
@@ -2753,7 +2753,7 @@ export default function App() {
           {/* ── Global Toast ── */}
     {toastMsg && (
       <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[300] bg-[var(--p-surf)] border border-[var(--p-acc)]/40 rounded-xl px-4 py-2.5 shadow-xl animate-fade-in">
-        <p className="text-[11px] font-mono text-[var(--p-acc)] whitespace-nowrap">{toastMsg}</p>
+        <p className="text-[11px] font-['Lexend'] text-[var(--p-acc)] whitespace-nowrap">{toastMsg}</p>
       </div>
     )}
 
@@ -2764,8 +2764,8 @@ export default function App() {
           <div className="flex items-center gap-3">
             <span className="text-3xl">⚠️</span>
             <div>
-              <p className="text-blue-300 font-mono font-bold text-[13px]">Backup Overdue</p>
-              <p className="text-[var(--p-muted)] text-[10px] font-mono mt-0.5">
+              <p className="text-blue-300 font-['Lexend'] font-bold text-[13px]">Backup Overdue</p>
+              <p className="text-[var(--p-muted)] text-[10px] font-['Lexend'] mt-0.5">
                 {lastExportDate
                   ? `Last export: ${lastExportDate} · ${exportOverdueDays}d ago`
                   : 'You have never backed up your data'}
@@ -2777,13 +2777,13 @@ export default function App() {
           </p>
           <button
             onClick={() => { handleCsvExport(); dismissExportModal(); }}
-            className="w-full bg-[var(--p-acc)] text-white font-mono font-bold text-[11px] uppercase tracking-wider py-3 rounded-xl hover:opacity-90 transition-all"
+            className="w-full bg-[var(--p-acc)] text-white font-['Lexend'] font-bold text-[11px] uppercase tracking-wider py-3 rounded-xl hover:opacity-90 transition-all"
           >
             Export Now
           </button>
           <button
             onClick={dismissExportModal}
-            className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[11px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[var(--p-bg)] transition-all"
+            className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-['Lexend'] text-[11px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[var(--p-bg)] transition-all"
           >
             Remind Me Tomorrow
           </button>
@@ -2797,13 +2797,13 @@ export default function App() {
         <div className="bg-[var(--p-surf2)] border border-[var(--p-acc)]/40 rounded-2xl p-4 max-w-[420px] w-full max-h-[85vh] flex flex-col gap-3 shadow-2xl" onClick={(e) => e.stopPropagation()}>
           <div className="flex justify-between items-center border-b border-[var(--p-border)] pb-2">
             <div>
-              <p className="text-[10px] font-mono text-[var(--p-acc)] uppercase tracking-wider font-bold">Export Ready</p>
-              <p className="text-[9px] font-mono text-[var(--p-muted)] truncate">{exportTextModal.filename}</p>
+              <p className="text-[10px] font-['Lexend'] text-[var(--p-acc)] uppercase tracking-wider font-bold">Export Ready</p>
+              <p className="text-[9px] font-['Lexend'] text-[var(--p-muted)] truncate">{exportTextModal.filename}</p>
             </div>
             <button onClick={() => setExportTextModal(null)} className="text-[var(--p-muted)] hover:text-[var(--p-text)] text-xl leading-none px-1">×</button>
           </div>
 
-          <p className="text-[10px] font-mono text-[var(--p-muted)]">
+          <p className="text-[10px] font-['Lexend'] text-[var(--p-muted)]">
             Pick a way to save your data. Share is the most reliable on phone.
           </p>
 
@@ -2868,7 +2868,7 @@ export default function App() {
               // 3) Last-resort message
               alert('Share not available on this device. Use Copy All Text instead and paste into Drive/Notes.');
             }}
-            className="w-full bg-[var(--p-acc)] text-white font-mono font-bold text-[11px] uppercase tracking-wider py-3 rounded-xl hover:opacity-90 transition-all"
+            className="w-full bg-[var(--p-acc)] text-white font-['Lexend'] font-bold text-[11px] uppercase tracking-wider py-3 rounded-xl hover:opacity-90 transition-all"
           >
             Share / Save to Drive
           </button>
@@ -2890,18 +2890,18 @@ export default function App() {
                 document.body.removeChild(ta);
               }
             }}
-            className="w-full border border-[var(--p-acc)]/40 text-[var(--p-acc)] font-mono text-[11px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[var(--p-acc)]/10 transition-all"
+            className="w-full border border-[var(--p-acc)]/40 text-[var(--p-acc)] font-['Lexend'] text-[11px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[var(--p-acc)]/10 transition-all"
           >
             Copy All Text
           </button>
 
           {/* Preview / Manual copy */}
           <details className="border border-[var(--p-border)] rounded-xl">
-            <summary className="cursor-pointer text-[10px] font-mono text-[var(--p-muted)] px-3 py-2">View raw data</summary>
+            <summary className="cursor-pointer text-[10px] font-['Lexend'] text-[var(--p-muted)] px-3 py-2">View raw data</summary>
             <textarea
               readOnly
               value={exportTextModal.content}
-              className="w-full bg-[var(--p-bg)] border-t border-[var(--p-border)] text-[10px] font-mono text-[var(--p-muted)] p-2 h-40 outline-none resize-none"
+              className="w-full bg-[var(--p-bg)] border-t border-[var(--p-border)] text-[10px] font-['Lexend'] text-[var(--p-muted)] p-2 h-40 outline-none resize-none"
               onClick={e => (e.target as HTMLTextAreaElement).select()}
             />
           </details>
@@ -2917,15 +2917,15 @@ export default function App() {
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex justify-between items-center mb-1">
-            <span className="text-xs font-mono font-medium text-blue-500">Android System SMS Alert</span>
+            <span className="text-xs font-['Lexend'] font-medium text-blue-500">Android System SMS Alert</span>
             <button 
               onClick={() => setIncomingSmsBanner(null)} 
-              className="text-[10px] font-mono text-[var(--p-muted2)] hover:text-[var(--p-text)]"
+              className="text-[10px] font-['Lexend'] text-[var(--p-muted2)] hover:text-[var(--p-text)]"
             >
               Dismiss
             </button>
           </div>
-          <p className="text-[11px] text-[var(--p-muted)] truncate font-sans italic">"{incomingSmsBanner.text}"</p>
+          <p className="text-[11px] text-[var(--p-muted)] truncate font-['Lexend'] italic">"{incomingSmsBanner.text}"</p>
           <div className="mt-2 flex gap-3 text-[10px]">
             <button 
               onClick={() => {
@@ -3015,7 +3015,7 @@ export default function App() {
             <div className="grid grid-cols-2 gap-1.5 bg-[var(--p-surf2)] p-1 rounded-xl border border-[var(--p-border)]">
               <button
                 onClick={() => setDashboardView('transactions')}
-                className={`py-1.5 text-[10px] font-semibold rounded-lg transition-all font-mono uppercase tracking-wider flex items-center justify-center gap-1 border ${
+                className={`py-1.5 text-[10px] font-semibold rounded-lg transition-all font-['Lexend'] uppercase tracking-wider flex items-center justify-center gap-1 border ${
                   dashboardView === 'transactions'
                     ? 'bg-[var(--p-surf3)] text-[var(--p-acc)] border-[var(--p-acc)]/20 shadow-md'
                     : 'text-[var(--p-muted)] border-transparent hover:text-[var(--p-muted)]'
@@ -3025,7 +3025,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setDashboardView('budgets')}
-                className={`py-1.5 text-[10px] font-semibold rounded-lg transition-all font-mono uppercase tracking-wider flex items-center justify-center gap-1 border ${
+                className={`py-1.5 text-[10px] font-semibold rounded-lg transition-all font-['Lexend'] uppercase tracking-wider flex items-center justify-center gap-1 border ${
                   dashboardView === 'budgets'
                     ? 'bg-[var(--p-surf3)] text-[var(--p-acc)] border-[var(--p-acc)]/20 shadow-md'
                     : 'text-[var(--p-muted)] border-transparent hover:text-[var(--p-muted)]'
@@ -3138,14 +3138,14 @@ export default function App() {
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <select value={selMonth} onChange={e=>{setFilterMonth(e.target.value);setDashWeek(null);setDashDay(null);}}
-                        className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg py-2 px-3 pr-7 text-[11px] font-sans font-semibold tracking-wide text-[var(--p-text)] appearance-none outline-none focus:border-[var(--p-acc)] cursor-pointer">
+                        className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg py-2 px-3 pr-7 text-[11px] font-['Lexend'] font-semibold tracking-wide text-[var(--p-text)] appearance-none outline-none focus:border-[var(--p-acc)] cursor-pointer">
                         {availableMonths.map(m=><option key={m} value={m}>{m}</option>)}
                         {!availableMonths.includes(currentMonthLabel)&&<option value={currentMonthLabel}>{currentMonthLabel}</option>}
                       </select>
                       <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--p-acc)] pointer-events-none"/>
                     </div>
                     <button onClick={() => openCal('home')}
-                      className={`flex-1 flex items-center gap-1.5 bg-[var(--p-bg)] border rounded-lg py-2 px-2.5 text-[11px] font-sans font-semibold tracking-wide outline-none transition-all ${dashDay ? 'border-[var(--p-acc)] text-[var(--p-acc)]' : 'border-[var(--p-border)] text-[var(--p-muted)]'}`}>
+                      className={`flex-1 flex items-center gap-1.5 bg-[var(--p-bg)] border rounded-lg py-2 px-2.5 text-[11px] font-['Lexend'] font-semibold tracking-wide outline-none transition-all ${dashDay ? 'border-[var(--p-acc)] text-[var(--p-acc)]' : 'border-[var(--p-border)] text-[var(--p-muted)]'}`}>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                       <span className="truncate">{dashDay ? (dashDay.includes('|') ? dashDay.split('|')[0].split('-').slice(1).reverse().join(' ') + ' – ' + dashDay.split('|')[1].split('-').slice(1).reverse().join(' ') : dashDay.split('-').slice(1).reverse().join(' ')) : 'Pick date'}</span>
                     </button>
@@ -3153,14 +3153,14 @@ export default function App() {
                   <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{scrollbarWidth:'none'}}>
                     {categories.map(cat=>{const on=filterCategories.includes(cat);return(
                       <button key={cat} type="button" onClick={()=>setFilterCategories(prev=>on?prev.filter(x=>x!==cat):[...prev,cat])}
-                        className={`px-2.5 py-1 rounded-full text-[9px] font-mono border whitespace-nowrap shrink-0 transition-all ${on?'bg-[var(--p-acc)]/20 border-[var(--p-acc)] text-[var(--p-acc)] font-bold':'bg-[var(--p-surf2)] border-[var(--p-border)] text-[var(--p-muted)]'}`}>
+                        className={`px-2.5 py-1 rounded-full text-[9px] font-['Lexend'] border whitespace-nowrap shrink-0 transition-all ${on?'bg-[var(--p-acc)]/20 border-[var(--p-acc)] text-[var(--p-acc)] font-bold':'bg-[var(--p-surf2)] border-[var(--p-border)] text-[var(--p-muted)]'}`}>
                         {cat}
                       </button>);
                     })}
                   </div>
                   {(dashDay||dashWeek||filterCategories.length>0||selMonth!==currentMonthLabel)&&(
                     <button onClick={()=>{setFilterMonth(currentMonthLabel);setDashWeek(null);setDashDay(null);setFilterCategories([]);}}
-                      className="text-[9px] text-[var(--p-acc)] font-mono uppercase tracking-wider hover:underline">↺ Reset to {currentMonthLabel}</button>
+                      className="text-[9px] text-[var(--p-acc)] font-['Lexend'] uppercase tracking-wider hover:underline">↺ Reset to {currentMonthLabel}</button>
                   )}
                 </div>
 
@@ -3169,19 +3169,19 @@ export default function App() {
                   <div className="bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-3">
                     <div className="flex items-center gap-1 mb-1">
                       <TrendingUp size={11} className="text-emerald-400"/>
-                      <span className="text-[9px] font-mono uppercase tracking-widest text-[var(--p-muted)]">Inflow</span>
+                      <span className="text-[9px] font-['Lexend'] uppercase tracking-widest text-[var(--p-muted)]">Inflow</span>
                     </div>
                     <p className="text-xl font-mono font-semibold text-emerald-400">₹{Math.round(received).toLocaleString('en-IN')}</p>
-                    <p className="text-[8px] font-mono text-[var(--p-muted2)] mt-1">{periodLabel}</p>
+                    <p className="text-[8px] font-['Lexend'] text-[var(--p-muted2)] mt-1">{periodLabel}</p>
                   </div>
                   <div className="bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-3">
                     <div className="flex items-center gap-1 mb-1">
                       <TrendingDown size={11} className="text-rose-400"/>
-                      <span className="text-[9px] font-mono uppercase tracking-widest text-[var(--p-muted)]">Outflow</span>
+                      <span className="text-[9px] font-['Lexend'] uppercase tracking-widest text-[var(--p-muted)]">Outflow</span>
                     </div>
                     <p className="text-xl font-mono font-semibold text-rose-400">₹{Math.round(sent).toLocaleString('en-IN')}</p>
                     <div className="flex justify-between mt-1">
-                      {deltaPct!==null?<span className={`text-[9px] font-mono font-bold ${deltaPct>0?'text-rose-400':'text-emerald-400'}`}>{deltaPct>0?'▲':'▼'}{Math.abs(deltaPct)}% {deltaLabel}</span>:<span className="text-[9px] text-[var(--p-muted2)] font-mono">—</span>}
+                      {deltaPct!==null?<span className={`text-[9px] font-['Lexend'] font-bold ${deltaPct>0?'text-rose-400':'text-emerald-400'}`}>{deltaPct>0?'▲':'▼'}{Math.abs(deltaPct)}% {deltaLabel}</span>:<span className="text-[9px] text-[var(--p-muted2)] font-['Lexend']">—</span>}
                       <span className="text-[8px] font-mono text-[var(--p-muted)]">₹{Math.round(avgDay).toLocaleString('en-IN')}/d</span>
                     </div>
                   </div>
@@ -3191,7 +3191,7 @@ export default function App() {
                 <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl overflow-hidden">
                   <div className="flex justify-between items-center px-3 py-2.5">
                     <div>
-                      <span className="text-[9px] font-mono uppercase tracking-widest text-[var(--p-muted)]">Balance · {selMonth}</span>
+                      <span className="text-[9px] font-['Lexend'] uppercase tracking-widest text-[var(--p-muted)]">Balance · {selMonth}</span>
                       {!balanceVisible && curBal && (
                         <span className="text-[9px] font-mono text-[var(--p-acc)] ml-2">₹{Math.round(curBal.closing).toLocaleString('en-IN')}</span>
                       )}
@@ -3212,11 +3212,11 @@ export default function App() {
                           : firstOpen===undefined
                             ? <div className="mt-1">
                                 <input type="number" inputMode="numeric" placeholder="Enter ₹"
-                                  className="w-full bg-[var(--p-surf2)] border border-[var(--p-border2)] rounded-lg p-1.5 text-[11px] font-mono text-[var(--p-text)] outline-none focus:border-[var(--p-acc)]"
+                                  className="w-full bg-[var(--p-surf2)] border border-[var(--p-border2)] rounded-lg p-1.5 text-[11px] font-['Lexend'] text-[var(--p-text)] outline-none focus:border-[var(--p-acc)]"
                                   onBlur={e=>{if(e.target.value)setMonthBalance(selMonth,'opening',parseFloat(e.target.value));}}/>
-                                <p className="text-[7px] text-[var(--p-muted2)] font-mono mt-0.5">Enter once → all months auto-calculate</p>
+                                <p className="text-[7px] text-[var(--p-muted2)] font-['Lexend'] mt-0.5">Enter once → all months auto-calculate</p>
                               </div>
-                            : <p className="text-[var(--p-muted2)] font-mono text-[11px] mt-0.5">before tracked period</p>
+                            : <p className="text-[var(--p-muted2)] font-['Lexend'] text-[11px] mt-0.5">before tracked period</p>
                         }
                       </div>
                       <div className="bg-[var(--p-bg)] rounded-lg p-2.5">
@@ -3224,9 +3224,9 @@ export default function App() {
                         {curBal
                           ? <>
                               <p className="text-emerald-400 font-mono font-bold text-sm mt-0.5">₹{Math.round(curBal.closing).toLocaleString('en-IN')}</p>
-                              <p className="text-[7px] text-[var(--p-muted2)] font-mono mt-0.5">estimated · check vs bank</p>
+                              <p className="text-[7px] text-[var(--p-muted2)] font-['Lexend'] mt-0.5">estimated · check vs bank</p>
                             </>
-                          : <p className="text-[var(--p-muted2)] font-mono text-[11px] mt-0.5">enter opening first</p>
+                          : <p className="text-[var(--p-muted2)] font-['Lexend'] text-[11px] mt-0.5">enter opening first</p>
                         }
                       </div>
                     </div>
@@ -3239,11 +3239,11 @@ export default function App() {
                     <BrandIcon size={11} className="text-[var(--p-acc)]"/> Expenditure by Category
                   </h3>
                   {categorySpendingList.length===0
-                    ? <p className="text-[10px] text-[var(--p-muted)] italic text-center py-2 font-sans">No expenses in this period.</p>
+                    ? <p className="text-[10px] text-[var(--p-muted)] italic text-center py-2 font-['Lexend']">No expenses in this period.</p>
                     : <div className="space-y-2.5">
                         {categorySpendingList.slice(0,6).map(item =>(
                           <div key={item.category} className="w-full">
-                            <div className="flex justify-between items-center text-[10px] mb-0.5 font-mono">
+                            <div className="flex justify-between items-center text-[10px] mb-0.5 font-['Lexend']">
                               <span className="text-[var(--p-muted)] truncate flex items-center gap-1">
                                 <span className="shrink-0">{categoryIcons[item.category]||'⭐'}</span>
                                 <span className="truncate">{item.category}</span>
@@ -3268,13 +3268,13 @@ export default function App() {
                     {momBars.map(b=>{const on=b.key===selMonth;return(
                       <button key={b.key} onClick={()=>{setFilterMonth(b.key);setDashWeek(null);setDashDay(null);}}
                         className="flex flex-col items-center gap-1 flex-1 h-full justify-end group">
-                        <span className={`text-[8px] font-sans ${on?'text-[var(--p-acc)] font-semibold':'text-[var(--p-muted)]'}`}>{b.val>0?`₹${(b.val/1000)}k`:'—'}</span>
+                        <span className={`text-[8px] font-['Lexend'] ${on?'text-[var(--p-acc)] font-semibold':'text-[var(--p-muted)]'}`}>{b.val>0?`₹${(b.val/1000)}k`:'—'}</span>
                         <div className={`w-full rounded-t transition-all ${on?'bg-[var(--p-acc)]':'bg-[var(--p-accdim2)] group-hover:bg-[var(--p-accdim)]'}`} style={{height:`${Math.max(b.val>0?4:1,(b.val/momMax)*70)}%`}}/>
-                        <span className={`text-[9px] font-sans ${on?'text-[var(--p-acc)] font-semibold':'text-[var(--p-muted)]'}`}>{b.label}</span>
+                        <span className={`text-[9px] font-['Lexend'] ${on?'text-[var(--p-acc)] font-medium':'text-[var(--p-muted)]'}`}>{b.label}</span>
                       </button>);
                     })}
                   </div>
-                  <p className="text-[8px] text-[var(--p-muted2)] text-center mt-2 font-sans">tap a month to switch</p>
+                  <p className="text-[8px] text-[var(--p-muted2)] text-center mt-2 font-['Lexend']">tap a month to switch</p>
                 </div>
 
                 {/* ── WEEK-ON-WEEK ── */}
@@ -3286,9 +3286,9 @@ export default function App() {
                     {wowBars.map(b=>{const on=dashWeek===b.w;return(
                       <button key={b.w} onClick={()=>{setDashDay(null);setDashWeek(on?null:b.w);}}
                         className="flex flex-col items-center gap-1 flex-1 h-full justify-end group">
-                        <span className={`text-[8px] font-sans ${on?'text-[var(--p-acc)] font-semibold':'text-[var(--p-muted)]'}`}>{b.val>0?`₹${(b.val/1000)}k`:'—'}</span>
+                        <span className={`text-[8px] font-['Lexend'] ${on?'text-[var(--p-acc)] font-semibold':'text-[var(--p-muted)]'}`}>{b.val>0?`₹${(b.val/1000)}k`:'—'}</span>
                         <div className={`w-full rounded-t transition-all ${on?'bg-[var(--p-acc)]':'bg-[var(--p-accdim2)] group-hover:bg-[var(--p-accdim)]'}`} style={{height:`${Math.max(b.val>0?4:1,(b.val/wowMax)*65)}%`}}/>
-                        <span className={`text-[9px] font-sans ${on?'text-[var(--p-acc)] font-semibold':'text-[var(--p-muted)]'}`}>W{b.w}</span>
+                        <span className={`text-[9px] font-['Lexend'] ${on?'text-[var(--p-acc)] font-semibold':'text-[var(--p-muted)]'}`}>W{b.w}</span>
                       </button>);
                     })}
                   </div>
@@ -3298,12 +3298,12 @@ export default function App() {
                         <button key={d.ds} onClick={()=>setDashDay(on?null:d.ds)}
                           className={`flex flex-col items-center px-2 py-1.5 rounded-lg border shrink-0 min-w-[42px] transition-all ${on?'bg-[var(--p-acc)]/20 border-[var(--p-acc)]':'bg-[var(--p-surf2)] border-[var(--p-border)]'}`}>
                           <span className={`text-[10px] font-semibold ${on?'text-[var(--p-acc)]':'text-[var(--p-text)]'}`}>{d.dn}</span>
-                          <span className={`text-[7px] font-sans ${d.val>0?'text-[var(--p-muted)]':'text-[var(--p-muted2)]'}`}>{d.val>0?`₹${Math.round(d.val>=1000?(d.val/1000)+'k':d.val)}`:'·'}</span>
+                          <span className={`text-[7px] font-['Lexend'] ${d.val>0?'text-[var(--p-muted)]':'text-[var(--p-muted2)]'}`}>{d.val>0?`₹${Math.round(d.val>=1000?(d.val/1000)+'k':d.val)}`:'·'}</span>
                         </button>);
                       })}
                     </div>
                   )}
-                  <p className="text-[8px] text-[var(--p-muted2)] text-center mt-2 font-sans">tap week → tap day to drill down</p>
+                  <p className="text-[8px] text-[var(--p-muted2)] text-center mt-2 font-['Lexend']">tap week → tap day to drill down</p>
                 </div>
 
                 {/* ── DONUT ── */}
@@ -3312,7 +3312,7 @@ export default function App() {
                     <BrandIcon size={12} className="text-[var(--p-acc)]"/> Spend Share · {periodLabel}
                   </h3>
                   {donutTotal===0
-                    ? <p className="text-[10px] text-[var(--p-muted)] italic text-center py-5 font-sans">No spending in this period.</p>
+                    ? <p className="text-[10px] text-[var(--p-muted)] italic text-center py-5 font-['Lexend']">No spending in this period.</p>
                     : <div className="flex items-center gap-4">
                         <svg viewBox="0 0 42 42" className="w-28 h-28 shrink-0">
                           {(()=>{let acc=0;return donutData.map(([name,val],i)=>{const pct=val/donutTotal*100;const el=(<circle key={String(name)} cx="21" cy="21" r="15.9155" fill="none" stroke={palette[i%palette.length]} strokeWidth="6" strokeDasharray={`${pct} ${100-pct}`} strokeDashoffset={-acc+25}/>);acc+=pct;return el;})})()}
@@ -3321,7 +3321,7 @@ export default function App() {
                         </svg>
                         <div className="flex-1 space-y-1.5 min-w-0">
                           {donutData.map(([name,val],i)=>(
-                            <div key={String(name)} className="flex justify-between items-center text-[10px] font-mono">
+                            <div key={String(name)} className="flex justify-between items-center text-[10px] font-['Lexend']">
                               <span className="flex items-center gap-1.5 text-[var(--p-muted)] truncate">
                                 <span className="w-2 h-2 rounded-sm shrink-0" style={{backgroundColor:palette[i%palette.length]}}/>
                                 <span className="truncate">{name}</span>
@@ -3356,11 +3356,11 @@ export default function App() {
                         onClick={() => setTxTableOpen(o => !o)}>
                         <div className="flex items-center gap-1.5">
                           <BrandIcon size={11} className="text-[var(--p-acc)]"/>
-                          <span className="font-serif text-[12px] text-[var(--p-text)] italic">Transactions</span>
-                          <span className="text-[9px] font-mono text-[var(--p-acc)] bg-[var(--p-acc)]/10 border border-[var(--p-acc)]/20 px-1.5 py-0.5 rounded-md">{periodLabel}</span>
+                          <span className="font-['Lexend'] text-[12px] font-normal text-[var(--p-text)]">Transactions</span>
+                          <span className="text-[9px] font-['Lexend'] text-[var(--p-acc)] bg-[var(--p-acc)]/10 border border-[var(--p-acc)]/20 px-1.5 py-0.5 rounded-md">{periodLabel}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-[9px] font-mono text-[var(--p-muted)]">{allRows.length} {allRows.length===1?'entry':'entries'} · {sign}₹{Math.round(grandTotal).toLocaleString('en-IN')}</span>
+                          <span className="text-[9px] font-['Lexend'] font-normal text-[var(--p-muted)]">{allRows.length} {allRows.length===1?'entry':'entries'} · {sign}₹{Math.round(grandTotal).toLocaleString('en-IN')}</span>
                           <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:txTableOpen?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
                         </div>
                       </div>
@@ -3369,28 +3369,28 @@ export default function App() {
                         <div className="px-3 py-2 border-t border-[var(--p-border)] flex justify-between items-center">
                           <div className="flex items-baseline gap-2">
                             <span className={`text-base font-mono font-bold ${amtCls}`}>{sign}₹{Math.round(grandTotal).toLocaleString('en-IN')}</span>
-                            <span className="text-[9px] font-mono text-[var(--p-muted)]">{allRows.length} {allRows.length===1?'entry':'entries'} · all pages</span>
+                            <span className="text-[9px] font-['Lexend'] font-normal text-[var(--p-muted)]">{allRows.length} {allRows.length===1?'entry':'entries'} · all pages</span>
                           </div>
                           <div className="flex bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg overflow-hidden">
                             <button onClick={e=>{e.stopPropagation();setTxTableView('sent');}}
-                              className={`px-3 py-1.5 text-[9px] font-mono transition-all ${!isSent?'text-[var(--p-muted)]':'bg-rose-950/30 text-rose-400 font-bold'}`}>Sent</button>
+                              className={`px-3 py-1.5 text-[9px] font-['Lexend'] transition-all ${!isSent?'text-[var(--p-muted)]':'bg-rose-950/30 text-rose-400 font-bold'}`}>Sent</button>
                             <button onClick={e=>{e.stopPropagation();setTxTableView('received');}}
-                              className={`px-3 py-1.5 text-[9px] font-mono transition-all border-l border-[var(--p-border)] ${isSent?'text-[var(--p-muted)]':'bg-emerald-950/30 text-emerald-400 font-bold'}`}>Received</button>
+                              className={`px-3 py-1.5 text-[9px] font-['Lexend'] transition-all border-l border-[var(--p-border)] ${isSent?'text-[var(--p-muted)]':'bg-emerald-950/30 text-emerald-400 font-bold'}`}>Received</button>
                           </div>
                         </div>
                         {allRows.length === 0
                           ? <div className="py-8 text-center border-t border-[var(--p-border)]">
-                              <p className="text-[10px] text-[var(--p-muted)] italic font-sans">{isSent?`No expenses in ${catLabel}`:`No income in ${catLabel} for this period`}</p>
-                              {!isSent&&filterCategories.length>0&&<p className="text-[9px] font-mono text-[var(--p-muted2)] mt-1">Received includes reimbursements in any category</p>}
+                              <p className="text-[10px] text-[var(--p-muted)] italic font-['Lexend']">{isSent?`No expenses in ${catLabel}`:`No income in ${catLabel} for this period`}</p>
+                              {!isSent&&filterCategories.length>0&&<p className="text-[9px] font-['Lexend'] text-[var(--p-muted2)] mt-1">Received includes reimbursements in any category</p>}
                             </div>
                           : <>
                               <table className="w-full border-collapse border-t border-[var(--p-border)]" style={{tableLayout:'fixed'}}>
                                 <colgroup><col style={{width:'52px'}}/><col style={{width:'100px'}}/><col/><col style={{width:'82px'}}/></colgroup>
                                 <thead>
                                   <tr className="border-b border-[var(--p-border)]">
-                                    <th className="text-left py-2 px-2 text-[8px] font-mono text-[var(--p-muted2)] uppercase tracking-wider">Date</th>
-                                    <th className="text-left py-2 px-1 text-[8px] font-mono text-[var(--p-muted2)] uppercase tracking-wider">Category</th>
-                                    <th className="text-left py-2 px-1 text-[8px] font-mono text-[var(--p-muted2)] uppercase tracking-wider">Description</th>
+                                    <th className="text-left py-2 px-2 text-[8px] font-['Lexend'] text-[var(--p-muted2)] uppercase tracking-wider">Date</th>
+                                    <th className="text-left py-2 px-1 text-[8px] font-['Lexend'] text-[var(--p-muted2)] uppercase tracking-wider">Category</th>
+                                    <th className="text-left py-2 px-1 text-[8px] font-['Lexend'] text-[var(--p-muted2)] uppercase tracking-wider">Description</th>
                                     <th className="text-right py-2 px-2 text-[8px] font-mono text-[var(--p-muted2)] uppercase tracking-wider">Amount</th>
                                   </tr>
                                 </thead>
@@ -3415,11 +3415,11 @@ export default function App() {
                                 <div className="flex justify-between items-center px-3 py-2 border-t border-[var(--p-border)]">
                                   <span className="text-[8px] font-mono text-[var(--p-muted)]">{(safePage-1)*TX_PAGE_SIZE+1}–{Math.min(safePage*TX_PAGE_SIZE,allRows.length)} of {allRows.length}</span>
                                   <div className="flex gap-1">
-                                    <button onClick={()=>setTxTablePage(p=>Math.max(1,p-1))} disabled={safePage===1} className="px-2.5 py-1 text-[9px] font-mono border border-[var(--p-border)] bg-[var(--p-bg)] text-[var(--p-muted)] rounded-lg disabled:opacity-30 hover:border-[var(--p-acc)] hover:text-[var(--p-acc)] transition-all">←</button>
+                                    <button onClick={()=>setTxTablePage(p=>Math.max(1,p-1))} disabled={safePage===1} className="px-2.5 py-1 text-[9px] font-['Lexend'] border border-[var(--p-border)] bg-[var(--p-bg)] text-[var(--p-muted)] rounded-lg disabled:opacity-30 hover:border-[var(--p-acc)] hover:text-[var(--p-acc)] transition-all">←</button>
                                     {Array.from({length:totalPages},(_,i)=>i+1).map(p=>(
-                                      <button key={p} onClick={()=>setTxTablePage(p)} className={`px-2.5 py-1 text-[9px] font-mono border rounded-lg transition-all ${p===safePage?'bg-[var(--p-acc)]/15 border-[var(--p-acc)] text-[var(--p-acc)] font-bold':'border-[var(--p-border)] bg-[var(--p-bg)] text-[var(--p-muted)]'}`}>{p}</button>
+                                      <button key={p} onClick={()=>setTxTablePage(p)} className={`px-2.5 py-1 text-[9px] font-['Lexend'] border rounded-lg transition-all ${p===safePage?'bg-[var(--p-acc)]/15 border-[var(--p-acc)] text-[var(--p-acc)] font-bold':'border-[var(--p-border)] bg-[var(--p-bg)] text-[var(--p-muted)]'}`}>{p}</button>
                                     ))}
-                                    <button onClick={()=>setTxTablePage(p=>Math.min(totalPages,p+1))} disabled={safePage===totalPages} className="px-2.5 py-1 text-[9px] font-mono border border-[var(--p-border)] bg-[var(--p-bg)] text-[var(--p-muted)] rounded-lg disabled:opacity-30 hover:border-[var(--p-acc)] hover:text-[var(--p-acc)] transition-all">→</button>
+                                    <button onClick={()=>setTxTablePage(p=>Math.min(totalPages,p+1))} disabled={safePage===totalPages} className="px-2.5 py-1 text-[9px] font-['Lexend'] border border-[var(--p-border)] bg-[var(--p-bg)] text-[var(--p-muted)] rounded-lg disabled:opacity-30 hover:border-[var(--p-acc)] hover:text-[var(--p-acc)] transition-all">→</button>
                                   </div>
                                 </div>
                               )}
@@ -3440,12 +3440,12 @@ export default function App() {
                 {/* Overall month overview + month dropdown */}
                 <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-3 flex justify-between items-center">
                   <div className="flex flex-col">
-                    <span className="text-[8px] text-[var(--p-muted)] font-mono">Calculated For</span>
+                    <span className="text-[8px] text-[var(--p-muted)] font-['Lexend']">Calculated For</span>
                     <div className="relative mt-0.5">
                       <select
                         value={smartAlertsMonth}
                         onChange={e => setSmartAlertsMonth(e.target.value)}
-                        className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg pl-2 pr-6 py-1 text-xs font-mono font-bold text-[var(--p-text)] uppercase outline-none focus:border-[var(--p-acc)] cursor-pointer appearance-none"
+                        className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg pl-2 pr-6 py-1 text-xs font-['Lexend'] font-bold text-[var(--p-text)] uppercase outline-none focus:border-[var(--p-acc)] cursor-pointer appearance-none"
                       >
                         {smartAlertsAvailableMonths.map(m => (
                           <option key={m} value={m}>{m}</option>
@@ -3455,8 +3455,8 @@ export default function App() {
                     </div>
                   </div>
                   <div className="text-right flex flex-col items-end">
-                    <span className="text-[8px] text-[var(--p-muted)] font-mono">Active Limits Set</span>
-                    <span className="text-[var(--p-acc)] text-xs font-mono font-bold">{monthBudgetsList.length} Categories</span>
+                    <span className="text-[8px] text-[var(--p-muted)] font-['Lexend']">Active Limits Set</span>
+                    <span className="text-[var(--p-acc)] text-xs font-['Lexend'] font-bold">{monthBudgetsList.length} Categories</span>
                   </div>
                 </div>
 
@@ -3470,7 +3470,7 @@ export default function App() {
                   </h3>
 
                   {monthBudgetsList.length === 0 ? (
-                    <p className="text-[10px] text-[var(--p-muted)] italic text-center py-6 font-mono border border-dashed border-[var(--p-border)] rounded-lg">
+                    <p className="text-[10px] text-[var(--p-muted)] italic text-center py-6 font-['Lexend'] border border-dashed border-[var(--p-border)] rounded-lg">
                       No budgets configured for {activeMonthKey}. Select 'Budgets' in the tab navigation to configure limits.
                     </p>
                   ) : (
@@ -3481,7 +3481,7 @@ export default function App() {
 
                         return (
                           <div key={b.category} className="p-3 bg-[var(--p-bg)] rounded-xl border border-[var(--p-border)]">
-                            <div className="flex justify-between items-center text-[10px] font-mono leading-none mb-1">
+                            <div className="flex justify-between items-center text-[10px] font-['Lexend'] leading-none mb-1">
                               <span className="text-[var(--p-text)] font-medium truncate max-w-[110px]">{b.category}</span>
                               <span className="text-[var(--p-muted)] text-[9px]">
                                 Spent: <strong className="text-[var(--p-text)]">₹{b.spent}</strong> / <span className="text-[var(--p-acc)] font-semibold">₹{b.limit}</span>
@@ -3496,7 +3496,7 @@ export default function App() {
                               />
                             </div>
 
-                            <div className="flex justify-between items-center mt-1.5 text-[8px] font-mono">
+                            <div className="flex justify-between items-center mt-1.5 text-[8px] font-['Lexend']">
                               <span className={percentage >= 100 ? 'text-red-400 font-semibold' : percentage >= 80 ? 'text-blue-500' : 'text-[var(--p-muted)]'}>
                                 {percentage}% utilized
                               </span>
@@ -3632,7 +3632,7 @@ export default function App() {
               // ── Empty state ──
               if (transactions.length === 0) return (
                 <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-6 text-center">
-                  <p className="text-[var(--p-muted)] text-[11px] font-mono italic">No transactions yet. Add entries or import a CSV to see the Ledger.</p>
+                  <p className="text-[var(--p-muted)] text-[11px] font-['Lexend'] italic">No transactions yet. Add entries or import a CSV to see the Ledger.</p>
                 </div>
               );
 
@@ -3647,7 +3647,7 @@ export default function App() {
                       {/* Period filter — 2 rows: years on top, duration on bottom */}
                       <div className="flex flex-col gap-1">
                         {/* Row 1: years */}
-                        <div className="flex bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg overflow-hidden text-[9px] font-mono">
+                        <div className="flex bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg overflow-hidden text-[9px] font-['Lexend']">
                           {yearOptions.map(yr => (
                             <button key={yr} onClick={() => setLedgerPeriod(String(yr))}
                               className={`flex-1 px-2.5 py-1.5 transition-colors ${ledgerPeriod === String(yr) ? 'bg-[var(--p-acc)]/20 text-[var(--p-acc)] font-bold' : 'text-[var(--p-muted)]'}`}>
@@ -3656,7 +3656,7 @@ export default function App() {
                           ))}
                         </div>
                         {/* Row 2: duration */}
-                        <div className="flex bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg overflow-hidden text-[9px] font-mono">
+                        <div className="flex bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg overflow-hidden text-[9px] font-['Lexend']">
                           {(['3m','6m','9m','12m'] as const).map(p => (
                             <button key={p} onClick={() => setLedgerPeriod(p)}
                               className={`flex-1 py-1.5 transition-colors ${ledgerPeriod === p ? 'bg-[var(--p-acc)]/20 text-[var(--p-acc)] font-bold' : 'text-[var(--p-muted)]'}`}>
@@ -3666,7 +3666,7 @@ export default function App() {
                         </div>
                       </div>
                       <button onClick={() => setTableExpanded(e => !e)}
-                        className="text-[9px] font-mono text-[var(--p-acc)] border border-[var(--p-acc)]/30 px-2 py-1 rounded-lg hover:bg-[var(--p-acc)]/10 transition-all shrink-0">
+                        className="text-[9px] font-['Lexend'] text-[var(--p-acc)] border border-[var(--p-acc)]/30 px-2 py-1 rounded-lg hover:bg-[var(--p-acc)]/10 transition-all shrink-0">
                         {tableExpanded ? '⊠' : '⊞'}
                       </button>
                     </div>
@@ -3677,7 +3677,7 @@ export default function App() {
                     <table className="w-full border-collapse" style={{minWidth: `${months.length * 100 + 160}px`}}>
                       <thead>
                         <tr className="border-b border-[var(--p-border)]">
-                          <th className="text-left py-2 pr-4 text-[10px] font-mono text-[var(--p-muted)] uppercase tracking-wider whitespace-nowrap w-40">Category</th>
+                          <th className="text-left py-2 pr-4 text-[10px] font-['Lexend'] text-[var(--p-muted)] uppercase tracking-wider whitespace-nowrap w-40">Category</th>
                           {months.map(m => (
                             <th key={m} className={`${th} text-[var(--p-muted)] uppercase tracking-wider`}>{m.split('-')[0]}</th>
                           ))}
@@ -3712,7 +3712,7 @@ export default function App() {
                         {/* ── Expense section ── */}
                         <tr className="bg-[var(--p-bg)] cursor-pointer" onClick={() => setLedgerExpenseExpanded(e => !e)}>
                           <td colSpan={months.length + 2} className="py-2 px-2">
-                            <span className="text-[9px] font-mono text-[var(--p-muted)] uppercase tracking-widest flex items-center gap-1.5">
+                            <span className="text-[9px] font-['Lexend'] text-[var(--p-muted)] uppercase tracking-widest flex items-center gap-1.5">
                               <span className="text-[var(--p-acc)]">{ledgerExpenseExpanded ? '▾' : '▸'}</span>
                               Expenses {ledgerExpenseExpanded ? '' : `(${expCats.length} categories)`}
                             </span>
@@ -3740,7 +3740,7 @@ export default function App() {
                         {/* ── Income section ── */}
                         <tr className="bg-[var(--p-bg)] cursor-pointer" onClick={() => setLedgerIncomeExpanded(e => !e)}>
                           <td colSpan={months.length + 2} className="py-2 px-2">
-                            <span className="text-[9px] font-mono text-[var(--p-muted)] uppercase tracking-widest flex items-center gap-1.5">
+                            <span className="text-[9px] font-['Lexend'] text-[var(--p-muted)] uppercase tracking-widest flex items-center gap-1.5">
                               <span className="text-emerald-400">{ledgerIncomeExpanded ? '▾' : '▸'}</span>
                               Income {ledgerIncomeExpanded ? '' : `(${incCats.length} categories)`}
                             </span>
@@ -3784,7 +3784,7 @@ export default function App() {
                   </div>
 
                   {!firstMonth && (
-                    <p className="text-[9px] font-mono text-[var(--p-muted2)] text-center pb-3">
+                    <p className="text-[9px] font-['Lexend'] text-[var(--p-muted2)] text-center pb-3">
                       Enter an opening balance in the first month column to enable balance tracking
                     </p>
                   )}
@@ -3802,15 +3802,15 @@ export default function App() {
         <div className="space-y-4 animate-fade-in pt-5 text-xs">
           
           <div className="flex flex-col border-b border-[var(--p-border)] pb-3">
-            <span className="text-[9px] text-[var(--p-muted)] font-mono tracking-widest uppercase font-bold">Input Module</span>
-            <h2 className="font-serif text-base text-[var(--p-text)]">Add Entry Record</h2>
+            <span className="text-[9px] text-[var(--p-muted)] font-['Lexend'] tracking-widest uppercase font-bold">Input Module</span>
+            <h2 className="font-['Lexend'] text-[13px] font-normal text-[var(--p-text)]">Add Entry Record</h2>
           </div>
 
           {/* Success toast */}
           {addSuccessToast && (
             <div className="bg-emerald-950/40 border border-emerald-800/50 rounded-xl p-3 flex items-center gap-2 animate-fade-in">
               <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
-              <span className="text-emerald-300 text-[11px] font-mono">Entry saved! Add another below.</span>
+              <span className="text-emerald-300 text-[11px] font-['Lexend']">Entry saved! Add another below.</span>
             </div>
           )}
 
@@ -3821,7 +3821,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setFormType('expense')}
-                className={`py-2 text-[10px] uppercase font-mono tracking-wider font-semibold rounded-lg transition-all ${
+                className={`py-2 text-[10px] uppercase font-['Lexend'] tracking-wider font-semibold rounded-lg transition-all ${
                   formType === 'expense' 
                     ? 'bg-rose-950/50 text-rose-400 border border-rose-900/30' 
                     : 'text-[var(--p-muted)]'
@@ -3832,7 +3832,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setFormType('income')}
-                className={`py-2 text-[10px] uppercase font-mono tracking-wider font-semibold rounded-lg transition-all ${
+                className={`py-2 text-[10px] uppercase font-['Lexend'] tracking-wider font-semibold rounded-lg transition-all ${
                   formType === 'income' 
                     ? 'bg-emerald-950/50 text-emerald-400 border border-emerald-900/30' 
                     : 'text-[var(--p-muted)]'
@@ -3844,7 +3844,7 @@ export default function App() {
 
             {/* Date selection */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-[9px] text-[var(--p-muted)] uppercase font-mono tracking-wider font-semibold">Date</label>
+              <label className="text-[9px] text-[var(--p-muted)] uppercase font-['Lexend'] tracking-wider font-semibold">Date</label>
               <div className="relative">
                 <input
                   type="date"
@@ -3867,7 +3867,7 @@ export default function App() {
                     setFormAmount(String(Math.max(0, curr - 100)));
                   }}
                   style={{ flexBasis: '15%' }}
-                  className="bg-[var(--p-surf3)] border border-[var(--p-border)] hover:border-gray-600 text-[var(--p-acc)] font-mono font-extrabold h-11 rounded-xl flex items-center justify-center text-sm active:scale-95 transition-all shrink-0 select-none shadow-md"
+                  className="bg-[var(--p-surf3)] border border-[var(--p-border)] hover:border-gray-600 text-[var(--p-acc)] font-['Lexend'] font-extrabold h-11 rounded-xl flex items-center justify-center text-sm active:scale-95 transition-all shrink-0 select-none shadow-md"
                 >
                   -100
                 </button>
@@ -3878,7 +3878,7 @@ export default function App() {
                     placeholder="e.g. 350"
                     value={formAmount}
                     onChange={(e) => setFormAmount(e.target.value)}
-                    className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-3 text-center text-sm font-mono font-bold text-[var(--p-text)] placeholder-gray-800 focus:outline-none focus:border-[var(--p-acc)] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-3 text-center text-sm font-['Lexend'] font-bold text-[var(--p-text)] placeholder-gray-800 focus:outline-none focus:border-[var(--p-acc)] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 </div>
                 <button
@@ -3888,7 +3888,7 @@ export default function App() {
                     setFormAmount(String(curr + 100));
                   }}
                   style={{ flexBasis: '15%' }}
-                  className="bg-[var(--p-surf3)] border border-[var(--p-border)] hover:border-gray-600 text-[var(--p-acc)] font-mono font-extrabold h-11 rounded-xl flex items-center justify-center text-sm active:scale-95 transition-all shrink-0 select-none shadow-md"
+                  className="bg-[var(--p-surf3)] border border-[var(--p-border)] hover:border-gray-600 text-[var(--p-acc)] font-['Lexend'] font-extrabold h-11 rounded-xl flex items-center justify-center text-sm active:scale-95 transition-all shrink-0 select-none shadow-md"
                 >
                   +100
                 </button>
@@ -3903,7 +3903,7 @@ export default function App() {
                       const curr = parseFloat(formAmount) || 0;
                       setFormAmount(String(curr + val));
                     }}
-                    className="bg-[var(--p-surf)] border border-[var(--p-border)] text-[var(--p-muted)] font-mono hover:text-[var(--p-text)] text-[9px] py-1.5 rounded-lg active:scale-95 transition-colors text-center"
+                    className="bg-[var(--p-surf)] border border-[var(--p-border)] text-[var(--p-muted)] font-['Lexend'] hover:text-[var(--p-text)] text-[9px] py-1.5 rounded-lg active:scale-95 transition-colors text-center"
                   >
                     +{val}
                   </button>
@@ -3914,7 +3914,7 @@ export default function App() {
             {/* Category list */}
             <div className="flex flex-col gap-1.5">
               <div className="flex justify-between items-center">
-                <label className="text-[9px] text-[var(--p-muted)] uppercase font-mono tracking-wider font-semibold">Category</label>
+                <label className="text-[9px] text-[var(--p-muted)] uppercase font-['Lexend'] tracking-wider font-semibold">Category</label>
               </div>
               <div className="relative">
                 <select
@@ -3932,7 +3932,7 @@ export default function App() {
 
             {/* Description */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-[9px] text-[var(--p-muted)] uppercase font-mono tracking-wider">Description / Notes</label>
+              <label className="text-[9px] text-[var(--p-muted)] uppercase font-['Lexend'] tracking-wider">Description / Notes</label>
               <input
                 type="text"
                 required
@@ -3946,7 +3946,7 @@ export default function App() {
             {/* Action save */}
             <button
               type="submit"
-              className="w-full bg-[var(--p-acc)] text-black font-semibold text-xs py-3 px-4 rounded-xl mt-2 tracking-widest uppercase font-mono hover:opacity-90 transition-all cursor-pointer"
+              className="w-full bg-[var(--p-acc)] text-black font-semibold text-xs py-3 px-4 rounded-xl mt-2 tracking-widest uppercase font-['Lexend'] hover:opacity-90 transition-all cursor-pointer"
             >
               Add Entry
             </button>
@@ -3996,14 +3996,14 @@ export default function App() {
               {/* Header */}
               <div className="flex justify-between items-start">
                 <div>
-                  <span className="text-blue-400 font-bold font-mono text-[10px]">{sms.sender || 'BANK-SMS'}</span>
-                  <p className="text-[var(--p-muted)] font-mono text-[9px] mt-0.5">
+                  <span className="text-blue-400 font-bold font-['Lexend'] text-[10px]">{sms.sender || 'BANK-SMS'}</span>
+                  <p className="text-[var(--p-muted)] font-['Lexend'] text-[9px] mt-0.5">
                     {new Date(sms.timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                     {' '}
                     {new Date(sms.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
-                <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full border font-bold ${
+                <span className={`text-[9px] font-['Lexend'] px-2 py-0.5 rounded-full border font-bold ${
                   sms.status === 'confirmed' ? 'text-emerald-400 border-emerald-800 bg-emerald-950/30' :
                   sms.status === 'skipped'   ? 'text-[var(--p-muted)] border-gray-800 bg-[var(--p-bg)]' :
                   'text-blue-400 border-blue-900 bg-yellow-950/20'
@@ -4015,7 +4015,7 @@ export default function App() {
               <p className="text-[var(--p-muted)] leading-relaxed">{sms.text}</p>
 
               {sms.parsedAmount ? (
-                <div className="flex gap-3 text-[10px] font-mono">
+                <div className="flex gap-3 text-[10px] font-['Lexend']">
                   <span className="text-[var(--p-muted)]">Amount: <strong className={sms.parsedType === 'income' ? 'text-emerald-400' : 'text-red-400'}>
                     {sms.parsedType === 'income' ? '+' : '-'}Rs.{Math.round(sms.parsedAmount).toLocaleString('en-IN')}
                   </strong></span>
@@ -4028,13 +4028,13 @@ export default function App() {
                 <div className="flex gap-2 pt-1 border-t border-[var(--p-border)]">
                   <button
                     onClick={() => openInlineWizard(sms)}
-                    className="flex-1 bg-[var(--p-acc)] hover:bg-[#c9a227] text-black font-mono font-bold text-[10px] uppercase tracking-wide py-2 rounded-lg transition-all"
+                    className="flex-1 bg-[var(--p-acc)] hover:bg-[#c9a227] text-black font-['Lexend'] font-bold text-[10px] uppercase tracking-wide py-2 rounded-lg transition-all"
                   >
                     Confirm
                   </button>
                   <button
                     onClick={() => { setSmsMessages(prev => prev.map(s => s.id === sms.id ? { ...s, status: 'skipped' } : s)); setInlineWizardSmsId(null); if (parseWizard?.originalSmsId === sms.id) setParseWizard(null); }}
-                    className="flex-1 border border-[var(--p-border2)] text-[var(--p-muted)] hover:text-[var(--p-text)] font-mono text-[10px] uppercase tracking-wide py-2 rounded-lg transition-all"
+                    className="flex-1 border border-[var(--p-border2)] text-[var(--p-muted)] hover:text-[var(--p-text)] font-['Lexend'] text-[10px] uppercase tracking-wide py-2 rounded-lg transition-all"
                   >
                     Skip
                   </button>
@@ -4046,13 +4046,13 @@ export default function App() {
                 <div className="flex gap-2 pt-1 border-t border-[var(--p-border)]">
                   <button
                     onClick={() => openInlineWizard(sms)}
-                    className="flex-1 border border-[var(--p-acc)]/40 text-[var(--p-acc)] hover:bg-[var(--p-acc)]/10 font-mono text-[10px] uppercase py-2 rounded-lg transition-all"
+                    className="flex-1 border border-[var(--p-acc)]/40 text-[var(--p-acc)] hover:bg-[var(--p-acc)]/10 font-['Lexend'] text-[10px] uppercase py-2 rounded-lg transition-all"
                   >
                     Re-enter
                   </button>
                   <button
                     onClick={() => { if (window.confirm('Delete this skipped record?')) setSmsMessages(prev => prev.filter(s => s.id !== sms.id)); }}
-                    className="w-8 border border-red-900/40 text-red-500 hover:bg-red-950/30 font-mono text-[10px] rounded-lg transition-all flex items-center justify-center"
+                    className="w-8 border border-red-900/40 text-red-500 hover:bg-red-950/30 font-['Lexend'] text-[10px] rounded-lg transition-all flex items-center justify-center"
                   >
                     <Trash2 size={12} />
                   </button>
@@ -4062,7 +4062,7 @@ export default function App() {
               {/* Confirmed: no delete, just status label */}
               {sms.status === 'confirmed' && (
                 <div className="pt-1 border-t border-[var(--p-border)]">
-                  <span className="text-emerald-400 text-[10px] font-mono">Added to ledger · auto-removes in {settingRetentionDays}d</span>
+                  <span className="text-emerald-400 text-[10px] font-['Lexend']">Added to ledger · auto-removes in {settingRetentionDays}d</span>
                 </div>
               )}
             </div>
@@ -4071,26 +4071,26 @@ export default function App() {
             {inlineWizardSmsId === sms.id && parseWizard && (
               <div className="bg-[var(--p-surf2)] border border-[var(--p-acc)]/30 border-t-0 rounded-b-xl p-4 space-y-3 animate-fade-in">
                 <div className="flex justify-between items-center">
-                  <span className="text-[9px] font-mono text-[var(--p-acc)] uppercase tracking-wider font-semibold">Confirm Transaction</span>
+                  <span className="text-[9px] font-['Lexend'] text-[var(--p-acc)] uppercase tracking-wider font-semibold">Confirm Transaction</span>
                   <button onClick={() => { setParseWizard(null); setInlineWizardSmsId(null); }} className="text-[var(--p-muted)] hover:text-[var(--p-text)] text-xs">✕</button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="bg-[var(--p-surf3)] p-2 rounded-lg border border-[var(--p-border)]">
-                    <span className="text-[8px] text-[var(--p-muted)] font-mono uppercase block">Amount</span>
+                    <span className="text-[8px] text-[var(--p-muted)] font-['Lexend'] uppercase block">Amount</span>
                     <span className="text-sm font-bold text-[var(--p-text)] font-mono">₹{parseWizard.amount}</span>
                   </div>
                   <div className="bg-[var(--p-surf3)] p-2 rounded-lg border border-[var(--p-border)]">
-                    <span className="text-[8px] text-[var(--p-muted)] font-mono uppercase block">Type</span>
+                    <span className="text-[8px] text-[var(--p-muted)] font-['Lexend'] uppercase block">Type</span>
                     <span className={`text-[11px] font-semibold uppercase ${parseWizard.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}`}>{parseWizard.type}</span>
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-[8px] text-[var(--p-acc)] font-mono uppercase tracking-wider">Category</label>
+                  <label className="text-[8px] text-[var(--p-acc)] font-['Lexend'] uppercase tracking-wider">Category</label>
                   <div className="relative">
                     <select value={parseWizard.proposedCategory} onChange={e => setParseWizard({ ...parseWizard, proposedCategory: e.target.value })}
-                      className="w-full bg-[var(--p-bg)] p-2 pr-7 rounded-lg text-xs font-mono text-[var(--p-text)] border border-[var(--p-border)] focus:outline-none focus:border-[var(--p-acc)] appearance-none cursor-pointer">
+                      className="w-full bg-[var(--p-bg)] p-2 pr-7 rounded-lg text-xs font-['Lexend'] text-[var(--p-text)] border border-[var(--p-border)] focus:outline-none focus:border-[var(--p-acc)] appearance-none cursor-pointer">
                       {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                     </select>
                     <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--p-muted)] pointer-events-none" />
@@ -4098,7 +4098,7 @@ export default function App() {
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-[8px] text-[var(--p-acc)] font-mono uppercase tracking-wider">Description</label>
+                  <label className="text-[8px] text-[var(--p-acc)] font-['Lexend'] uppercase tracking-wider">Description</label>
                   <input type="text" value={parseWizard.description} onChange={e => setParseWizard({ ...parseWizard, description: e.target.value })}
                     placeholder="Add a note..."
                     className="w-full bg-[var(--p-bg)] p-2 rounded-lg text-xs text-[var(--p-text)] border border-[var(--p-border)] focus:outline-none focus:border-[var(--p-acc)]" />
@@ -4106,7 +4106,7 @@ export default function App() {
 
                 <div className="flex gap-2">
                   <button onClick={saveTransactionFromSmsWizard}
-                    className="flex-1 bg-[var(--p-acc)] text-white font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:opacity-95 transition-all">
+                    className="flex-1 bg-[var(--p-acc)] text-white font-['Lexend'] font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:opacity-95 transition-all">
                     Save to Ledger
                   </button>
                   <button onClick={() => { setParseWizard(null); setInlineWizardSmsId(null); }}
@@ -4123,15 +4123,15 @@ export default function App() {
           <div className="space-y-3 animate-fade-in pt-5 text-xs">
             <div className="flex justify-between items-center pb-3 border-b border-[var(--p-border)]">
               <div className="flex items-center gap-2">
-                <h2 className="font-serif text-base text-[var(--p-text)]">SMS Inbox</h2>
-                <span className="text-[9px] bg-red-950/40 text-red-400 font-mono px-2 py-0.5 rounded-full border border-red-900/30">
+                <h2 className="font-['Lexend'] text-[13px] font-normal text-[var(--p-text)]">SMS Inbox</h2>
+                <span className="text-[9px] bg-red-950/40 text-red-400 font-['Lexend'] px-2 py-0.5 rounded-full border border-red-900/30">
                   {pendingSms.length} pending
                 </span>
               </div>
               {pendingSms.length > 0 && (
                 <button
                   onClick={() => { setSmsMessages(prev => prev.map(s => s.status === 'pending' ? { ...s, status: 'skipped' } : s)); setParseWizard(null); setInlineWizardSmsId(null); }}
-                  className="text-[9px] font-mono border border-[var(--p-border2)] text-[var(--p-muted)] hover:text-[var(--p-text)] px-2.5 py-1 rounded-lg transition-all"
+                  className="text-[9px] font-['Lexend'] border border-[var(--p-border2)] text-[var(--p-muted)] hover:text-[var(--p-text)] px-2.5 py-1 rounded-lg transition-all"
                 >
                   Skip All
                 </button>
@@ -4149,21 +4149,21 @@ export default function App() {
                 {/* Section: Pending */}
                 {pendingSms.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-[9px] font-mono text-blue-500 uppercase tracking-widest font-semibold px-1">Pending ({pendingSms.length})</p>
+                    <p className="text-[9px] font-['Lexend'] text-blue-500 uppercase tracking-widest font-semibold px-1">Pending ({pendingSms.length})</p>
                     {pendingSms.map(renderSmsCard)}
                   </div>
                 )}
                 {/* Section: Confirmed */}
                 {confirmedSms.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-[9px] font-mono text-emerald-500 uppercase tracking-widest font-semibold px-1">Confirmed ({confirmedSms.length})</p>
+                    <p className="text-[9px] font-['Lexend'] text-emerald-500 uppercase tracking-widest font-semibold px-1">Confirmed ({confirmedSms.length})</p>
                     {confirmedSms.map(renderSmsCard)}
                   </div>
                 )}
                 {/* Section: Skipped */}
                 {skippedSms.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-[9px] font-mono text-[var(--p-muted)] uppercase tracking-widest font-semibold px-1">Skipped ({skippedSms.length})</p>
+                    <p className="text-[9px] font-['Lexend'] text-[var(--p-muted)] uppercase tracking-widest font-semibold px-1">Skipped ({skippedSms.length})</p>
                     {skippedSms.map(renderSmsCard)}
                   </div>
                 )}
@@ -4198,18 +4198,18 @@ export default function App() {
         return (
           <div className="space-y-4 animate-fade-in pt-2 text-xs">
             <div className="flex flex-col border-b border-[var(--p-border)] pb-3">
-              <span className="text-[9px] text-[var(--p-muted)] font-mono tracking-widest uppercase font-bold">Budget</span>
-              <h2 className="font-serif text-base text-[var(--p-text)]">My Budgets</h2>
+              <span className="text-[9px] text-[var(--p-muted)] font-['Lexend'] tracking-widest uppercase font-bold">Budget</span>
+              <h2 className="font-['Lexend'] text-[13px] font-normal text-[var(--p-text)]">My Budgets</h2>
             </div>
 
             {/* ── Add Budget Form ── */}
             <div className="bg-[var(--p-surf)] border border-[var(--p-acc)] rounded-2xl p-4">
-              <p className="text-[10px] font-mono font-bold uppercase tracking-widest text-[var(--p-acc)] text-center mb-4">+ Add Budget</p>
+              <p className="text-[10px] font-['Lexend'] font-bold uppercase tracking-widest text-[var(--p-acc)] text-center mb-4">+ Add Budget</p>
 
               <div className="mb-3">
-                <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-[var(--p-muted)] block mb-1.5">Month</label>
+                <label className="text-[9px] font-['Lexend'] font-bold uppercase tracking-wider text-[var(--p-muted)] block mb-1.5">Month</label>
                 <select value={budgetMonth} onChange={e => setBudgetMonth(e.target.value)}
-                  className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-mono appearance-none">
+                  className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-['Lexend'] appearance-none">
                   <option value="Sep-2026">Sep 2026</option>
                   <option value="Oct-2026">Oct 2026</option>
                   <option value="Nov-2026">Nov 2026</option>
@@ -4220,9 +4220,9 @@ export default function App() {
               </div>
 
               <div className="mb-3">
-                <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-[var(--p-muted)] block mb-1.5">Category</label>
+                <label className="text-[9px] font-['Lexend'] font-bold uppercase tracking-wider text-[var(--p-muted)] block mb-1.5">Category</label>
                 <select value={budgetCategory} onChange={e => setBudgetCategory(e.target.value)}
-                  className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-mono appearance-none">
+                  className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-['Lexend'] appearance-none">
                   {categories.map(cat => (
                     <option key={cat} value={cat}>{categoryIcons[cat] || '⭐'} {cat}</option>
                   ))}
@@ -4230,16 +4230,16 @@ export default function App() {
               </div>
 
               <div className="mb-4">
-                <label className="text-[9px] font-mono font-bold uppercase tracking-wider text-[var(--p-muted)] block mb-1.5">Amount (₹)</label>
+                <label className="text-[9px] font-['Lexend'] font-bold uppercase tracking-wider text-[var(--p-muted)] block mb-1.5">Amount (₹)</label>
                 <input type="number" value={budgetAmountInput} onChange={e => setBudgetAmountInput(e.target.value)}
                   placeholder="0"
-                  className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-[18px] font-bold text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-mono"
+                  className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-[18px] font-bold text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-['Lexend']"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <button onClick={() => { setBudgetAmountInput(''); setBudgetCategory(categories[0] || ''); }}
-                  className="border border-[var(--p-border)] text-[var(--p-muted)] font-mono text-[10px] font-bold uppercase tracking-wider py-3 rounded-xl">
+                  className="border border-[var(--p-border)] text-[var(--p-muted)] font-['Lexend'] text-[10px] font-bold uppercase tracking-wider py-3 rounded-xl">
                   Cancel
                 </button>
                 <button onClick={() => {
@@ -4252,7 +4252,7 @@ export default function App() {
                   setBudgetAmountInput('');
                   showToast(`Budget added for ${budgetCategory}`);
                 }}
-                  className="bg-[var(--p-acc)] text-black font-mono text-[10px] font-bold uppercase tracking-wider py-3 rounded-xl">
+                  className="bg-[var(--p-acc)] text-black font-['Lexend'] text-[10px] font-bold uppercase tracking-wider py-3 rounded-xl">
                   Add
                 </button>
               </div>
@@ -4261,14 +4261,14 @@ export default function App() {
             {/* ── Divider ── */}
             <div className="flex items-center gap-2">
               <div className="flex-1 border-t border-[var(--p-border)]"></div>
-              <span className="text-[9px] font-mono text-[var(--p-muted)] uppercase tracking-wider whitespace-nowrap">Budgets by Month</span>
+              <span className="text-[9px] font-['Lexend'] text-[var(--p-muted)] uppercase tracking-wider whitespace-nowrap">Budgets by Month</span>
               <div className="flex-1 border-t border-[var(--p-border)]"></div>
             </div>
 
             {/* ── Month accordion ── */}
             {sortedMonths.length === 0 ? (
               <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-6 text-center">
-                <p className="text-[11px] font-mono text-[var(--p-muted)] italic">No budgets yet. Add one above.</p>
+                <p className="text-[11px] font-['Lexend'] text-[var(--p-muted)] italic">No budgets yet. Add one above.</p>
               </div>
             ) : (
               sortedMonths.map(monthKey => {
@@ -4285,8 +4285,8 @@ export default function App() {
                       <div className="flex items-center gap-2">
                         <span className="text-[var(--p-acc)] text-[11px]"
                           style={{display:'inline-block',transition:'transform .2s',transform:isOpen?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
-                        <span className="font-mono font-bold text-[12px] text-[var(--p-text)]">{monthKey.replace('-', ' ')}</span>
-                        {isCurrent && <span className="text-[8px] font-mono text-[var(--p-acc)] px-1.5 py-0.5 bg-[var(--p-accdim)] rounded">● current</span>}
+                        <span className="font-['Lexend'] font-bold text-[12px] text-[var(--p-text)]">{monthKey.replace('-', ' ')}</span>
+                        {isCurrent && <span className="text-[8px] font-['Lexend'] text-[var(--p-acc)] px-1.5 py-0.5 bg-[var(--p-accdim)] rounded">● current</span>}
                       </div>
                       <span className="font-mono font-bold text-[11px] text-[var(--p-acc)]">₹{Math.round(total).toLocaleString('en-IN')}</span>
                     </div>
@@ -4345,7 +4345,7 @@ export default function App() {
             {budgets.length > 0 && (
               <div className="text-center">
                 <button onClick={() => { if(window.confirm('Delete all budgets?')) setBudgets([]); }}
-                  className="text-[10px] font-mono text-[#dc2626] underline cursor-pointer bg-none border-none">
+                  className="text-[10px] font-['Lexend'] text-[#dc2626] underline cursor-pointer bg-none border-none">
                   Clear all budgets
                 </button>
               </div>
@@ -4360,13 +4360,13 @@ export default function App() {
 
           <div className="flex justify-between items-center pb-3 border-b border-[var(--p-border)]">
             <div>
-              <span className="text-[9px] text-[var(--p-muted)] font-mono tracking-widest uppercase font-bold">Transaction Log</span>
-              <h2 className="font-serif text-base text-[var(--p-text)]">History</h2>
+              <span className="text-[9px] text-[var(--p-muted)] font-['Lexend'] tracking-widest uppercase font-bold">Transaction Log</span>
+              <h2 className="font-['Lexend'] text-[13px] font-normal text-[var(--p-text)]">History</h2>
             </div>
             <div className="flex gap-2">
               <button
                 onClick={handleExportToExcelStyleCsv}
-                className="bg-[var(--p-bg)] border border-[var(--p-border)] hover:border-[var(--p-acc)] text-[var(--p-acc)] py-1.5 px-3 rounded-xl flex items-center gap-1.5 transition-all font-mono text-[9px] uppercase tracking-wider"
+                className="bg-[var(--p-bg)] border border-[var(--p-border)] hover:border-[var(--p-acc)] text-[var(--p-acc)] py-1.5 px-3 rounded-xl flex items-center gap-1.5 transition-all font-['Lexend'] text-[9px] uppercase tracking-wider"
               >
                 <Download size={12} /> Export
               </button>
@@ -4385,17 +4385,17 @@ export default function App() {
             <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4" onClick={() => setEditingTransaction(null)}>
               <div className="bg-[var(--p-surf)] border border-[var(--p-acc)]/20 rounded-2xl shadow-2xl p-4 w-full max-w-[380px] space-y-3 shadow-2xl" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center border-b border-[var(--p-border)] pb-2">
-                  <span className="text-[10px] font-mono text-[var(--p-acc)] uppercase tracking-wider font-semibold">Edit Transaction</span>
+                  <span className="text-[10px] font-['Lexend'] text-[var(--p-acc)] uppercase tracking-wider font-semibold">Edit Transaction</span>
                   <button onClick={() => setEditingTransaction(null)} className="text-[var(--p-muted)] hover:text-[var(--p-text)] text-xs">✕</button>
                 </div>
                 <div className="space-y-2.5">
                   <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider">Date</label>
+                    <label className="text-[9px] text-[var(--p-muted)] font-['Lexend'] uppercase tracking-wider">Date</label>
                     <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
-                      className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-xs text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-mono" />
+                      className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-xs text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-['Lexend']" />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider">Category</label>
+                    <label className="text-[9px] text-[var(--p-muted)] font-['Lexend'] uppercase tracking-wider">Category</label>
                     <div className="relative">
                       <select value={editCategory} onChange={e => setEditCategory(e.target.value)}
                         className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 pr-8 text-xs text-[var(--p-text)] appearance-none outline-none focus:border-[var(--p-acc)]">
@@ -4405,23 +4405,23 @@ export default function App() {
                     </div>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider">Description</label>
+                    <label className="text-[9px] text-[var(--p-muted)] font-['Lexend'] uppercase tracking-wider">Description</label>
                     <input type="text" value={editDescription} onChange={e => setEditDescription(e.target.value)}
                       className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-xs text-[var(--p-text)] outline-none focus:border-[var(--p-acc)]" />
                   </div>
                   <div className="flex flex-col gap-1">
                     <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider">Amount (₹)</label>
                     <input type="number" value={editAmount} onChange={e => setEditAmount(e.target.value)}
-                      className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-xs text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-mono" />
+                      className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-xs text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-['Lexend']" />
                   </div>
                 </div>
                 <div className="flex gap-2 pt-1">
                   <button onClick={saveEditTransaction}
-                    className="flex-1 bg-[var(--p-acc)] text-white font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:opacity-90 transition-all">
+                    className="flex-1 bg-[var(--p-acc)] text-white font-['Lexend'] font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:opacity-90 transition-all">
                     Save Changes
                   </button>
                   <button onClick={() => { handleDeleteTransaction(editingTransaction.id); setEditingTransaction(null); }}
-                    className="px-4 border border-red-900/50 text-red-400 hover:bg-red-950/30 font-mono text-[10px] rounded-xl transition-all">
+                    className="px-4 border border-red-900/50 text-red-400 hover:bg-red-950/30 font-['Lexend'] text-[10px] rounded-xl transition-all">
                     Delete
                   </button>
                 </div>
@@ -4433,7 +4433,7 @@ export default function App() {
           <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-3 space-y-3">
             {/* Month filter row */}
             <div className="flex flex-col gap-1">
-              <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider">Month</label>
+              <label className="text-[9px] text-[var(--p-muted)] font-['Lexend'] uppercase tracking-wider">Month</label>
               <div className="relative">
                 <select value={historyMonthFilter} onChange={e => setHistoryMonthFilter(e.target.value)}
                   className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg py-1.5 px-2 pr-6 text-[10px] text-[var(--p-text)] appearance-none outline-none focus:border-[var(--p-acc)]">
@@ -4445,7 +4445,7 @@ export default function App() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="flex flex-col gap-1">
-                <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider">Category</label>
+                <label className="text-[9px] text-[var(--p-muted)] font-['Lexend'] uppercase tracking-wider">Category</label>
                 <select value={historyFilterCategory} onChange={e => setHistoryFilterCategory(e.target.value)}
                   className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg py-1.5 px-2 text-[10px] text-[var(--p-text)] appearance-none outline-none focus:border-[var(--p-acc)]">
                   <option value="All">All</option>
@@ -4453,7 +4453,7 @@ export default function App() {
                 </select>
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider">Type</label>
+                <label className="text-[9px] text-[var(--p-muted)] font-['Lexend'] uppercase tracking-wider">Type</label>
                 <select value={historyFilterType} onChange={e => setHistoryFilterType(e.target.value)}
                   className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg py-1.5 px-2 text-[10px] text-[var(--p-text)] appearance-none outline-none focus:border-[var(--p-acc)]">
                   <option value="All">All</option>
@@ -4472,7 +4472,7 @@ export default function App() {
               return (
                 <div className="flex flex-col gap-1.5">
                   <button onClick={() => openCal('history')}
-                    className={`flex items-center gap-2 bg-[var(--p-bg)] border rounded-lg py-2 px-3 text-[11px] font-mono outline-none transition-all w-full ${hasDateFilter ? 'border-[var(--p-acc)] text-[var(--p-acc)]' : 'border-[var(--p-border)] text-[var(--p-muted)]'}`}>
+                    className={`flex items-center gap-2 bg-[var(--p-bg)] border rounded-lg py-2 px-3 text-[11px] font-['Lexend'] outline-none transition-all w-full ${hasDateFilter ? 'border-[var(--p-acc)] text-[var(--p-acc)]' : 'border-[var(--p-border)] text-[var(--p-muted)]'}`}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                     <span className="truncate">{dateLabel}</span>
                     {hasDateFilter && <button onClick={e => { e.stopPropagation(); setHistoryDateFrom(null); setHistoryDateTo(null); }} className="ml-auto text-[var(--p-muted)] hover:text-[var(--p-text)] text-[10px]">×</button>}
@@ -4489,7 +4489,7 @@ export default function App() {
                 setHistoryDateTo(null);
                 setHistoryDateTo(null);
               }}
-                className="text-[9px] text-[var(--p-acc)] font-mono uppercase tracking-wider hover:underline">
+                className="text-[9px] text-[var(--p-acc)] font-['Lexend'] uppercase tracking-wider hover:underline">
                 Reset to Current Month
               </button>
             )}
@@ -4515,7 +4515,7 @@ export default function App() {
               if (historyDateTo) list = list.filter(t => t.date <= historyDateTo!);
 
               if (list.length === 0) return (
-                <div className="text-center py-10 text-[var(--p-muted2)] font-mono text-[10px]">
+                <div className="text-center py-10 text-[var(--p-muted2)] font-['Lexend'] text-[10px]">
                   No transactions for {historyMonthFilter === 'All' ? 'selected filters' : historyMonthFilter}.
                 </div>
               );
@@ -4530,17 +4530,17 @@ export default function App() {
                     <div className="flex items-center gap-1.5">
                       <span className="text-[11px] font-medium text-[var(--p-text)] truncate">{item.description}</span>
                     </div>
-                    <div className="flex gap-1.5 text-[9px] text-[var(--p-muted)] font-mono mt-0.5">
+                    <div className="flex gap-1.5 text-[9px] text-[var(--p-muted)] font-['Lexend'] mt-0.5">
                       <span>{item.date}</span>
                       <span>•</span>
                       <span>{categoryIcons[item.category] || '⭐'} {item.category}</span>
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className={`text-[11px] font-bold font-mono ${item.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    <p className={`text-[11px] font-bold font-['Lexend'] ${item.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {item.type === 'income' ? '+' : '-'}₹{Math.round(item.amount).toLocaleString('en-IN')}
                     </p>
-                    <p className="text-[8px] text-[var(--p-muted2)] font-mono">{item.type === 'income' ? 'Received' : 'Sent'}</p>
+                    <p className="text-[8px] text-[var(--p-muted2)] font-['Lexend']">{item.type === 'income' ? 'Received' : 'Sent'}</p>
                   </div>
                 </div>
               ));
@@ -4559,9 +4559,9 @@ export default function App() {
             <div className="flex items-center gap-3 px-4 py-3">
               <div className="w-7 h-7 rounded-lg bg-[var(--p-accdim)] flex items-center justify-center text-[14px] flex-shrink-0">☁️</div>
               <div className="flex-1 min-w-0">
-                <p className="font-mono font-bold text-[12px] text-[var(--p-text)]">Google Drive Sync</p>
+                <p className="font-['Lexend'] font-bold text-[12px] text-[var(--p-text)]">Google Drive Sync</p>
                 {isGuest && !googleUser ? (
-                  <p className="font-mono text-[9px] text-[var(--p-muted)] mt-0.5">Guest mode · data local only · sign in to sync</p>
+                  <p className="font-['Lexend'] text-[9px] text-[var(--p-muted)] mt-0.5">Guest mode · data local only · sign in to sync</p>
                 ) : googleUser ? (
                   <div className="mt-0.5">
                     <div className="flex items-center gap-1.5">
@@ -4570,7 +4570,7 @@ export default function App() {
                         syncStatus === 'error'   ? 'bg-red-400' :
                         syncStatus === 'synced'  ? 'bg-emerald-400' : 'bg-[var(--p-muted)]'
                       }`}/>
-                      <span className="font-mono text-[9px] text-[var(--p-muted)] truncate">
+                      <span className="font-['Lexend'] text-[9px] text-[var(--p-muted)] truncate">
                         {syncStatus === 'syncing' ? 'Syncing...' :
                          syncStatus === 'error'   ? (syncError || 'Sync failed') :
                          syncStatus === 'synced'  ? `Synced · ${googleUser.email}` :
@@ -4578,21 +4578,21 @@ export default function App() {
                       </span>
                     </div>
                     {syncStatus === 'error' && syncError && (
-                      <p className="text-[9px] font-mono text-red-400 mt-0.5 truncate">{syncError}</p>
+                      <p className="text-[9px] font-['Lexend'] text-red-400 mt-0.5 truncate">{syncError}</p>
                     )}
                   </div>
                 ) : (
-                  <p className="font-mono text-[9px] text-[var(--p-muted)] mt-0.5">Not connected</p>
+                  <p className="font-['Lexend'] text-[9px] text-[var(--p-muted)] mt-0.5">Not connected</p>
                 )}
               </div>
               {googleUser ? (
                 <button onClick={signOut}
-                  className="px-3 py-1.5 rounded-lg border border-[#dc2626] text-[#dc2626] font-mono text-[9px] font-bold uppercase flex-shrink-0">
+                  className="px-3 py-1.5 rounded-lg border border-[#dc2626] text-[#dc2626] font-['Lexend'] text-[9px] font-bold uppercase flex-shrink-0">
                   Sign Out
                 </button>
               ) : (
                 <button onClick={signInWithGoogle} disabled={authLoading}
-                  className="px-3 py-1.5 rounded-lg border border-[var(--p-acc)] text-[var(--p-acc)] bg-[var(--p-accdim)] font-mono text-[9px] font-bold uppercase flex-shrink-0 disabled:opacity-50">
+                  className="px-3 py-1.5 rounded-lg border border-[var(--p-acc)] text-[var(--p-acc)] bg-[var(--p-accdim)] font-['Lexend'] text-[9px] font-bold uppercase flex-shrink-0 disabled:opacity-50">
                   {authLoading ? '...' : 'Sign In'}
                 </button>
               )}
@@ -4600,7 +4600,7 @@ export default function App() {
             {syncStatus === 'error' && googleUser && (
               <div className="px-4 pb-3">
                 <button onClick={() => saveToDrive()}
-                  className="w-full border border-[var(--p-acc)]/30 text-[var(--p-acc)] font-mono text-[9px] uppercase py-2 rounded-lg">
+                  className="w-full border border-[var(--p-acc)]/30 text-[var(--p-acc)] font-['Lexend'] text-[9px] uppercase py-2 rounded-lg">
                   Retry Sync
                 </button>
               </div>
@@ -4612,7 +4612,7 @@ export default function App() {
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('appearance')}>
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 rounded-lg bg-[var(--p-accdim)] flex items-center justify-center text-[14px]">🎨</div>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Appearance</span>
+                <span className="font-['Lexend'] text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Appearance</span>
               </div>
               <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('appearance')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
@@ -4626,8 +4626,8 @@ export default function App() {
                     className={`flex flex-col items-center gap-1.5 border-2 rounded-xl p-2.5 transition-all ${appTheme==='aurelius' ? 'border-[#d4af37] bg-[#1a1500]' : 'border-[var(--p-border)] bg-transparent'}`}>
                     <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[14px]" style={{background:'#050505',border:'2px solid #d4af37',color:'#d4af37'}}>★</div>
                     <div className="text-center">
-                      <p className={`font-mono text-[9px] font-bold ${appTheme==='aurelius' ? 'text-[#d4af37]' : 'text-[var(--p-muted)]'}`}>Aurelius</p>
-                      <p className="font-mono text-[7px] text-[var(--p-muted2)]">Dark·Gold</p>
+                      <p className={`font-['Lexend'] text-[9px] font-bold ${appTheme==='aurelius' ? 'text-[#d4af37]' : 'text-[var(--p-muted)]'}`}>Aurelius</p>
+                      <p className="font-['Lexend'] text-[7px] text-[var(--p-muted2)]">Dark·Gold</p>
                     </div>
                     {appTheme==='aurelius' && <div className="w-[4px] h-[4px] rounded-full" style={{background:'#d4af37'}}/>}
                   </button>
@@ -4637,8 +4637,8 @@ export default function App() {
                     className={`flex flex-col items-center gap-1.5 border-2 rounded-xl p-2.5 transition-all ${appTheme==='royal' ? 'border-[#1B2CC1] bg-[#E8EAFB]' : 'border-[var(--p-border)] bg-transparent'}`}>
                     <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[14px]" style={{background:'#F8FAFF',border:'2px solid #1B2CC1',color:'#1B2CC1'}}>◆</div>
                     <div className="text-center">
-                      <p className={`font-mono text-[9px] font-bold ${appTheme==='royal' ? 'text-[#1B2CC1]' : 'text-[var(--p-muted)]'}`}>Royal</p>
-                      <p className="font-mono text-[7px] text-[var(--p-muted2)]">Light·Blue</p>
+                      <p className={`font-['Lexend'] text-[9px] font-bold ${appTheme==='royal' ? 'text-[#1B2CC1]' : 'text-[var(--p-muted)]'}`}>Royal</p>
+                      <p className="font-['Lexend'] text-[7px] text-[var(--p-muted2)]">Light·Blue</p>
                     </div>
                     {appTheme==='royal' && <div className="w-[4px] h-[4px] rounded-full" style={{background:'#1B2CC1'}}/>}
                   </button>
@@ -4648,8 +4648,8 @@ export default function App() {
                     className={`flex flex-col items-center gap-1.5 border-2 rounded-xl p-2.5 transition-all ${appTheme==='banklight' ? 'border-[#2563EB] bg-[#DBEAFE]' : 'border-[var(--p-border)] bg-transparent'}`}>
                     <div className="w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-bold" style={{background:'#F8FAFC',border:'2px solid #2563EB',color:'#2563EB'}}>B</div>
                     <div className="text-center">
-                      <p className={`font-mono text-[9px] font-bold ${appTheme==='banklight' ? 'text-[#2563EB]' : 'text-[var(--p-muted)]'}`}>BankLight</p>
-                      <p className="font-mono text-[7px] text-[var(--p-muted2)]">White·Blue</p>
+                      <p className={`font-['Lexend'] text-[9px] font-bold ${appTheme==='banklight' ? 'text-[#2563EB]' : 'text-[var(--p-muted)]'}`}>BankLight</p>
+                      <p className="font-['Lexend'] text-[7px] text-[var(--p-muted2)]">White·Blue</p>
                     </div>
                     {appTheme==='banklight' && <div className="w-[4px] h-[4px] rounded-full" style={{background:'#2563EB'}}/>}
                   </button>
@@ -4659,8 +4659,8 @@ export default function App() {
                     className={`flex flex-col items-center gap-1.5 border-2 rounded-xl p-2.5 transition-all ${appTheme==='midnightpro' ? 'border-[#3B82F6] bg-[#1E3A5F]' : 'border-[var(--p-border)] bg-transparent'}`}>
                     <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[13px] font-bold" style={{background:'#0B1120',border:'2px solid #3B82F6',color:'#3B82F6'}}>M</div>
                     <div className="text-center">
-                      <p className={`font-mono text-[9px] font-bold ${appTheme==='midnightpro' ? 'text-[#3B82F6]' : 'text-[var(--p-muted)]'}`}>Midnight</p>
-                      <p className="font-mono text-[7px] text-[var(--p-muted2)]">Dark·Blue</p>
+                      <p className={`font-['Lexend'] text-[9px] font-bold ${appTheme==='midnightpro' ? 'text-[#3B82F6]' : 'text-[var(--p-muted)]'}`}>Midnight</p>
+                      <p className="font-['Lexend'] text-[7px] text-[var(--p-muted2)]">Dark·Blue</p>
                     </div>
                     {appTheme==='midnightpro' && <div className="w-[4px] h-[4px] rounded-full" style={{background:'#3B82F6'}}/>}
                   </button>
@@ -4670,16 +4670,16 @@ export default function App() {
                     className={`flex flex-col items-center gap-1.5 border-2 rounded-xl p-2.5 transition-all ${appTheme==='indigosaas' ? 'border-[#4338CA] bg-[#E0E7FF]' : 'border-[var(--p-border)] bg-transparent'}`}>
                     <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[13px] font-bold" style={{background:'#F8FAFC',border:'2px solid #4338CA',color:'#4338CA'}}>I</div>
                     <div className="text-center">
-                      <p className={`font-mono text-[9px] font-bold ${appTheme==='indigosaas' ? 'text-[#4338CA]' : 'text-[var(--p-muted)]'}`}>Indigo</p>
-                      <p className="font-mono text-[7px] text-[var(--p-muted2)]">White·Indigo</p>
+                      <p className={`font-['Lexend'] text-[9px] font-bold ${appTheme==='indigosaas' ? 'text-[#4338CA]' : 'text-[var(--p-muted)]'}`}>Indigo</p>
+                      <p className="font-['Lexend'] text-[7px] text-[var(--p-muted2)]">White·Indigo</p>
                     </div>
                     {appTheme==='indigosaas' && <div className="w-[4px] h-[4px] rounded-full" style={{background:'#4338CA'}}/>}
                   </button>
 
                   {/* 6. Empty placeholder cell for symmetry */}
                   <div className="flex flex-col items-center justify-center border-2 border-dashed border-[var(--p-border)] rounded-xl p-2.5 opacity-30">
-                    <p className="font-mono text-[7px] text-[var(--p-muted2)]">More</p>
-                    <p className="font-mono text-[7px] text-[var(--p-muted2)]">soon</p>
+                    <p className="font-['Lexend'] text-[7px] text-[var(--p-muted2)]">More</p>
+                    <p className="font-['Lexend'] text-[7px] text-[var(--p-muted2)]">soon</p>
                   </div>
 
                 </div>
@@ -4692,7 +4692,7 @@ export default function App() {
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('data-mgmt')}>
               <div className="flex items-center gap-2">
                 <Download size={14} className="text-[var(--p-acc)]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Data Management</span>
+                <span className="font-['Lexend'] text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Data Management</span>
               </div>
               <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('data-mgmt')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
@@ -4701,23 +4701,23 @@ export default function App() {
                 {/* Load from Drive — signed in only */}
                 {googleUser && !isCapacitor && (
                   <button onClick={() => { if(window.confirm('Load from Drive? This will replace all current app data.')) loadFromDrive(accessToken!); }}
-                    className="w-full border border-[#4a90d9] text-[#4a90d9] bg-[#0a1a2a] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#0d2035] transition-all flex items-center justify-center gap-2 mt-3">
+                    className="w-full border border-[#4a90d9] text-[#4a90d9] bg-[#0a1a2a] font-['Lexend'] text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#0d2035] transition-all flex items-center justify-center gap-2 mt-3">
                     <Download size={12}/> Load from Drive
                   </button>
                 )}
-                <button onClick={handleCsvExport} className="w-full border border-[var(--p-acc)]/40 text-[var(--p-acc)] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[var(--p-acc)]/10 transition-all flex items-center justify-center gap-2 mt-3">
+                <button onClick={handleCsvExport} className="w-full border border-[var(--p-acc)]/40 text-[var(--p-acc)] font-['Lexend'] text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[var(--p-acc)]/10 transition-all flex items-center justify-center gap-2 mt-3">
                   <Download size={12}/> Export Transactions (CSV)
                 </button>
-                <button onClick={handleLedgerExport} className="w-full border border-[var(--p-acc)]/40 text-[var(--p-acc)] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[var(--p-acc)]/10 transition-all flex items-center justify-center gap-2">
+                <button onClick={handleLedgerExport} className="w-full border border-[var(--p-acc)]/40 text-[var(--p-acc)] font-['Lexend'] text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[var(--p-acc)]/10 transition-all flex items-center justify-center gap-2">
                   <Download size={12}/> Export Ledger (CSV)
                 </button>
                 <label className="block">
                   <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleCsvImportFile(f); e.target.value = ''; }}/>
-                  <span className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#1a1a1a] transition-all flex items-center justify-center gap-2 cursor-pointer">
+                  <span className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-['Lexend'] text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-[#1a1a1a] transition-all flex items-center justify-center gap-2 cursor-pointer">
                     <Upload size={12}/> Import CSV
                   </span>
                 </label>
-                <div className="bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-3 text-[9px] font-mono text-[var(--p-muted)] leading-relaxed">
+                <div className="bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-3 text-[9px] font-['Lexend'] text-[var(--p-muted)] leading-relaxed">
                   <p className="font-semibold text-[var(--p-muted)] mb-1">Import accepts two formats:</p>
                   <p>• Export format: Date, Category, Description, Amount In, Amount Out</p>
                   <p>• Template format: Date, Type, Amount, Category, Description</p>
@@ -4731,7 +4731,7 @@ export default function App() {
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('sms-notif')}>
               <div className="flex items-center gap-2">
                 <MessageSquare size={14} className="text-[var(--p-acc)]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">SMS & Notifications</span>
+                <span className="font-['Lexend'] text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">SMS & Notifications</span>
               </div>
               <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('sms-notif')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
@@ -4744,8 +4744,8 @@ export default function App() {
                 ].map(item => (
                   <div key={item.key} className="flex items-center justify-between">
                     <div>
-                      <p className="text-[var(--p-text)] text-[11px] font-mono font-semibold">{item.label}</p>
-                      <p className="text-[var(--p-muted)] text-[9px] font-mono mt-0.5">{item.desc}</p>
+                      <p className="text-[var(--p-text)] text-[11px] font-['Lexend'] font-semibold">{item.label}</p>
+                      <p className="text-[var(--p-muted)] text-[9px] font-['Lexend'] mt-0.5">{item.desc}</p>
                     </div>
                     <button onClick={() => item.set(!item.state)}
                       className={`relative w-10 h-5 rounded-full transition-all ${item.state ? 'bg-[var(--p-acc)]' : 'bg-[var(--p-accdim2)]'}`}>
@@ -4762,20 +4762,20 @@ export default function App() {
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('retention')}>
               <div className="flex items-center gap-2">
                 <Calendar size={14} className="text-[var(--p-acc)]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Retention Period</span>
+                <span className="font-['Lexend'] text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Retention Period</span>
               </div>
               <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('retention')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('retention') && (
               <div className="px-4 pb-4 border-t border-[var(--p-border)] pt-3">
-                <p className="text-[var(--p-muted)] text-[9px] font-mono mb-3">Keep SMS messages for this many days before auto-deleting confirmed/skipped ones.</p>
+                <p className="text-[var(--p-muted)] text-[9px] font-['Lexend'] mb-3">Keep SMS messages for this many days before auto-deleting confirmed/skipped ones.</p>
                 <div className="flex items-center justify-between bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-3">
-                  <button onClick={() => setSettingRetentionDays(d => Math.max(7, d - 7))} className="text-[var(--p-acc)] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--p-acc)]/10">−</button>
+                  <button onClick={() => setSettingRetentionDays(d => Math.max(7, d - 7))} className="text-[var(--p-acc)] text-lg font-['Lexend'] w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--p-acc)]/10">−</button>
                   <div className="text-center">
-                    <span className="text-[var(--p-text)] font-mono font-bold text-base">{settingRetentionDays}</span>
-                    <span className="text-[var(--p-muted)] font-mono text-[9px] ml-1">days</span>
+                    <span className="text-[var(--p-text)] font-['Lexend'] font-bold text-base">{settingRetentionDays}</span>
+                    <span className="text-[var(--p-muted)] font-['Lexend'] text-[9px] ml-1">days</span>
                   </div>
-                  <button onClick={() => setSettingRetentionDays(d => Math.min(365, d + 7))} className="text-[var(--p-acc)] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--p-acc)]/10">+</button>
+                  <button onClick={() => setSettingRetentionDays(d => Math.min(365, d + 7))} className="text-[var(--p-acc)] text-lg font-['Lexend'] w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--p-acc)]/10">+</button>
                 </div>
               </div>
             )}
@@ -4786,25 +4786,25 @@ export default function App() {
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('export-reminder')}>
               <div className="flex items-center gap-2">
                 <Download size={14} className="text-[var(--p-acc)]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Export Reminder</span>
+                <span className="font-['Lexend'] text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Export Reminder</span>
               </div>
               <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('export-reminder')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('export-reminder') && (
               <div className="px-4 pb-4 border-t border-[var(--p-border)] pt-3 space-y-3">
-                <p className="text-[var(--p-muted)] text-[9px] font-mono">Remind you to export if you haven't backed up in this many days.</p>
+                <p className="text-[var(--p-muted)] text-[9px] font-['Lexend']">Remind you to export if you haven't backed up in this many days.</p>
                 <div className="flex items-center justify-between bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-3">
-                  <button onClick={() => setSettingExportReminderDays(d => Math.max(1, d - 1))} className="text-[var(--p-acc)] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--p-acc)]/10">−</button>
+                  <button onClick={() => setSettingExportReminderDays(d => Math.max(1, d - 1))} className="text-[var(--p-acc)] text-lg font-['Lexend'] w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--p-acc)]/10">−</button>
                   <div className="text-center">
-                    <span className="text-[var(--p-text)] font-mono font-bold text-base">{settingExportReminderDays}</span>
-                    <span className="text-[var(--p-muted)] font-mono text-[9px] ml-1">days</span>
+                    <span className="text-[var(--p-text)] font-['Lexend'] font-bold text-base">{settingExportReminderDays}</span>
+                    <span className="text-[var(--p-muted)] font-['Lexend'] text-[9px] ml-1">days</span>
                   </div>
-                  <button onClick={() => setSettingExportReminderDays(d => Math.min(90, d + 1))} className="text-[var(--p-acc)] text-lg font-mono w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--p-acc)]/10">+</button>
+                  <button onClick={() => setSettingExportReminderDays(d => Math.min(90, d + 1))} className="text-[var(--p-acc)] text-lg font-['Lexend'] w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--p-acc)]/10">+</button>
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   {[3,7,14,30].map(d => (
                     <button key={d} onClick={() => setSettingExportReminderDays(d)}
-                      className={`px-3 py-1.5 rounded-lg border text-[9px] font-mono transition-all ${settingExportReminderDays === d ? 'border-[var(--p-acc)] text-[var(--p-acc)] bg-[var(--p-acc)]/10' : 'border-[var(--p-border)] text-[var(--p-muted)]'}`}>
+                      className={`px-3 py-1.5 rounded-lg border text-[9px] font-['Lexend'] transition-all ${settingExportReminderDays === d ? 'border-[var(--p-acc)] text-[var(--p-acc)] bg-[var(--p-acc)]/10' : 'border-[var(--p-border)] text-[var(--p-muted)]'}`}>
                       {d}d
                     </button>
                   ))}
@@ -4821,7 +4821,7 @@ export default function App() {
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('manage-cat')}>
               <div className="flex items-center gap-2">
                 <BrandIcon size={14} className="text-[var(--p-acc)]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Manage Category</span>
+                <span className="font-['Lexend'] text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Manage Category</span>
               </div>
               <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('manage-cat')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
@@ -4829,33 +4829,33 @@ export default function App() {
               <div className="px-4 pb-4 border-t border-[var(--p-border)] pt-3 space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={() => { setMcPanel(mcPanel === 'add' ? 'none' : 'add'); setMcEditSel(''); setMcAction('none'); }}
-                    className={`py-2.5 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'add' ? 'border-[var(--p-acc)] bg-[var(--p-acc)]/10 text-[var(--p-acc)]' : 'border-[var(--p-border)] bg-[var(--p-bg)] text-[var(--p-muted)]'}`}>
+                    className={`py-2.5 rounded-xl border font-['Lexend'] text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'add' ? 'border-[var(--p-acc)] bg-[var(--p-acc)]/10 text-[var(--p-acc)]' : 'border-[var(--p-border)] bg-[var(--p-bg)] text-[var(--p-muted)]'}`}>
                     + Add
                   </button>
                   <button onClick={() => { setMcPanel(mcPanel === 'edit' ? 'none' : 'edit'); setMcEditSel(''); setMcAction('none'); }}
-                    className={`py-2.5 rounded-xl border font-mono text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'edit' ? 'border-[var(--p-acc)] bg-[var(--p-acc)]/10 text-[var(--p-acc)]' : 'border-[var(--p-border)] bg-[var(--p-bg)] text-[var(--p-muted)]'}`}>
+                    className={`py-2.5 rounded-xl border font-['Lexend'] text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${mcPanel === 'edit' ? 'border-[var(--p-acc)] bg-[var(--p-acc)]/10 text-[var(--p-acc)]' : 'border-[var(--p-border)] bg-[var(--p-bg)] text-[var(--p-muted)]'}`}>
                     ✏ Edit
                   </button>
                 </div>
 
                 {mcPanel === 'add' && (
                   <div className="bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-3 space-y-2">
-                    <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider block">Icon</label>
+                    <label className="text-[9px] text-[var(--p-muted)] font-['Lexend'] uppercase tracking-wider block">Icon</label>
                     <input type="text" value={mcAddIcon} onChange={e => setMcAddIcon(e.target.value)} maxLength={4} placeholder="⭐"
                       className="w-16 text-center text-[18px] bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg p-2 outline-none focus:border-[var(--p-acc)] text-[var(--p-text)]"/>
-                    <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider block mt-2">Category Name</label>
+                    <label className="text-[9px] text-[var(--p-muted)] font-['Lexend'] uppercase tracking-wider block mt-2">Category Name</label>
                     <input type="text" value={mcAddName} onChange={e => setMcAddName(e.target.value)} placeholder="e.g. Cooking"
-                      className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-mono"/>
-                    <button onClick={mcDoAdd} className="w-full bg-[var(--p-acc)] text-white font-mono font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl mt-1">Save Category</button>
-                    <button onClick={mcReset} className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                      className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-['Lexend']"/>
+                    <button onClick={mcDoAdd} className="w-full bg-[var(--p-acc)] text-white font-['Lexend'] font-bold text-[10px] uppercase tracking-wider py-2.5 rounded-xl mt-1">Save Category</button>
+                    <button onClick={mcReset} className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-['Lexend'] text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                   </div>
                 )}
 
                 {mcPanel === 'edit' && (
                   <div className="bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-3 space-y-2">
-                    <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase tracking-wider block">Select Category</label>
+                    <label className="text-[9px] text-[var(--p-muted)] font-['Lexend'] uppercase tracking-wider block">Select Category</label>
                     <select value={mcEditSel} onChange={e => { setMcEditSel(e.target.value); setMcAction('none'); setMcMergeTarget(''); }}
-                      className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-mono appearance-none">
+                      className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-['Lexend'] appearance-none">
                       <option value="">— choose a category —</option>
                       {categories.map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                     </select>
@@ -4863,18 +4863,18 @@ export default function App() {
                     {mcEditSel && (
                       <div className="grid grid-cols-3 gap-1.5 pt-1">
                         <button onClick={() => { setMcAction('rename'); setMcRenameIcon(categoryIcons[mcEditSel] || '⭐'); setMcRenameName(mcEditSel); }}
-                          className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'rename' ? 'border-[var(--p-acc)] bg-[var(--p-acc)]/10 text-[var(--p-acc)]' : 'border-[var(--p-acc)]/40 text-[var(--p-acc)]'}`}>✏ Rename</button>
+                          className={`py-2 rounded-xl border font-['Lexend'] text-[9px] uppercase transition-all ${mcAction === 'rename' ? 'border-[var(--p-acc)] bg-[var(--p-acc)]/10 text-[var(--p-acc)]' : 'border-[var(--p-acc)]/40 text-[var(--p-acc)]'}`}>✏ Rename</button>
                         <button onClick={() => { setMcAction('merge'); setMcMergeTarget(''); }}
-                          className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'merge' ? 'border-[#9ab7d8] bg-[#9ab7d8]/10 text-[#9ab7d8]' : 'border-[#4a7090] text-[#9ab7d8]'}`}>⇄ Merge</button>
+                          className={`py-2 rounded-xl border font-['Lexend'] text-[9px] uppercase transition-all ${mcAction === 'merge' ? 'border-[#9ab7d8] bg-[#9ab7d8]/10 text-[#9ab7d8]' : 'border-[#4a7090] text-[#9ab7d8]'}`}>⇄ Merge</button>
                         <button onClick={() => setMcAction('delete')}
-                          className={`py-2 rounded-xl border font-mono text-[9px] uppercase transition-all ${mcAction === 'delete' ? 'border-[#D96A55] bg-[#D96A55]/10 text-[#D96A55]' : 'border-[#7a3020] text-[#D96A55]'}`}>🗑 Delete</button>
+                          className={`py-2 rounded-xl border font-['Lexend'] text-[9px] uppercase transition-all ${mcAction === 'delete' ? 'border-[#D96A55] bg-[#D96A55]/10 text-[#D96A55]' : 'border-[#7a3020] text-[#D96A55]'}`}>🗑 Delete</button>
                       </div>
                     )}
 
                     {/* ── Change Icon Only ── */}
                     {mcEditSel && mcAction === 'none' && (
                       <div className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-3 mt-1">
-                        <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase block mb-2">Change Icon</label>
+                        <label className="text-[9px] text-[var(--p-muted)] font-['Lexend'] uppercase block mb-2">Change Icon</label>
                         <div className="flex items-center gap-3">
                           <input type="text" value={mcRenameIcon || categoryIcons[mcEditSel] || '⭐'}
                             onChange={e => setMcRenameIcon(e.target.value)}
@@ -4887,54 +4887,54 @@ export default function App() {
                             localStorage.setItem('aurelius_category_icons', JSON.stringify(ni));
                             showToast(`Icon updated for "${mcEditSel}"`);
                             setMcRenameIcon('');
-                          }} className="flex-1 bg-[var(--p-acc)] text-white font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">
+                          }} className="flex-1 bg-[var(--p-acc)] text-white font-['Lexend'] font-bold text-[10px] uppercase py-2.5 rounded-xl">
                             Save Icon
                           </button>
                         </div>
-                        <p className="text-[8px] text-[var(--p-muted)] font-mono mt-1.5">Tap the box, type or paste an emoji, then Save.</p>
+                        <p className="text-[8px] text-[var(--p-muted)] font-['Lexend'] mt-1.5">Tap the box, type or paste an emoji, then Save.</p>
                       </div>
                     )}
 
                     {mcAction === 'rename' && (
                       <div className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-3 space-y-2 mt-1">
-                        <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase block">Icon</label>
+                        <label className="text-[9px] text-[var(--p-muted)] font-['Lexend'] uppercase block">Icon</label>
                         <input type="text" value={mcRenameIcon} onChange={e => setMcRenameIcon(e.target.value)} maxLength={4}
                           className="w-16 text-center text-[18px] bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-lg p-2 outline-none focus:border-[var(--p-acc)] text-[var(--p-text)]"/>
-                        <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase block mt-2">New Name</label>
+                        <label className="text-[9px] text-[var(--p-muted)] font-['Lexend'] uppercase block mt-2">New Name</label>
                         <input type="text" value={mcRenameName} onChange={e => setMcRenameName(e.target.value)}
-                          className="w-full bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-mono"/>
-                        <p className="text-[8px] text-[var(--p-muted)] font-mono">All transactions update to the new name automatically.</p>
-                        <button onClick={mcDoRename} className="w-full bg-[var(--p-acc)] text-white font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Save Rename</button>
-                        <button onClick={() => setMcAction('none')} className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                          className="w-full bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[var(--p-acc)] font-['Lexend']"/>
+                        <p className="text-[8px] text-[var(--p-muted)] font-['Lexend']">All transactions update to the new name automatically.</p>
+                        <button onClick={mcDoRename} className="w-full bg-[var(--p-acc)] text-white font-['Lexend'] font-bold text-[10px] uppercase py-2.5 rounded-xl">Save Rename</button>
+                        <button onClick={() => setMcAction('none')} className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-['Lexend'] text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                       </div>
                     )}
 
                     {mcAction === 'merge' && (
                       <div className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-3 space-y-2 mt-1">
-                        <label className="text-[9px] text-[var(--p-muted)] font-mono uppercase block">Move all transactions into</label>
+                        <label className="text-[9px] text-[var(--p-muted)] font-['Lexend'] uppercase block">Move all transactions into</label>
                         <select value={mcMergeTarget} onChange={e => setMcMergeTarget(e.target.value)}
-                          className="w-full bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[#9ab7d8] font-mono appearance-none">
+                          className="w-full bg-[var(--p-surf2)] border border-[var(--p-border)] rounded-xl p-2.5 text-[12px] text-[var(--p-text)] outline-none focus:border-[#9ab7d8] font-['Lexend'] appearance-none">
                           <option value="">— choose target —</option>
                           {categories.filter(c => c !== mcEditSel).map(c => <option key={c} value={c}>{categoryIcons[c] || '⭐'} {c}</option>)}
                         </select>
-                        <p className="text-[8px] text-[var(--p-muted)] font-mono">"{mcEditSel}" will be removed. Target name survives.</p>
+                        <p className="text-[8px] text-[var(--p-muted)] font-['Lexend']">"{mcEditSel}" will be removed. Target name survives.</p>
                         <button onClick={() => { if (!mcMergeTarget) { alert('Select a target'); return; } setMcModal('merge1'); }}
-                          className="w-full border border-[#4a7090] text-[#9ab7d8] font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Done</button>
-                        <button onClick={() => setMcAction('none')} className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                          className="w-full border border-[#4a7090] text-[#9ab7d8] font-['Lexend'] font-bold text-[10px] uppercase py-2.5 rounded-xl">Done</button>
+                        <button onClick={() => setMcAction('none')} className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-['Lexend'] text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                       </div>
                     )}
 
                     {mcAction === 'delete' && (
                       <div className="bg-[var(--p-bg)] border border-[#7a3020]/50 rounded-xl p-3 space-y-2 mt-1">
-                        <p className="text-[10px] font-mono text-[var(--p-muted)] leading-relaxed">
+                        <p className="text-[10px] font-['Lexend'] text-[var(--p-muted)] leading-relaxed">
                           Every transaction in <span className="text-[var(--p-acc)]">{mcEditSel}</span> will move to <span className="text-[var(--p-acc)]">Uncategorized 📂</span>. You can re-categorize them later.
                         </p>
-                        <button onClick={mcDoDelete} className="w-full border border-[#D96A55] text-[#D96A55] font-mono font-bold text-[10px] uppercase py-2.5 rounded-xl">Delete Category</button>
-                        <button onClick={() => setMcAction('none')} className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                        <button onClick={mcDoDelete} className="w-full border border-[#D96A55] text-[#D96A55] font-['Lexend'] font-bold text-[10px] uppercase py-2.5 rounded-xl">Delete Category</button>
+                        <button onClick={() => setMcAction('none')} className="w-full border border-[var(--p-border2)] text-[var(--p-muted)] font-['Lexend'] text-[10px] uppercase py-2 rounded-xl">Cancel</button>
                       </div>
                     )}
 
-                    <button onClick={mcReset} className="w-full border border-[var(--p-border)] text-[var(--p-muted)] font-mono text-[9px] uppercase py-2 rounded-xl mt-1">Close</button>
+                    <button onClick={mcReset} className="w-full border border-[var(--p-border)] text-[var(--p-muted)] font-['Lexend'] text-[9px] uppercase py-2 rounded-xl mt-1">Close</button>
                   </div>
                 )}
               </div>
@@ -4946,19 +4946,19 @@ export default function App() {
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('excl-analysis')}>
               <div className="flex items-center gap-2">
                 <BrandIcon size={14} className="text-[var(--p-acc)]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Excluded from Analysis</span>
+                <span className="font-['Lexend'] text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Excluded from Analysis</span>
               </div>
               <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('excl-analysis')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('excl-analysis') && (
               <div className="px-4 pb-4 border-t border-[var(--p-border)] pt-3 space-y-3">
-                <p className="text-[var(--p-muted)] text-[9px] font-mono leading-relaxed">Excluded categories are hidden from: Expenditure by Category, Month vs Spending, Week on Week, and Spend Share. Still appear in Ledger, History and Budget.</p>
+                <p className="text-[var(--p-muted)] text-[9px] font-['Lexend'] leading-relaxed">Excluded categories are hidden from: Expenditure by Category, Month vs Spending, Week on Week, and Spend Share. Still appear in Ledger, History and Budget.</p>
                 <div className="flex flex-wrap gap-2">
                   {categories.map(cat => {
                     const excluded = excludedCategories.includes(cat);
                     return (
                       <button key={cat} onClick={() => toggleExcluded(cat)}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[var(--p-bg)] border-[var(--p-border)] text-[var(--p-muted)] hover:border-gray-500'}`}>
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-['Lexend'] border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[var(--p-bg)] border-[var(--p-border)] text-[var(--p-muted)] hover:border-gray-500'}`}>
                         {categoryIcons[cat] || '⭐'} {cat}
                         {excluded && <span className="text-red-500 ml-0.5">×</span>}
                       </button>
@@ -4966,8 +4966,8 @@ export default function App() {
                   })}
                 </div>
                 {excludedCategories.length > 0
-                  ? <button onClick={() => setExcludedCategories([])} className="text-[9px] text-[var(--p-acc)] font-mono uppercase tracking-wider hover:underline">Clear all</button>
-                  : <p className="text-[8px] text-[var(--p-muted)] font-mono italic">Tap any category to exclude from charts</p>
+                  ? <button onClick={() => setExcludedCategories([])} className="text-[9px] text-[var(--p-acc)] font-['Lexend'] uppercase tracking-wider hover:underline">Clear all</button>
+                  : <p className="text-[8px] text-[var(--p-muted)] font-['Lexend'] italic">Tap any category to exclude from charts</p>
                 }
               </div>
             )}
@@ -4978,19 +4978,19 @@ export default function App() {
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('excl-ledger')}>
               <div className="flex items-center gap-2">
                 <BrandIcon size={14} className="text-[var(--p-acc)]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Excluded from Ledger</span>
+                <span className="font-['Lexend'] text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">Excluded from Ledger</span>
               </div>
               <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('excl-ledger')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('excl-ledger') && (
               <div className="px-4 pb-4 border-t border-[var(--p-border)] pt-3 space-y-3">
-                <p className="text-[var(--p-muted)] text-[9px] font-mono leading-relaxed">Categories excluded here are completely hidden from the Ledger table — no rows, no totals, no effect on Opening/Closing balance.</p>
+                <p className="text-[var(--p-muted)] text-[9px] font-['Lexend'] leading-relaxed">Categories excluded here are completely hidden from the Ledger table — no rows, no totals, no effect on Opening/Closing balance.</p>
                 <div className="flex flex-wrap gap-2">
                   {categories.map(cat => {
                     const excluded = excludedLedgerCategories.includes(cat);
                     return (
                       <button key={cat} onClick={() => toggleExcludedLedger(cat)}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-mono border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[var(--p-bg)] border-[var(--p-border)] text-[var(--p-muted)] hover:border-gray-500'}`}>
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-['Lexend'] border transition-all ${excluded ? 'bg-red-950/30 border-red-800/50 text-red-400 line-through' : 'bg-[var(--p-bg)] border-[var(--p-border)] text-[var(--p-muted)] hover:border-gray-500'}`}>
                         {categoryIcons[cat] || '⭐'} {cat}
                         {excluded && <span className="text-red-500 ml-0.5">×</span>}
                       </button>
@@ -4998,8 +4998,8 @@ export default function App() {
                   })}
                 </div>
                 {excludedLedgerCategories.length > 0
-                  ? <button onClick={() => setExcludedLedgerCategories([])} className="text-[9px] text-[var(--p-acc)] font-mono uppercase tracking-wider hover:underline">Clear all</button>
-                  : <p className="text-[8px] text-[var(--p-muted)] font-mono italic">Tap any category to exclude from Ledger</p>
+                  ? <button onClick={() => setExcludedLedgerCategories([])} className="text-[9px] text-[var(--p-acc)] font-['Lexend'] uppercase tracking-wider hover:underline">Clear all</button>
+                  : <p className="text-[8px] text-[var(--p-muted)] font-['Lexend'] italic">Tap any category to exclude from Ledger</p>
                 }
               </div>
             )}
@@ -5010,23 +5010,23 @@ export default function App() {
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('danger')}>
               <div className="flex items-center gap-2">
                 <span className="text-red-500 text-[14px]">⚠</span>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-red-500 font-semibold">Danger Zone</span>
+                <span className="font-['Lexend'] text-[10px] uppercase tracking-widest text-red-500 font-semibold">Danger Zone</span>
               </div>
               <span className="text-red-500 text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('danger')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('danger') && (
               <div className="px-4 pb-4 border-t border-red-900/30 pt-3 space-y-3">
-                <p className="text-[var(--p-muted)] text-[9px] font-mono leading-relaxed">Permanently delete all transactions, SMS messages, and budgets. This cannot be undone.</p>
+                <p className="text-[var(--p-muted)] text-[9px] font-['Lexend'] leading-relaxed">Permanently delete all transactions, SMS messages, and budgets. This cannot be undone.</p>
                 {!dangerConfirm ? (
-                  <button onClick={() => setDangerConfirm(true)} className="w-full border border-red-900/50 text-red-400 font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-red-950/30 transition-all">
+                  <button onClick={() => setDangerConfirm(true)} className="w-full border border-red-900/50 text-red-400 font-['Lexend'] text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-red-950/30 transition-all">
                     Delete All Data
                   </button>
                 ) : (
                   <div className="space-y-2">
-                    <p className="text-red-400 text-[10px] font-mono text-center font-bold">Are you absolutely sure?</p>
+                    <p className="text-red-400 text-[10px] font-['Lexend'] text-center font-bold">Are you absolutely sure?</p>
                     <div className="grid grid-cols-2 gap-2">
-                      <button onClick={() => setDangerConfirm(false)} className="border border-[var(--p-border2)] text-[var(--p-muted)] font-mono text-[10px] uppercase py-2 rounded-xl">Cancel</button>
-                      <button onClick={() => { setTransactions([]); setSmsMessages([]); setBudgets([]); setDangerConfirm(false); showToast('All data deleted permanently.'); }} className="border border-red-700 bg-red-950/40 text-red-400 font-mono text-[10px] uppercase py-2 rounded-xl font-bold">Delete Forever</button>
+                      <button onClick={() => setDangerConfirm(false)} className="border border-[var(--p-border2)] text-[var(--p-muted)] font-['Lexend'] text-[10px] uppercase py-2 rounded-xl">Cancel</button>
+                      <button onClick={() => { setTransactions([]); setSmsMessages([]); setBudgets([]); setDangerConfirm(false); showToast('All data deleted permanently.'); }} className="border border-red-700 bg-red-950/40 text-red-400 font-['Lexend'] text-[10px] uppercase py-2 rounded-xl font-bold">Delete Forever</button>
                     </div>
                   </div>
                 )}
@@ -5035,15 +5035,15 @@ export default function App() {
                   <div className="mt-3 pt-3 border-t border-[var(--p-border)]">
                     {!lastExportDate ? (
                       <div className="space-y-2">
-                        <p className="text-[9px] font-mono text-[var(--p-muted)] leading-relaxed">⚠ Export your data first before deleting the Drive backup.</p>
+                        <p className="text-[9px] font-['Lexend'] text-[var(--p-muted)] leading-relaxed">⚠ Export your data first before deleting the Drive backup.</p>
                         <button onClick={handleCsvExport}
-                          className="w-full border border-[var(--p-acc)]/40 text-[var(--p-acc)] font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl flex items-center justify-center gap-2">
+                          className="w-full border border-[var(--p-acc)]/40 text-[var(--p-acc)] font-['Lexend'] text-[10px] uppercase tracking-wider py-2.5 rounded-xl flex items-center justify-center gap-2">
                           <Download size={12}/> Export First
                         </button>
                       </div>
                     ) : (
                       <button onClick={() => { if(window.confirm('Permanently delete your Google Drive backup? Your local app data stays untouched.')) deleteDriveBackup().catch(e => showToast('Delete failed: ' + e.message)); }}
-                        className="w-full border border-red-900/50 text-red-400 font-mono text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-red-950/30 transition-all">
+                        className="w-full border border-red-900/50 text-red-400 font-['Lexend'] text-[10px] uppercase tracking-wider py-2.5 rounded-xl hover:bg-red-950/30 transition-all">
                         🗑 Delete Drive Backup
                       </button>
                     )}
@@ -5058,14 +5058,14 @@ export default function App() {
             <button className="w-full flex items-center justify-between px-4 py-3 text-left" onClick={() => toggleSettings('about')}>
               <div className="flex items-center gap-2">
                 <Info size={14} className="text-[var(--p-acc)]"/>
-                <span className="font-mono text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">About</span>
+                <span className="font-['Lexend'] text-[10px] uppercase tracking-widest text-[var(--p-acc)] font-semibold">About</span>
               </div>
               <span className="text-[var(--p-acc)] text-[11px]" style={{display:'inline-block',transition:'transform .2s',transform:isSettingsOpen('about')?'rotate(90deg)':'rotate(0deg)'}}>▸</span>
             </button>
             {isSettingsOpen('about') && (
               <div className="px-4 pb-4 border-t border-[var(--p-border)] pt-3 space-y-1.5">
-                <p className="text-[var(--p-muted)] text-[10px] font-mono">Paypathz v1.0.0</p>
-                <p className="text-[var(--p-muted)] text-[9px] font-mono leading-relaxed">Built with React + Capacitor. Your data stays on your device — never sent to any server.</p>
+                <p className="text-[var(--p-muted)] text-[10px] font-['Lexend']">Paypathz v1.0.0</p>
+                <p className="text-[var(--p-muted)] text-[9px] font-['Lexend'] leading-relaxed">Built with React + Capacitor. Your data stays on your device — never sent to any server.</p>
               </div>
             )}
           </div>
@@ -5083,7 +5083,7 @@ export default function App() {
       {/* Dashboard */}
       <button onClick={() => setNavTab('dashboard')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'dashboard' ? 'text-[var(--p-acc)]' : 'text-[var(--p-muted)]'}`}>
         <TrendingUp size={20} />
-        <span className="text-[9px] font-mono tracking-wide">Home</span>
+        <span className="text-[9px] font-['Lexend'] tracking-wide">Home</span>
       </button>
 
       {/* SMS */}
@@ -5096,7 +5096,7 @@ export default function App() {
             </span>
           )}
         </div>
-        <span className="text-[9px] font-mono tracking-wide">SMS</span>
+        <span className="text-[9px] font-['Lexend'] tracking-wide">SMS</span>
       </button>
 
       {/* Add — Chinese coin style center button (circle with square hole) */}
@@ -5117,19 +5117,19 @@ export default function App() {
             <line x1="22" y1="28" x2="34" y2="28" stroke="var(--p-acc)" strokeWidth="3" strokeLinecap="round"/>
           </svg>
         </div>
-        <span className={`text-[9px] font-mono tracking-wide ${navTab === 'add' ? 'text-[var(--p-acc)]' : 'text-[var(--p-muted)]'}`}>Add</span>
+        <span className={`text-[9px] font-['Lexend'] tracking-wide ${navTab === 'add' ? 'text-[var(--p-acc)]' : 'text-[var(--p-muted)]'}`}>Add</span>
       </button>
 
       {/* Budgets */}
       <button onClick={() => setNavTab('budgets')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'budgets' ? 'text-[var(--p-acc)]' : 'text-[var(--p-muted)]'}`}>
         <AlertCircle size={20} />
-        <span className="text-[9px] font-mono tracking-wide">Budget</span>
+        <span className="text-[9px] font-['Lexend'] tracking-wide">Budget</span>
       </button>
 
       {/* History */}
       <button onClick={() => setNavTab('history')} className={`flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-all ${navTab === 'history' ? 'text-[var(--p-acc)]' : 'text-[var(--p-muted)]'}`}>
         <FileText size={20} />
-        <span className="text-[9px] font-mono tracking-wide">History</span>
+        <span className="text-[9px] font-['Lexend'] tracking-wide">History</span>
       </button>
 
     </div>
