@@ -3128,14 +3128,14 @@ export default function App() {
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <select value={selMonth} onChange={e=>{setFilterMonth(e.target.value);setDashWeek(null);setDashDay(null);}}
-                        className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg py-2 px-3 pr-7 text-[11px] font-mono font-bold text-[var(--p-text)] appearance-none outline-none focus:border-[var(--p-acc)] cursor-pointer">
+                        className="w-full bg-[var(--p-bg)] border border-[var(--p-border)] rounded-lg py-2 px-3 pr-7 text-[11px] font-sans font-semibold tracking-wide text-[var(--p-text)] appearance-none outline-none focus:border-[var(--p-acc)] cursor-pointer">
                         {availableMonths.map(m=><option key={m} value={m}>{m}</option>)}
                         {!availableMonths.includes(currentMonthLabel)&&<option value={currentMonthLabel}>{currentMonthLabel}</option>}
                       </select>
                       <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--p-acc)] pointer-events-none"/>
                     </div>
                     <button onClick={() => openCal('home')}
-                      className={`flex-1 flex items-center gap-1.5 bg-[var(--p-bg)] border rounded-lg py-2 px-2.5 text-[11px] font-mono outline-none transition-all ${dashDay ? 'border-[var(--p-acc)] text-[var(--p-acc)]' : 'border-[var(--p-border)] text-[var(--p-muted)]'}`}>
+                      className={`flex-1 flex items-center gap-1.5 bg-[var(--p-bg)] border rounded-lg py-2 px-2.5 text-[11px] font-sans font-semibold tracking-wide outline-none transition-all ${dashDay ? 'border-[var(--p-acc)] text-[var(--p-acc)]' : 'border-[var(--p-border)] text-[var(--p-muted)]'}`}>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                       <span className="truncate">{dashDay ? (dashDay.includes('|') ? dashDay.split('|')[0].split('-').slice(1).reverse().join(' ') + ' – ' + dashDay.split('|')[1].split('-').slice(1).reverse().join(' ') : dashDay.split('-').slice(1).reverse().join(' ')) : 'Pick date'}</span>
                     </button>
@@ -3251,7 +3251,7 @@ export default function App() {
 
                 {/* ── MONTH-ON-MONTH bar chart ── */}
                 <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-4">
-                  <h3 className="font-sans font-semibold text-[12px] tracking-wide text-[var(--p-text)] flex items-center gap-1.5 border-b border-[var(--p-border)] pb-1.5 mb-3">
+                  <h3 className="font-sans font-semibold text-[11px] tracking-wide text-[var(--p-text)] flex items-center gap-1.5 border-b border-[var(--p-border)] pb-1.5 mb-3">
                     <BrandIcon size={12} className="text-[var(--p-acc)]"/> Month vs Spending
                   </h3>
                   <div className="flex items-end justify-between gap-2 h-28">
@@ -3269,7 +3269,7 @@ export default function App() {
 
                 {/* ── WEEK-ON-WEEK ── */}
                 <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-4">
-                  <h3 className="font-sans font-semibold text-[12px] tracking-wide text-[var(--p-text)] flex items-center gap-1.5 border-b border-[var(--p-border)] pb-1.5 mb-3">
+                  <h3 className="font-sans font-semibold text-[11px] tracking-wide text-[var(--p-text)] flex items-center gap-1.5 border-b border-[var(--p-border)] pb-1.5 mb-3">
                     <BrandIcon size={12} className="text-[var(--p-acc)]"/> Week on Week · {selMonth}
                   </h3>
                   <div className="flex items-end justify-between gap-2 h-24">
@@ -3298,7 +3298,7 @@ export default function App() {
 
                 {/* ── DONUT ── */}
                 <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-4">
-                  <h3 className="font-sans font-semibold text-[12px] tracking-wide text-[var(--p-text)] flex items-center gap-1.5 border-b border-[var(--p-border)] pb-1.5 mb-3">
+                  <h3 className="font-sans font-semibold text-[11px] tracking-wide text-[var(--p-text)] flex items-center gap-1.5 border-b border-[var(--p-border)] pb-1.5 mb-3">
                     <BrandIcon size={12} className="text-[var(--p-acc)]"/> Spend Share · {periodLabel}
                   </h3>
                   {donutTotal===0
@@ -3630,7 +3630,7 @@ export default function App() {
                 <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl overflow-hidden">
                   {/* ── Header + controls ── */}
                   <div className="flex justify-between items-center p-4 border-b border-[var(--p-border)]">
-                    <h3 className="font-sans font-semibold text-[13px] tracking-wide text-[var(--p-text)] flex items-center gap-1.5">
+                    <h3 className="font-sans font-semibold text-[11px] tracking-wide text-[var(--p-text)] flex items-center gap-1.5">
                       <BrandIcon size={13} className="text-[var(--p-acc)]" /> Ledger
                     </h3>
                     <div className="flex items-center gap-2">
