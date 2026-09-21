@@ -977,6 +977,16 @@ export default function App() {
     Object.entries(vars).forEach(([k, v]) => root.setProperty(k, v));
   }, [appTheme]);
 
+  // ── Load Lexend font for chart titles ────────────────────────────
+  useEffect(() => {
+    if (document.getElementById('lexend-font')) return;
+    const link = document.createElement('link');
+    link.id = 'lexend-font';
+    link.rel = 'stylesheet';
+    link.href = 'https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500&display=swap';
+    document.head.appendChild(link);
+  }, []);
+
   // ── Excluded categories from Ledger table ─────────────────────────────
   const [excludedLedgerCategories, setExcludedLedgerCategories] = useState<string[]>(() => {
     const s = localStorage.getItem('ft_excluded_ledger_categories');
@@ -3225,7 +3235,7 @@ export default function App() {
 
                 {/* ── EXPENDITURE BY CATEGORY (kept exactly as before) ── */}
                 <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-4">
-                  <h3 className="font-sans font-semibold text-[11px] tracking-wide text-[var(--p-text)] border-b border-[var(--p-border)] pb-1.5 mb-3 flex items-center gap-1.5">
+                  <h3 className="font-['Lexend'] text-[12px] font-normal tracking-wide text-[var(--p-text)] border-b border-[var(--p-border)] pb-1.5 mb-3 flex items-center gap-1.5">
                     <BrandIcon size={11} className="text-[var(--p-acc)]"/> Expenditure by Category
                   </h3>
                   {categorySpendingList.length===0
@@ -3251,7 +3261,7 @@ export default function App() {
 
                 {/* ── MONTH-ON-MONTH bar chart ── */}
                 <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-4">
-                  <h3 className="font-sans font-semibold text-[11px] tracking-wide text-[var(--p-text)] flex items-center gap-1.5 border-b border-[var(--p-border)] pb-1.5 mb-3">
+                  <h3 className="font-['Lexend'] text-[12px] font-normal tracking-wide text-[var(--p-text)] flex items-center gap-1.5 border-b border-[var(--p-border)] pb-1.5 mb-3">
                     <BrandIcon size={12} className="text-[var(--p-acc)]"/> Month vs Spending
                   </h3>
                   <div className="flex items-end justify-between gap-2 h-28">
@@ -3269,7 +3279,7 @@ export default function App() {
 
                 {/* ── WEEK-ON-WEEK ── */}
                 <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-4">
-                  <h3 className="font-sans font-semibold text-[11px] tracking-wide text-[var(--p-text)] flex items-center gap-1.5 border-b border-[var(--p-border)] pb-1.5 mb-3">
+                  <h3 className="font-['Lexend'] text-[12px] font-normal tracking-wide text-[var(--p-text)] flex items-center gap-1.5 border-b border-[var(--p-border)] pb-1.5 mb-3">
                     <BrandIcon size={12} className="text-[var(--p-acc)]"/> Week on Week · {selMonth}
                   </h3>
                   <div className="flex items-end justify-between gap-2 h-24">
@@ -3298,7 +3308,7 @@ export default function App() {
 
                 {/* ── DONUT ── */}
                 <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-4">
-                  <h3 className="font-sans font-semibold text-[11px] tracking-wide text-[var(--p-text)] flex items-center gap-1.5 border-b border-[var(--p-border)] pb-1.5 mb-3">
+                  <h3 className="font-['Lexend'] text-[12px] font-normal tracking-wide text-[var(--p-text)] flex items-center gap-1.5 border-b border-[var(--p-border)] pb-1.5 mb-3">
                     <BrandIcon size={12} className="text-[var(--p-acc)]"/> Spend Share · {periodLabel}
                   </h3>
                   {donutTotal===0
@@ -3455,7 +3465,7 @@ export default function App() {
 
                 {/* Real-time configured month budget actual comparison list */}
                 <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl p-4">
-                  <h3 className="font-sans font-semibold text-[11px] tracking-wide text-[var(--p-text)] border-b border-[var(--p-border)] pb-1.5 mb-3 flex items-center gap-1.5">
+                  <h3 className="font-['Lexend'] text-[12px] font-normal tracking-wide text-[var(--p-text)] border-b border-[var(--p-border)] pb-1.5 mb-3 flex items-center gap-1.5">
                     <BrandIcon size={11} className="text-[var(--p-acc)]" /> Budget Alerts
                   </h3>
 
@@ -3630,7 +3640,7 @@ export default function App() {
                 <div className="bg-[var(--p-surf)] border border-[var(--p-border)] rounded-xl overflow-hidden">
                   {/* ── Header + controls ── */}
                   <div className="flex justify-between items-center p-4 border-b border-[var(--p-border)]">
-                    <h3 className="font-sans font-semibold text-[11px] tracking-wide text-[var(--p-text)] flex items-center gap-1.5">
+                    <h3 className="font-['Lexend'] text-[12px] font-normal tracking-wide text-[var(--p-text)] flex items-center gap-1.5">
                       <BrandIcon size={13} className="text-[var(--p-acc)]" /> Ledger
                     </h3>
                     <div className="flex items-center gap-2">
