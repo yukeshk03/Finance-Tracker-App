@@ -2189,9 +2189,6 @@ export default function App() {
     }
   };
 
-  // ── APK Sign-in: GSI popup (androidScheme:https → origin=https://localhost → authorized) ──
-  const signInApk = signInWeb;
-
   // ── Web Sign-in: GSI implicit flow ───────────────────────────────────────
   const signInWeb = async () => {
     setAuthLoading(true);
@@ -2224,6 +2221,9 @@ export default function App() {
       setSyncError(e.message || 'Sign-in error');
     }
   };
+
+  // ── APK Sign-in: same as web GSI (androidScheme:https → origin=https://localhost) ──
+  const signInApk = signInWeb;
 
   const signInWithGoogle = isCapacitor ? signInApk : signInWeb;
 
