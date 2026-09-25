@@ -2189,52 +2189,8 @@ export default function App() {
     }
   };
 
-  // ── APK Sign-in: GSI implicit flow (works via androidScheme: https → origin = https://localhost) ──
-  // ── APK Sign-in: PKCE via Android OAuth client + system browser ────────────
-  const signInApk = async () => {
-    try {
-      setAuthLoading(true);
-      setSyncError('');
-      const verifier  = generateCodeVerifier();
-      const challenge = await generateCodeChallenge(verifier);
-      localStorage.setItem('ft_pkce_verifier', verifier);
-      const params = new URLSearchParams({
-        client_id:             GOOGLE_CLIENT_ID_ANDROID,
-        redirect_uri:          OAUTH_REDIRECT,
-        response_type:         'code',
-        scope:                 DRIVE_SCOPE,
-        code_challenge:        challenge,
-        code_challenge_method: 'S256',
-        access_type:           'offline',
-        prompt:                'select_account',
-      });
-      const authUrl = "https://accounts.google.com/o/oauth2/v2/auth?" + params.toString();
-      (window as any).open(authUrl, '_system');
-      const handleResume = async () => {
-        document.removeEventListener('resume', handleResume);
-        const bridge = (window as any).AndroidBridge;
-        const code  = bridge ? bridge.getOAuthCode()  : '';
-        const error = bridge ? bridge.getOAuthError() : '';
-        if (error || !code) { setAuthLoading(false); if (error) setSyncError('Sign-in cancelled'); return; }
-        try {
-          const savedVerifier = localStorage.getItem('ft_pkce_verifier') || '';
-          localStorage.removeItem('ft_pkce_verifier');
-          const tokens = await exchangeCodeForTokens(code, savedVerifier);
-          storeTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
-          setAccessToken(tokens.access_token);
-          const user = await fetchGoogleUserInfo(tokens.access_token);
-          setGoogleUser(user);
-          localStorage.setItem('ft_google_user', JSON.stringify(user));
-          setIsGuest(false); localStorage.removeItem('ft_guest_mode');
-          await loadFromDrive(tokens.access_token);
-        } catch (e: any) {
-          setSyncError(e.message || 'Authentication failed'); setSyncStatus('error');
-        } finally { setAuthLoading(false); }
-      };
-      document.addEventListener('resume', handleResume);
-      setTimeout(() => { document.removeEventListener('resume', handleResume); setAuthLoading(false); }, 300000);
-    } catch (e: any) { setAuthLoading(false); setSyncError(e.message || 'Failed to open sign-in'); }
-  };
+  // ── APK Sign-in: GSI popup (androidScheme:https → origin=https://localhost → authorized) ──
+  const signInApk = signInWeb;
 
   // ── Web Sign-in: GSI implicit flow ───────────────────────────────────────
   const signInWeb = async () => {
