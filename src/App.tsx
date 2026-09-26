@@ -44,8 +44,8 @@ async function exchangeCodeForTokens(code: string, verifier: string): Promise<{ 
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       code,
-      client_id: GOOGLE_CLIENT_ID_ANDROID,
-      redirect_uri: OAUTH_REDIRECT,
+      client_id: GOOGLE_CLIENT_ID_WEB,
+      redirect_uri: 'https://localhost',
       grant_type: 'authorization_code',
       code_verifier: verifier,
     }),
@@ -64,7 +64,7 @@ async function refreshAccessToken(refreshToken: string): Promise<{ access_token:
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       refresh_token: refreshToken,
-      client_id: GOOGLE_CLIENT_ID_ANDROID,
+      client_id: GOOGLE_CLIENT_ID_WEB,
       grant_type: 'refresh_token',
     }),
   });
@@ -2192,30 +2192,24 @@ export default function App() {
   // ── Web Sign-in: GSI implicit flow ───────────────────────────────────────
   const signInWeb = async () => {
     setAuthLoading(true);
+    setSyncError('');
     try {
-      await loadGoogleScript();
-      (window as any).google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID_WEB,
-        scope: DRIVE_SCOPE,
-        callback: async (resp: any) => {
-          if (resp.error) { setAuthLoading(false); setSyncError('Sign-in failed'); return; }
-          const token = resp.access_token;
-          // GSI tokens expire in 1 hour — store expiry
-          storeTokens(token, null, resp.expires_in || 3600);
-          setAccessToken(token);
-          try {
-            const user = await fetchGoogleUserInfo(token);
-            setGoogleUser(user);
-            localStorage.setItem('ft_google_user', JSON.stringify(user));
-            await loadFromDrive(token);
-          } catch(e: any) {
-            setSyncError(e.message || 'Failed after sign-in');
-            setSyncStatus('error');
-          } finally {
-            setAuthLoading(false);
-          }
-        },
-      }).requestAccessToken();
+      const verifier  = generateCodeVerifier();
+      const challenge = await generateCodeChallenge(verifier);
+      localStorage.setItem('ft_pkce_verifier', verifier);
+
+      const params = new URLSearchParams({
+        client_id:             GOOGLE_CLIENT_ID_WEB,
+        redirect_uri:          'https://localhost',
+        response_type:         'code',
+        scope:                 DRIVE_SCOPE,
+        code_challenge:        challenge,
+        code_challenge_method: 'S256',
+        access_type:           'offline',
+        prompt:                'select_account',
+      });
+      // Navigate the WebView itself to Google auth — no popup needed
+      window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params.toString();
     } catch (e: any) {
       setAuthLoading(false);
       setSyncError(e.message || 'Sign-in error');
@@ -2310,6 +2304,34 @@ export default function App() {
       showToast('Failed: ' + (e.message || 'unknown error'));
     }
   };
+
+  // ── Handle OAuth redirect back to https://localhost ──────────────────────
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const code  = url.searchParams.get('code');
+    const error = url.searchParams.get('error');
+    if (code || error) {
+      // Clear the URL so refresh doesn't re-trigger
+      window.history.replaceState({}, '', '/');
+      if (error) { setSyncError('Sign-in cancelled'); setAuthLoading(false); return; }
+      const savedVerifier = localStorage.getItem('ft_pkce_verifier') || '';
+      localStorage.removeItem('ft_pkce_verifier');
+      setAuthLoading(true);
+      exchangeCodeForTokens(code!, savedVerifier)
+        .then(async (tokens) => {
+          storeTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
+          setAccessToken(tokens.access_token);
+          const user = await fetchGoogleUserInfo(tokens.access_token);
+          setGoogleUser(user);
+          localStorage.setItem('ft_google_user', JSON.stringify(user));
+          setIsGuest(false);
+          localStorage.removeItem('ft_guest_mode');
+          await loadFromDrive(tokens.access_token);
+        })
+        .catch((e: any) => { setSyncError(e.message || 'Auth failed'); setSyncStatus('error'); })
+        .finally(() => setAuthLoading(false));
+    }
+  }, []);
 
   // ── On startup: load from Drive if already authenticated ─────────────────
   useEffect(() => {
