@@ -1019,6 +1019,7 @@ export default function App() {
   // ── History edit state ────────────────────────────────────────────────────
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [editCategory, setEditCategory] = useState('');
+  const [editType, setEditType] = useState<'income' | 'expense'>('expense');
   const [editDescription, setEditDescription] = useState('');
   const [editAmount, setEditAmount] = useState('');
   const [editDate, setEditDate] = useState('');
@@ -1203,6 +1204,7 @@ export default function App() {
 
   // ── Helper: show notification via Service Worker ─────────────────────────
   const showSmsNotification = (amount: number, merchant: string, txType: 'income' | 'expense', smsId: string) => {
+    if (!settingTxNotif) return; // Only notify if setting is ON
     if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({
         type: 'SHOW_SMS_NOTIFICATION',
@@ -2127,6 +2129,7 @@ export default function App() {
   const startEditTransaction = (tx: Transaction) => {
     setEditingTransaction(tx);
     setEditCategory(tx.category);
+    setEditType(tx.type as 'income' | 'expense');
     setEditDescription(tx.description);
     setEditAmount(String(tx.amount));
     setEditDate(tx.date);
@@ -2140,7 +2143,7 @@ export default function App() {
     if (!editDate || !/^\d{4}-\d{2}-\d{2}$/.test(editDate)) { alert('Please enter a valid date.'); return; }
     setTransactions(prev => prev.map(t =>
       t.id === editingTransaction.id
-        ? { ...t, date: editDate, category: editCategory, description: editDescription.trim() || t.description, amount: val }
+        ? { ...t, date: editDate, category: editCategory, type: editType, description: editDescription.trim() || t.description, amount: val }
         : t
     ));
     setEditingTransaction(null);
@@ -2209,6 +2212,8 @@ export default function App() {
         prompt:                'select_account',
       });
       // Navigate the WebView itself to Google auth — no popup needed
+      // Safety timeout: if redirect doesn't complete in 30s, reset loading state
+      setTimeout(() => setAuthLoading(false), 30000);
       window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params.toString();
     } catch (e: any) {
       setAuthLoading(false);
@@ -4224,6 +4229,8 @@ export default function App() {
                   const amt = parseFloat(budgetAmountInput);
                   if (!amt || amt <= 0) { alert('Enter a valid amount'); return; }
                   setBudgets(prev => {
+                    const existing = prev.find(b => b.category === budgetCategory && (b.month || curMonthKey) === budgetMonth);
+                    if (existing && !window.confirm(`Replace existing ₹${existing.limit} budget for ${budgetCategory} in ${budgetMonth}?`)) return prev;
                     const filtered = prev.filter(b => !(b.category === budgetCategory && (b.month || curMonthKey) === budgetMonth));
                     return [...filtered, { category: budgetCategory, limit: amt, month: budgetMonth }];
                   });
@@ -4383,6 +4390,13 @@ export default function App() {
                     </div>
                   </div>
                   <div className="flex flex-col gap-1">
+                    <label className="text-[9px] text-[var(--p-muted)] font-[\'Lexend\'] uppercase tracking-wider">Type</label>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setEditType('expense')} className={`flex-1 py-2 rounded-xl text-[11px] font-[\'Lexend\'] font-semibold border transition-all ${editType==='expense' ? 'bg-rose-500/20 border-rose-500 text-rose-400' : 'border-[var(--p-border)] text-[var(--p-muted)]'}`}>↓ Expense</button>
+                      <button type="button" onClick={() => setEditType('income')} className={`flex-1 py-2 rounded-xl text-[11px] font-[\'Lexend\'] font-semibold border transition-all ${editType==='income' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'border-[var(--p-border)] text-[var(--p-muted)]'}`}>↑ Income</button>
+                    </div>
+                  </div>
+                                    <div className="flex flex-col gap-1">
                     <label className="text-[9px] text-[var(--p-muted)] font-['Lexend'] uppercase tracking-wider">Description</label>
                     <input type="text" value={editDescription} onChange={e => setEditDescription(e.target.value)}
                       className="bg-[var(--p-bg)] border border-[var(--p-border)] rounded-xl p-2.5 text-xs text-[var(--p-text)] outline-none focus:border-[var(--p-acc)]" />
