@@ -38,14 +38,14 @@ function loadGoogleScript(): Promise<void> {
 }
 
 // ── Token exchange: auth code → tokens (APK PKCE flow) ───────────────────────
-async function exchangeCodeForTokens(code: string, verifier: string): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
+async function exchangeCodeForTokens(code: string, verifier: string, redirectUri = 'https://paypathz.netlify.app/oauth-callback.html'): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       code,
       client_id: GOOGLE_CLIENT_ID_WEB,
-      redirect_uri: 'https://localhost',
+      redirect_uri: redirectUri,
       grant_type: 'authorization_code',
       code_verifier: verifier,
     }),
@@ -2201,9 +2201,13 @@ export default function App() {
       const challenge = await generateCodeChallenge(verifier);
       localStorage.setItem('ft_pkce_verifier', verifier);
 
+      const REDIRECT = isCapacitor
+        ? 'https://paypathz.netlify.app/oauth-callback.html'
+        : 'https://paypathz.netlify.app/oauth-callback.html';
+
       const params = new URLSearchParams({
         client_id:             GOOGLE_CLIENT_ID_WEB,
-        redirect_uri:          'https://localhost',
+        redirect_uri:          REDIRECT,
         response_type:         'code',
         scope:                 DRIVE_SCOPE,
         code_challenge:        challenge,
@@ -2211,18 +2215,118 @@ export default function App() {
         access_type:           'offline',
         prompt:                'select_account',
       });
-      // Navigate the WebView itself to Google auth — no popup needed
-      // Safety timeout: if redirect doesn't complete in 30s, reset loading state
-      setTimeout(() => setAuthLoading(false), 30000);
-      window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params.toString();
+      const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + params.toString();
+
+      // APK: open in system browser (_system) so it can redirect back properly
+      // Web: open in popup so postMessage works
+      const popup = isCapacitor
+        ? window.open(authUrl, '_system')
+        : window.open(authUrl, 'googleAuth', 'width=500,height=600');
+
+      // Listen for postMessage from callback page
+      const onMessage = async (event: MessageEvent) => {
+        if (event.origin !== 'https://paypathz.netlify.app') return;
+        if (event.data?.type !== 'oauth_callback') return;
+        window.removeEventListener('message', onMessage);
+        if (popup && !popup.closed) popup.close();
+
+        const { code, error } = event.data;
+        if (error || !code) {
+          setAuthLoading(false);
+          setSyncError('Sign-in was cancelled');
+          return;
+        }
+        try {
+          const savedVerifier = localStorage.getItem('ft_pkce_verifier') || '';
+          localStorage.removeItem('ft_pkce_verifier');
+          const tokens = await exchangeCodeForTokens(code, savedVerifier, REDIRECT);
+          storeTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
+          setAccessToken(tokens.access_token);
+          const user = await fetchGoogleUserInfo(tokens.access_token);
+          setGoogleUser(user);
+          localStorage.setItem('ft_google_user', JSON.stringify(user));
+          setIsGuest(false);
+          localStorage.removeItem('ft_guest_mode');
+          await loadFromDrive(tokens.access_token);
+        } catch (e: any) {
+          setSyncError(e.message || 'Authentication failed');
+          setSyncStatus('error');
+        } finally {
+          setAuthLoading(false);
+        }
+      };
+      window.addEventListener('message', onMessage);
+
+      // Fallback: also check localStorage (for APK where postMessage may not work)
+      const pollInterval = setInterval(async () => {
+        const code  = localStorage.getItem('ft_oauth_code');
+        const error = localStorage.getItem('ft_oauth_error');
+        if (!code && !error) return;
+        clearInterval(pollInterval);
+        window.removeEventListener('message', onMessage);
+        localStorage.removeItem('ft_oauth_code');
+        localStorage.removeItem('ft_oauth_error');
+        if (popup && !popup.closed) popup.close();
+        if (error || !code) { setAuthLoading(false); setSyncError('Sign-in cancelled'); return; }
+        try {
+          const savedVerifier = localStorage.getItem('ft_pkce_verifier') || '';
+          localStorage.removeItem('ft_pkce_verifier');
+          const tokens = await exchangeCodeForTokens(code, savedVerifier, REDIRECT);
+          storeTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
+          setAccessToken(tokens.access_token);
+          const user = await fetchGoogleUserInfo(tokens.access_token);
+          setGoogleUser(user);
+          localStorage.setItem('ft_google_user', JSON.stringify(user));
+          setIsGuest(false);
+          localStorage.removeItem('ft_guest_mode');
+          await loadFromDrive(tokens.access_token);
+        } catch (e: any) {
+          setSyncError(e.message || 'Authentication failed');
+          setSyncStatus('error');
+        } finally { setAuthLoading(false); }
+      }, 500);
+
+      // Timeout after 5 minutes
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        window.removeEventListener('message', onMessage);
+        setAuthLoading(false);
+      }, 300000);
+
     } catch (e: any) {
       setAuthLoading(false);
       setSyncError(e.message || 'Sign-in error');
     }
   };
 
-  // ── APK Sign-in: same as web GSI (androidScheme:https → origin=https://localhost) ──
-  const signInApk = signInWeb;
+  // ── APK Sign-in: Native Google Sign-In via AndroidBridge ───────────────────
+  const signInApk = async () => {
+    try {
+      setAuthLoading(true); setSyncError('');
+      const bridge = (window as any).AndroidBridge;
+      if (!bridge) { setSyncError('Bridge not available'); setAuthLoading(false); return; }
+      const handleResult = async () => {
+        document.removeEventListener('googleSignInComplete', handleResult);
+        try {
+          const result = JSON.parse(bridge.getSignInResult());
+          if (result.error || !result.idToken) { setSyncError(result.error || 'Sign-in failed'); setAuthLoading(false); return; }
+          const infoRes = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + result.idToken);
+          const info = await infoRes.json();
+          const user: GoogleUser = { name: result.name || info.name || info.email, email: result.email || info.email, picture: result.photo || info.picture || '' };
+          setGoogleUser(user);
+          localStorage.setItem('ft_google_user', JSON.stringify(user));
+          storeTokens(result.idToken, null, 3600);
+          setAccessToken(result.idToken);
+          setIsGuest(false); localStorage.removeItem('ft_guest_mode');
+          await loadFromDrive(result.idToken);
+        } catch (e: any) { setSyncError((e as any).message || 'Sign-in error'); setSyncStatus('error'); }
+        finally { setAuthLoading(false); }
+      };
+      document.addEventListener('googleSignInComplete', handleResult);
+      bridge.startGoogleSignIn();
+      setTimeout(() => { document.removeEventListener('googleSignInComplete', handleResult); setAuthLoading(false); }, 120000);
+    } catch (e: any) { setAuthLoading(false); setSyncError((e as any).message || 'Failed'); }
+  };
 
   const signInWithGoogle = isCapacitor ? signInApk : signInWeb;
 
@@ -2309,34 +2413,6 @@ export default function App() {
       showToast('Failed: ' + (e.message || 'unknown error'));
     }
   };
-
-  // ── Handle OAuth redirect back to https://localhost ──────────────────────
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    const code  = url.searchParams.get('code');
-    const error = url.searchParams.get('error');
-    if (code || error) {
-      // Clear the URL so refresh doesn't re-trigger
-      window.history.replaceState({}, '', '/');
-      if (error) { setSyncError('Sign-in cancelled'); setAuthLoading(false); return; }
-      const savedVerifier = localStorage.getItem('ft_pkce_verifier') || '';
-      localStorage.removeItem('ft_pkce_verifier');
-      setAuthLoading(true);
-      exchangeCodeForTokens(code!, savedVerifier)
-        .then(async (tokens) => {
-          storeTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
-          setAccessToken(tokens.access_token);
-          const user = await fetchGoogleUserInfo(tokens.access_token);
-          setGoogleUser(user);
-          localStorage.setItem('ft_google_user', JSON.stringify(user));
-          setIsGuest(false);
-          localStorage.removeItem('ft_guest_mode');
-          await loadFromDrive(tokens.access_token);
-        })
-        .catch((e: any) => { setSyncError(e.message || 'Auth failed'); setSyncStatus('error'); })
-        .finally(() => setAuthLoading(false));
-    }
-  }, []);
 
   // ── On startup: load from Drive if already authenticated ─────────────────
   useEffect(() => {
