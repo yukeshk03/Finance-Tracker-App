@@ -7,30 +7,22 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       background: #050505;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      font-family: system-ui, sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      height: 100vh; font-family: system-ui, sans-serif;
     }
     .wrap { text-align: center; }
     .icon {
-      width: 56px; height: 56px;
-      border-radius: 50%;
-      background: #0f0f0f;
-      border: 2px solid #d4af37;
+      width: 56px; height: 56px; border-radius: 50%;
+      background: #0f0f0f; border: 2px solid #d4af37;
       display: flex; align-items: center; justify-content: center;
-      margin: 0 auto 16px;
-      font-size: 22px;
+      margin: 0 auto 16px; font-size: 22px; color: #d4af37;
     }
     .msg { color: #e5e5e5; font-size: 14px; margin-bottom: 6px; }
     .sub { color: #555; font-size: 11px; }
     .spinner {
       width: 20px; height: 20px;
-      border: 2px solid #1a1a1a;
-      border-top-color: #d4af37;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
+      border: 2px solid #1a1a1a; border-top-color: #d4af37;
+      border-radius: 50%; animation: spin 0.8s linear infinite;
       margin: 16px auto 0;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -48,18 +40,24 @@
     const code  = params.get('code');
     const error = params.get('error');
 
-    // Send result back to the app window that opened this popup
     if (window.opener) {
+      // Web popup flow — send code back to parent window
       window.opener.postMessage(
         { type: 'oauth_callback', code: code || null, error: error || null },
         'https://paypathz.netlify.app'
       );
       setTimeout(() => window.close(), 800);
     } else {
-      // Opened directly (not as popup) — store and redirect back to app
+      // APK system browser flow — store code in localStorage
+      // The app is polling localStorage every 500ms for this
       if (code)  localStorage.setItem('ft_oauth_code', code);
       if (error) localStorage.setItem('ft_oauth_error', error);
-      window.location.href = '/';
+
+      // Try to bring the app back (deep link back to app)
+      // This redirects the system browser back to the Paypathz app URL
+      setTimeout(() => {
+        window.location.href = 'https://paypathz.netlify.app';
+      }, 500);
     }
   </script>
 </body>
