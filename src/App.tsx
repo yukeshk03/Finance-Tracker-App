@@ -2322,39 +2322,9 @@ export default function App() {
       // Open in Chrome — callback page will deep-link back to app
       window.open(authUrl, '_system');
 
-      // Listen for resume event fired by MainActivity when deep link arrives
-      const handleResume = async () => {
-        document.removeEventListener('resume', handleResume);
-        const bridge = (window as any).AndroidBridge;
-        const code  = bridge?.getOAuthCode()  || '';
-        const error = bridge?.getOAuthError() || '';
-        if (error || !code) {
-          setAuthLoading(false);
-          if (error) setSyncError('Sign-in cancelled');
-          return;
-        }
-        try {
-          const savedVerifier = localStorage.getItem('ft_pkce_verifier') || '';
-          localStorage.removeItem('ft_pkce_verifier');
-          const tokens = await exchangeCodeForTokens(code, savedVerifier, REDIRECT);
-          storeTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
-          setAccessToken(tokens.access_token);
-          const user = await fetchGoogleUserInfo(tokens.access_token);
-          setGoogleUser(user);
-          localStorage.setItem('ft_google_user', JSON.stringify(user));
-          setIsGuest(false); localStorage.removeItem('ft_guest_mode');
-          await loadFromDrive(tokens.access_token);
-        } catch (e: any) {
-          setSyncError((e as any).message || 'Auth failed');
-          setSyncStatus('error');
-        } finally { setAuthLoading(false); }
-      };
-      document.addEventListener('resume', handleResume);
-      // Timeout after 5 mins
-      setTimeout(() => {
-        document.removeEventListener('resume', handleResume);
-        setAuthLoading(false);
-      }, 300000);
+      // The global useEffect handles the OAuth result when app resumes
+      // Just set a timeout to reset loading if user cancels
+      setTimeout(() => setAuthLoading(false), 300000);
     } catch (e: any) { setAuthLoading(false); setSyncError((e as any).message || 'Failed'); }
   }
 
@@ -2443,6 +2413,46 @@ export default function App() {
       showToast('Failed: ' + (e.message || 'unknown error'));
     }
   };
+
+  // ── Handle OAuth deep link on any launch/resume ──────────────────────────
+  useEffect(() => {
+    const checkOAuthDeepLink = async () => {
+      const bridge = (window as any).AndroidBridge;
+      if (!bridge) return;
+      const code  = bridge.getOAuthCode();
+      const error = bridge.getOAuthError();
+      if (!code && !error) return;
+      // We have a pending OAuth result — process it
+      setAuthLoading(true);
+      setSyncError('');
+      if (error || !code) {
+        setAuthLoading(false);
+        if (error) setSyncError('Sign-in cancelled');
+        return;
+      }
+      try {
+        const savedVerifier = localStorage.getItem('ft_pkce_verifier') || '';
+        localStorage.removeItem('ft_pkce_verifier');
+        const REDIRECT = 'https://paypathz.netlify.app/oauth-callback.html';
+        const tokens = await exchangeCodeForTokens(code, savedVerifier, REDIRECT);
+        storeTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
+        setAccessToken(tokens.access_token);
+        const user = await fetchGoogleUserInfo(tokens.access_token);
+        setGoogleUser(user);
+        localStorage.setItem('ft_google_user', JSON.stringify(user));
+        setIsGuest(false); localStorage.removeItem('ft_guest_mode');
+        await loadFromDrive(tokens.access_token);
+      } catch (e: any) {
+        setSyncError((e as any).message || 'Auth failed');
+        setSyncStatus('error');
+      } finally { setAuthLoading(false); }
+    };
+    // Check immediately on mount (handles re-launch via deep link)
+    checkOAuthDeepLink();
+    // Also check on every resume event (handles background → foreground)
+    document.addEventListener('resume', checkOAuthDeepLink);
+    return () => document.removeEventListener('resume', checkOAuthDeepLink);
+  }, []);
 
   // ── On startup: load from Drive if already authenticated ─────────────────
   useEffect(() => {
