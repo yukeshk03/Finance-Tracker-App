@@ -39,13 +39,12 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="financetracker" android:host="sms" />
             </intent-filter>
-
-            <!-- OAuth callback from Chrome Custom Tab -->
+            <!-- OAuth deep link from Chrome after Google sign-in -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="com.financetracker.app" android:host="oauth2callback" />
+                <data android:scheme="com.financetracker.app" android:host="oauth" />
             </intent-filter>
         </activity>
 
