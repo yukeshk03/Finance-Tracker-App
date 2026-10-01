@@ -2299,34 +2299,64 @@ export default function App() {
     }
   };
 
-  // ── APK Sign-in: Native Google Sign-In via AndroidBridge ───────────────────
+  // ── APK Sign-in: PKCE via Chrome → netlify callback → deep link back ──────────
   const signInApk = async () => {
     try {
       setAuthLoading(true); setSyncError('');
-      const bridge = (window as any).AndroidBridge;
-      if (!bridge) { setSyncError('Bridge not available'); setAuthLoading(false); return; }
-      const handleResult = async () => {
-        document.removeEventListener('googleSignInComplete', handleResult);
+      const verifier  = generateCodeVerifier();
+      const challenge = await generateCodeChallenge(verifier);
+      localStorage.setItem('ft_pkce_verifier', verifier);
+      const REDIRECT = 'https://paypathz.netlify.app/oauth-callback.html';
+      const params = new URLSearchParams({
+        client_id:             GOOGLE_CLIENT_ID_WEB,
+        redirect_uri:          REDIRECT,
+        response_type:         'code',
+        scope:                 DRIVE_SCOPE,
+        code_challenge:        challenge,
+        code_challenge_method: 'S256',
+        access_type:           'offline',
+        prompt:                'select_account',
+      });
+      const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + params.toString();
+
+      // Open in Chrome — callback page will deep-link back to app
+      window.open(authUrl, '_system');
+
+      // Listen for resume event fired by MainActivity when deep link arrives
+      const handleResume = async () => {
+        document.removeEventListener('resume', handleResume);
+        const bridge = (window as any).AndroidBridge;
+        const code  = bridge?.getOAuthCode()  || '';
+        const error = bridge?.getOAuthError() || '';
+        if (error || !code) {
+          setAuthLoading(false);
+          if (error) setSyncError('Sign-in cancelled');
+          return;
+        }
         try {
-          const result = JSON.parse(bridge.getSignInResult());
-          if (result.error || !result.idToken) { setSyncError(result.error || 'Sign-in failed'); setAuthLoading(false); return; }
-          const infoRes = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + result.idToken);
-          const info = await infoRes.json();
-          const user: GoogleUser = { name: result.name || info.name || info.email, email: result.email || info.email, picture: result.photo || info.picture || '' };
+          const savedVerifier = localStorage.getItem('ft_pkce_verifier') || '';
+          localStorage.removeItem('ft_pkce_verifier');
+          const tokens = await exchangeCodeForTokens(code, savedVerifier, REDIRECT);
+          storeTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
+          setAccessToken(tokens.access_token);
+          const user = await fetchGoogleUserInfo(tokens.access_token);
           setGoogleUser(user);
           localStorage.setItem('ft_google_user', JSON.stringify(user));
-          storeTokens(result.idToken, null, 3600);
-          setAccessToken(result.idToken);
           setIsGuest(false); localStorage.removeItem('ft_guest_mode');
-          await loadFromDrive(result.idToken);
-        } catch (e: any) { setSyncError((e as any).message || 'Sign-in error'); setSyncStatus('error'); }
-        finally { setAuthLoading(false); }
+          await loadFromDrive(tokens.access_token);
+        } catch (e: any) {
+          setSyncError((e as any).message || 'Auth failed');
+          setSyncStatus('error');
+        } finally { setAuthLoading(false); }
       };
-      document.addEventListener('googleSignInComplete', handleResult);
-      bridge.startGoogleSignIn();
-      setTimeout(() => { document.removeEventListener('googleSignInComplete', handleResult); setAuthLoading(false); }, 120000);
+      document.addEventListener('resume', handleResume);
+      // Timeout after 5 mins
+      setTimeout(() => {
+        document.removeEventListener('resume', handleResume);
+        setAuthLoading(false);
+      }, 300000);
     } catch (e: any) { setAuthLoading(false); setSyncError((e as any).message || 'Failed'); }
-  };
+  }
 
   const signInWithGoogle = isCapacitor ? signInApk : signInWeb;
 
