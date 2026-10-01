@@ -5,26 +5,17 @@
   <title>Signing in to Paypathz...</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      background: #050505;
-      display: flex; align-items: center; justify-content: center;
-      height: 100vh; font-family: system-ui, sans-serif;
-    }
+    body { background: #050505; display: flex; align-items: center;
+           justify-content: center; height: 100vh; font-family: system-ui, sans-serif; }
     .wrap { text-align: center; }
-    .icon {
-      width: 56px; height: 56px; border-radius: 50%;
-      background: #0f0f0f; border: 2px solid #d4af37;
-      display: flex; align-items: center; justify-content: center;
-      margin: 0 auto 16px; font-size: 22px; color: #d4af37;
-    }
+    .icon { width: 56px; height: 56px; border-radius: 50%; background: #0f0f0f;
+            border: 2px solid #d4af37; display: flex; align-items: center;
+            justify-content: center; margin: 0 auto 16px; font-size: 22px; color: #d4af37; }
     .msg { color: #e5e5e5; font-size: 14px; margin-bottom: 6px; }
     .sub { color: #555; font-size: 11px; }
-    .spinner {
-      width: 20px; height: 20px;
-      border: 2px solid #1a1a1a; border-top-color: #d4af37;
-      border-radius: 50%; animation: spin 0.8s linear infinite;
-      margin: 16px auto 0;
-    }
+    .spinner { width: 20px; height: 20px; border: 2px solid #1a1a1a;
+               border-top-color: #d4af37; border-radius: 50%;
+               animation: spin 0.8s linear infinite; margin: 16px auto 0; }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
@@ -32,32 +23,34 @@
   <div class="wrap">
     <div class="icon">✓</div>
     <p class="msg">Signing in to Paypathz</p>
-    <p class="sub">Please wait...</p>
+    <p class="sub">Returning to app...</p>
     <div class="spinner"></div>
   </div>
   <script>
     const params = new URLSearchParams(window.location.search);
-    const code  = params.get('code');
-    const error = params.get('error');
+    const code  = params.get('code')  || '';
+    const error = params.get('error') || '';
 
     if (window.opener) {
-      // Web popup flow — send code back to parent window
+      // Web popup path — send back via postMessage
       window.opener.postMessage(
         { type: 'oauth_callback', code: code || null, error: error || null },
         'https://paypathz.netlify.app'
       );
       setTimeout(() => window.close(), 800);
     } else {
-      // APK system browser flow — store code in localStorage
-      // The app is polling localStorage every 500ms for this
-      if (code)  localStorage.setItem('ft_oauth_code', code);
-      if (error) localStorage.setItem('ft_oauth_error', error);
+      // APK path — deep link back to app with the code
+      // AndroidManifest catches com.financetracker.app:// and fires onNewIntent
+      const deepLink = code
+        ? 'com.financetracker.app://oauth?code=' + encodeURIComponent(code)
+        : 'com.financetracker.app://oauth?error=' + encodeURIComponent(error || 'cancelled');
 
-      // Try to bring the app back (deep link back to app)
-      // This redirects the system browser back to the Paypathz app URL
+      window.location.href = deepLink;
+
+      // Fallback after 2s if deep link didn't work
       setTimeout(() => {
         window.location.href = 'https://paypathz.netlify.app';
-      }, 500);
+      }, 2000);
     }
   </script>
 </body>
