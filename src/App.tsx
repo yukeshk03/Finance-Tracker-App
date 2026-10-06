@@ -2239,7 +2239,8 @@ export default function App() {
         try {
           const savedVerifier = localStorage.getItem('ft_pkce_verifier') || '';
           localStorage.removeItem('ft_pkce_verifier');
-          const tokens = await exchangeCodeForTokens(code, savedVerifier, REDIRECT);
+          if (!savedVerifier) throw new Error('PKCE verifier missing — tap Sign In again');
+        const tokens = await exchangeCodeForTokens(code, savedVerifier, REDIRECT);
           storeTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
           setAccessToken(tokens.access_token);
           const user = await fetchGoogleUserInfo(tokens.access_token);
@@ -2271,7 +2272,8 @@ export default function App() {
         try {
           const savedVerifier = localStorage.getItem('ft_pkce_verifier') || '';
           localStorage.removeItem('ft_pkce_verifier');
-          const tokens = await exchangeCodeForTokens(code, savedVerifier, REDIRECT);
+          if (!savedVerifier) throw new Error('PKCE verifier missing — tap Sign In again');
+        const tokens = await exchangeCodeForTokens(code, savedVerifier, REDIRECT);
           storeTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
           setAccessToken(tokens.access_token);
           const user = await fetchGoogleUserInfo(tokens.access_token);
@@ -2434,6 +2436,7 @@ export default function App() {
         const savedVerifier = localStorage.getItem('ft_pkce_verifier') || '';
         localStorage.removeItem('ft_pkce_verifier');
         const REDIRECT = 'https://paypathz.netlify.app/oauth-callback.html';
+        if (!savedVerifier) throw new Error('PKCE verifier missing — tap Sign In again');
         const tokens = await exchangeCodeForTokens(code, savedVerifier, REDIRECT);
         storeTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
         setAccessToken(tokens.access_token);
@@ -2443,8 +2446,11 @@ export default function App() {
         setIsGuest(false); localStorage.removeItem('ft_guest_mode');
         await loadFromDrive(tokens.access_token);
       } catch (e: any) {
-        setSyncError((e as any).message || 'Auth failed');
+        const msg = (e as any).message || 'Auth failed';
+        setSyncError('Sign-in error: ' + msg);
         setSyncStatus('error');
+        // Clear bad state so user can retry cleanly
+        localStorage.removeItem('ft_pkce_verifier');
       } finally { setAuthLoading(false); }
     };
     // Check immediately on mount (handles re-launch via deep link)
@@ -2518,12 +2524,22 @@ export default function App() {
             ))}
           </div>
 
-          {/* Error message */}
+          {/* Debug + Error panel */}
           {syncError ? (
             <div className="w-full bg-red-950/40 border border-red-800/50 rounded-xl px-4 py-3">
               <p className="text-red-400 text-[11px] font-['Lexend'] text-center">{syncError}</p>
             </div>
           ) : null}
+          {authLoading && (
+            <div className="w-full bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl px-4 py-3">
+              <p className="text-[#d4af37] text-[10px] font-['Lexend'] text-center">
+                {(window as any).AndroidBridge ? '✅ Bridge ready' : '⚠️ No bridge'}
+              </p>
+              <p className="text-[#555] text-[9px] font-['Lexend'] text-center mt-1">
+                verifier: {localStorage.getItem('ft_pkce_verifier') ? '✅ stored' : '❌ missing'}
+              </p>
+            </div>
+          )}
 
           {/* Sign in button */}
           <button onClick={signInWithGoogle} disabled={authLoading}
