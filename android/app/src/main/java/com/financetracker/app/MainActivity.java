@@ -101,6 +101,22 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public void saveVerifier(String verifier) {
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            prefs.edit().putString("ft_pkce_verifier", verifier).apply();
+            Log.d(TAG, "saveVerifier: stored");
+        }
+
+        @JavascriptInterface
+        public String getVerifier() {
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            String v = prefs.getString("ft_pkce_verifier", "");
+            prefs.edit().remove("ft_pkce_verifier").apply();
+            Log.d(TAG, "getVerifier: " + (v.isEmpty() ? "empty" : "present"));
+            return v;
+        }
+
+        @JavascriptInterface
         public boolean isAndroidApp() {
             return true;
         }
