@@ -117,6 +117,21 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public void saveRefreshToken(String token) {
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            prefs.edit().putString("ft_refresh_token", token).apply();
+            Log.d(TAG, "saveRefreshToken: stored");
+        }
+
+        @JavascriptInterface
+        public String getRefreshToken() {
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            String v = prefs.getString("ft_refresh_token", "");
+            Log.d(TAG, "getRefreshToken: " + (v.isEmpty() ? "empty" : "present"));
+            return v;
+        }
+
+        @JavascriptInterface
         public boolean isAndroidApp() {
             return true;
         }
