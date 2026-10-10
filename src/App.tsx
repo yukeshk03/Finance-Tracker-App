@@ -4,8 +4,9 @@
  */
 
 // ── Google OAuth + Drive Config ───────────────────────────────────────────────
-const GOOGLE_CLIENT_ID_WEB     = '230615350507-0esfnctd66qno0fgueb8kb8m6h3vfsre.apps.googleusercontent.com'; // For web (GSI)
-const GOOGLE_CLIENT_ID_DESKTOP = '230615350507-l1hbat93qmutfl68oo6034hk2k9pbakg.apps.googleusercontent.com'; // Desktop app - PKCE without client_secret
+const GOOGLE_CLIENT_ID_WEB     = '230615350507-0esfnctd66qno0fgueb8kb8m6h3vfsre.apps.googleusercontent.com';
+const GOOGLE_CLIENT_SECRET_WEB = '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';
+const GOOGLE_CLIENT_ID_DESKTOP = '230615350507-l1hbat93qmutfl68oo6034hk2k9pbakg.apps.googleusercontent.com';
 const DRIVE_FILE_NAME  = 'finance-tracker-dusk.json';
 const DRIVE_SCOPE      = 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile';
 const OAUTH_REDIRECT   = 'com.financetracker.app:/oauth2callback'; // Custom scheme for APK
@@ -38,7 +39,7 @@ function loadGoogleScript(): Promise<void> {
 }
 
 // ── Token exchange: auth code → tokens (APK PKCE flow) ───────────────────────
-async function exchangeCodeForTokens(code: string, verifier: string, redirectUri = 'https://paypathz.netlify.app/oauth-callback.html', clientId = GOOGLE_CLIENT_ID_DESKTOP): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
+async function exchangeCodeForTokens(code: string, verifier: string, redirectUri = 'https://paypathz.netlify.app/oauth-callback.html', clientId = GOOGLE_CLIENT_ID_WEB): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
   // DEBUG: log what we are sending (mask code/verifier)
   console.log('[OAuth] token exchange params:', {
     client_id: clientId.slice(0,20) + '...',
@@ -55,6 +56,7 @@ async function exchangeCodeForTokens(code: string, verifier: string, redirectUri
     body: new URLSearchParams({
       code,
       client_id: clientId,
+      client_secret: GOOGLE_CLIENT_SECRET_WEB,
       redirect_uri: redirectUri,
       grant_type: 'authorization_code',
       code_verifier: verifier,
@@ -77,6 +79,7 @@ async function refreshAccessToken(refreshToken: string): Promise<{ access_token:
     body: new URLSearchParams({
       refresh_token: refreshToken,
       client_id: GOOGLE_CLIENT_ID_WEB,
+      client_secret: GOOGLE_CLIENT_SECRET_WEB,
       grant_type: 'refresh_token',
     }),
   });
@@ -2221,7 +2224,7 @@ export default function App() {
         : 'https://paypathz.netlify.app/oauth-callback.html';
 
       const params = new URLSearchParams({
-        client_id:             isCapacitor ? GOOGLE_CLIENT_ID_DESKTOP : GOOGLE_CLIENT_ID_WEB,
+        client_id:             GOOGLE_CLIENT_ID_WEB,
         redirect_uri:          REDIRECT,
         response_type:         'code',
         scope:                 DRIVE_SCOPE,
@@ -2328,7 +2331,7 @@ export default function App() {
       if (bridge?.saveVerifier) bridge.saveVerifier(verifier);
       const REDIRECT = 'https://paypathz.netlify.app/oauth-callback.html';
       const params = new URLSearchParams({
-        client_id:             GOOGLE_CLIENT_ID_DESKTOP,
+        client_id:             GOOGLE_CLIENT_ID_WEB,
         redirect_uri:          REDIRECT,
         response_type:         'code',
         scope:                 DRIVE_SCOPE,
