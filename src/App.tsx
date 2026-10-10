@@ -38,10 +38,10 @@ function loadGoogleScript(): Promise<void> {
 }
 
 // ── Token exchange: auth code → tokens (APK PKCE flow) ───────────────────────
-async function exchangeCodeForTokens(code: string, verifier: string, redirectUri = 'https://paypathz.netlify.app/oauth-callback.html'): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
+async function exchangeCodeForTokens(code: string, verifier: string, redirectUri = 'https://paypathz.netlify.app/oauth-callback.html', clientId = GOOGLE_CLIENT_ID_ANDROID): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
   // DEBUG: log what we are sending (mask code/verifier)
   console.log('[OAuth] token exchange params:', {
-    client_id: GOOGLE_CLIENT_ID_WEB.slice(0,20) + '...',
+    client_id: clientId.slice(0,20) + '...',
     redirect_uri: redirectUri,
     grant_type: 'authorization_code',
     code_present: !!code && code.length > 0,
@@ -54,7 +54,7 @@ async function exchangeCodeForTokens(code: string, verifier: string, redirectUri
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       code,
-      client_id: GOOGLE_CLIENT_ID_WEB,
+      client_id: clientId,
       redirect_uri: redirectUri,
       grant_type: 'authorization_code',
       code_verifier: verifier,
@@ -2221,7 +2221,7 @@ export default function App() {
         : 'https://paypathz.netlify.app/oauth-callback.html';
 
       const params = new URLSearchParams({
-        client_id:             GOOGLE_CLIENT_ID_WEB,
+        client_id:             isCapacitor ? GOOGLE_CLIENT_ID_ANDROID : GOOGLE_CLIENT_ID_WEB,
         redirect_uri:          REDIRECT,
         response_type:         'code',
         scope:                 DRIVE_SCOPE,
@@ -2255,7 +2255,7 @@ export default function App() {
           const savedVerifier = localStorage.getItem('ft_pkce_verifier') || '';
           localStorage.removeItem('ft_pkce_verifier');
           if (!savedVerifier) throw new Error('PKCE verifier missing — tap Sign In again');
-        const tokens = await exchangeCodeForTokens(code, savedVerifier, REDIRECT);
+        const tokens = await exchangeCodeForTokens(code, savedVerifier, REDIRECT, GOOGLE_CLIENT_ID_WEB);
           storeTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
           setAccessToken(tokens.access_token);
           const user = await fetchGoogleUserInfo(tokens.access_token);
@@ -2288,7 +2288,7 @@ export default function App() {
           const savedVerifier = localStorage.getItem('ft_pkce_verifier') || '';
           localStorage.removeItem('ft_pkce_verifier');
           if (!savedVerifier) throw new Error('PKCE verifier missing — tap Sign In again');
-        const tokens = await exchangeCodeForTokens(code, savedVerifier, REDIRECT);
+        const tokens = await exchangeCodeForTokens(code, savedVerifier, REDIRECT, GOOGLE_CLIENT_ID_WEB);
           storeTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in);
           setAccessToken(tokens.access_token);
           const user = await fetchGoogleUserInfo(tokens.access_token);
@@ -2328,7 +2328,7 @@ export default function App() {
       if (bridge?.saveVerifier) bridge.saveVerifier(verifier);
       const REDIRECT = 'https://paypathz.netlify.app/oauth-callback.html';
       const params = new URLSearchParams({
-        client_id:             GOOGLE_CLIENT_ID_WEB,
+        client_id:             GOOGLE_CLIENT_ID_ANDROID,
         redirect_uri:          REDIRECT,
         response_type:         'code',
         scope:                 DRIVE_SCOPE,
