@@ -39,6 +39,16 @@ function loadGoogleScript(): Promise<void> {
 
 // ── Token exchange: auth code → tokens (APK PKCE flow) ───────────────────────
 async function exchangeCodeForTokens(code: string, verifier: string, redirectUri = 'https://paypathz.netlify.app/oauth-callback.html'): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
+  // DEBUG: log what we are sending (mask code/verifier)
+  console.log('[OAuth] token exchange params:', {
+    client_id: GOOGLE_CLIENT_ID_WEB.slice(0,20) + '...',
+    redirect_uri: redirectUri,
+    grant_type: 'authorization_code',
+    code_present: !!code && code.length > 0,
+    code_length: code.length,
+    verifier_present: !!verifier && verifier.length > 0,
+    verifier_length: verifier.length,
+  });
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -52,7 +62,9 @@ async function exchangeCodeForTokens(code: string, verifier: string, redirectUri
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(`Token exchange failed: ${err.error || res.status}`);
+    // Show full error description on screen
+    const detail = err.error_description || err.error_uri || '';
+    throw new Error(`Token exchange failed: ${err.error || res.status}${detail ? ' — ' + detail : ''}`);
   }
   return res.json();
 }
