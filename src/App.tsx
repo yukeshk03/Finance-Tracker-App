@@ -2200,6 +2200,9 @@ export default function App() {
       const verifier  = generateCodeVerifier();
       const challenge = await generateCodeChallenge(verifier);
       localStorage.setItem('ft_pkce_verifier', verifier);
+      // Also save to AndroidBridge SharedPreferences so it survives app restart
+      const bridge = (window as any).AndroidBridge;
+      if (bridge?.saveVerifier) bridge.saveVerifier(verifier);
 
       const REDIRECT = isCapacitor
         ? 'https://paypathz.netlify.app/oauth-callback.html'
@@ -2308,6 +2311,9 @@ export default function App() {
       const verifier  = generateCodeVerifier();
       const challenge = await generateCodeChallenge(verifier);
       localStorage.setItem('ft_pkce_verifier', verifier);
+      // Also save to AndroidBridge SharedPreferences so it survives app restart
+      const bridge = (window as any).AndroidBridge;
+      if (bridge?.saveVerifier) bridge.saveVerifier(verifier);
       const REDIRECT = 'https://paypathz.netlify.app/oauth-callback.html';
       const params = new URLSearchParams({
         client_id:             GOOGLE_CLIENT_ID_WEB,
@@ -2433,7 +2439,9 @@ export default function App() {
         return;
       }
       try {
-        const savedVerifier = localStorage.getItem('ft_pkce_verifier') || '';
+        // Read verifier from AndroidBridge (survives app restart) with localStorage fallback
+        const bridge2 = (window as any).AndroidBridge;
+        const savedVerifier = (bridge2?.getVerifier?.() || '') || localStorage.getItem('ft_pkce_verifier') || '';
         localStorage.removeItem('ft_pkce_verifier');
         const REDIRECT = 'https://paypathz.netlify.app/oauth-callback.html';
         if (!savedVerifier) throw new Error('PKCE verifier missing — tap Sign In again');
