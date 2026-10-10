@@ -2451,9 +2451,10 @@ export default function App() {
         return;
       }
       try {
-        // Read verifier from AndroidBridge (survives app restart) with localStorage fallback
+        // Read verifier — only call getVerifier() now that we have a code (calling it earlier wipes it)
         const bridge2 = (window as any).AndroidBridge;
-        const savedVerifier = (bridge2?.getVerifier?.() || '') || localStorage.getItem('ft_pkce_verifier') || '';
+        const bridgeVerifier = bridge2?.getVerifier ? bridge2.getVerifier() : '';
+        const savedVerifier = (bridgeVerifier && bridgeVerifier.length > 0 ? bridgeVerifier : '') || localStorage.getItem('ft_pkce_verifier') || '';
         localStorage.removeItem('ft_pkce_verifier');
         const REDIRECT = 'https://paypathz.netlify.app/oauth-callback.html';
         if (!savedVerifier) throw new Error('PKCE verifier missing — tap Sign In again');
