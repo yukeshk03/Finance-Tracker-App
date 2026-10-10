@@ -5,7 +5,7 @@
 
 // ── Google OAuth + Drive Config ───────────────────────────────────────────────
 const GOOGLE_CLIENT_ID_WEB     = '230615350507-0esfnctd66qno0fgueb8kb8m6h3vfsre.apps.googleusercontent.com';
-const GOOGLE_CLIENT_SECRET_WEB = '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';
+const TOKEN_PROXY_URL          = 'https://paypathz.netlify.app/.netlify/functions/token-exchange';
 const GOOGLE_CLIENT_ID_DESKTOP = '230615350507-l1hbat93qmutfl68oo6034hk2k9pbakg.apps.googleusercontent.com';
 const DRIVE_FILE_NAME  = 'finance-tracker-dusk.json';
 const DRIVE_SCOPE      = 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile';
@@ -38,50 +38,27 @@ function loadGoogleScript(): Promise<void> {
   });
 }
 
-// ── Token exchange: auth code → tokens (APK PKCE flow) ───────────────────────
-async function exchangeCodeForTokens(code: string, verifier: string, redirectUri = 'https://paypathz.netlify.app/oauth-callback.html', clientId = GOOGLE_CLIENT_ID_WEB): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
-  // DEBUG: log what we are sending (mask code/verifier)
-  console.log('[OAuth] token exchange params:', {
-    client_id: clientId.slice(0,20) + '...',
-    redirect_uri: redirectUri,
-    grant_type: 'authorization_code',
-    code_present: !!code && code.length > 0,
-    code_length: code.length,
-    verifier_present: !!verifier && verifier.length > 0,
-    verifier_length: verifier.length,
-  });
-  const res = await fetch('https://oauth2.googleapis.com/token', {
+// ── Token exchange via Netlify proxy (keeps client_secret off the APK) ────────
+async function exchangeCodeForTokens(code: string, verifier: string, redirectUri = 'https://paypathz.netlify.app/oauth-callback.html', _clientId = GOOGLE_CLIENT_ID_WEB): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
+  const res = await fetch(TOKEN_PROXY_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      code,
-      client_id: clientId,
-      client_secret: GOOGLE_CLIENT_SECRET_WEB,
-      redirect_uri: redirectUri,
-      grant_type: 'authorization_code',
-      code_verifier: verifier,
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, code_verifier: verifier, redirect_uri: redirectUri, grant_type: 'authorization_code' }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    // Show full error description on screen
     const detail = err.error_description || err.error_uri || '';
     throw new Error(`Token exchange failed: ${err.error || res.status}${detail ? ' — ' + detail : ''}`);
   }
   return res.json();
 }
 
-// ── Refresh access token using stored refresh token ───────────────────────────
+// ── Refresh access token via Netlify proxy ────────────────────────────────────
 async function refreshAccessToken(refreshToken: string): Promise<{ access_token: string; expires_in: number }> {
-  const res = await fetch('https://oauth2.googleapis.com/token', {
+  const res = await fetch(TOKEN_PROXY_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      refresh_token: refreshToken,
-      client_id: GOOGLE_CLIENT_ID_WEB,
-      client_secret: GOOGLE_CLIENT_SECRET_WEB,
-      grant_type: 'refresh_token',
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: refreshToken, grant_type: 'refresh_token' }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -160,7 +137,12 @@ const TOKEN_REFRESH_KEY = 'ft_refresh_token';
 function storeTokens(accessToken: string, refreshToken: string | null, expiresIn: number) {
   localStorage.setItem('ft_access_token', accessToken);
   localStorage.setItem(TOKEN_EXPIRY_KEY, String(Date.now() + (expiresIn - 60) * 1000)); // 60s buffer
-  if (refreshToken) localStorage.setItem(TOKEN_REFRESH_KEY, refreshToken);
+  if (refreshToken) {
+    localStorage.setItem(TOKEN_REFRESH_KEY, refreshToken);
+    // Also save to AndroidBridge so it survives app restart (localStorage gets wiped)
+    const bridge = (window as any).AndroidBridge;
+    if (bridge?.saveRefreshToken) bridge.saveRefreshToken(refreshToken);
+  }
 }
 
 function isTokenExpired(): boolean {
@@ -2193,9 +2175,15 @@ export default function App() {
   const getValidToken = async (): Promise<string | null> => {
     const stored = localStorage.getItem('ft_access_token');
     if (stored && !isTokenExpired()) return stored;
-    // Try refresh
-    const refreshToken = localStorage.getItem(TOKEN_REFRESH_KEY);
+    // Try refresh — check AndroidBridge first (survives app restart), then localStorage
+    const bridge = (window as any).AndroidBridge;
+    const refreshToken = localStorage.getItem(TOKEN_REFRESH_KEY)
+      || (bridge?.getRefreshToken ? bridge.getRefreshToken() : '');
     if (!refreshToken) return null;
+    // Re-store in localStorage in case it came from bridge
+    if (!localStorage.getItem(TOKEN_REFRESH_KEY) && refreshToken) {
+      localStorage.setItem(TOKEN_REFRESH_KEY, refreshToken);
+    }
     try {
       const result = await refreshAccessToken(refreshToken);
       storeTokens(result.access_token, null, result.expires_in);
